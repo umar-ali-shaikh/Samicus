@@ -2,7 +2,9 @@
 // This is the only part of the client that talks to the backend — every other screen in
 // this app is static/mock-data by design; keep it that way outside this feature.
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000/api";
+// Same-origin "/api" in production builds (server serves the built client and the API
+// from one process) — override with VITE_API_BASE_URL for a split deployment.
+const BASE_URL = import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? "http://localhost:4000/api" : "/api");
 
 async function get(path) {
   const res = await fetch(`${BASE_URL}${path}`);

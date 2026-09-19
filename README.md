@@ -32,6 +32,18 @@ npm run seed        # seed the database
 
 The client expects the server at `http://localhost:4000` and the server expects the client's origin to match `CLIENT_ORIGIN` in `server/.env` (CORS). If either dev server picks a different port because the default is already in use, update the other side to match.
 
+## Deploying (single service)
+
+Frontend and backend ship as **one process on one port** — the Express server serves the built React app as static files and the API from the same origin, so there's nothing to deploy separately and no CORS to configure in production.
+
+```bash
+npm install
+npm run build   # builds client/dist
+npm run start   # serves client/dist + the API, both on PORT (default 4000)
+```
+
+Point your host's build command at `npm install && npm run build` and its start command at `npm run start`, with `server/.env` variables (see below) set in the platform's environment config. The client's API calls automatically switch to same-origin `/api` in production builds (`import.meta.env.DEV` is false) — no `VITE_API_BASE_URL` needed unless you deliberately split the frontend onto a different host from the API.
+
 ## Environment variables
 
 Set in `server/.env` (never commit this file — it's git-ignored):

@@ -1,3 +1,5 @@
+import path from "path";
+import { fileURLToPath } from "url";
 import express from "express";
 import cors from "cors";
 import morgan from "morgan";
@@ -23,6 +25,9 @@ import founderRoutes from "./routes/founder.js";
 import privacyRoutes from "./routes/privacy.js";
 import indianKanoonRoutes from "./routes/indianKanoon.js";
 import legalAssistantRoutes from "./routes/legalAssistant.js";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const CLIENT_DIST = path.join(__dirname, "../../client/dist");
 
 export function createApp() {
   const app = express();
@@ -56,6 +61,16 @@ export function createApp() {
   api.use(founderRoutes);
   api.use(privacyRoutes);
   app.use("/api", api);
+
+  // Serves the built client (client/dist) so frontend + backend deploy as one
+  // process/origin. No-ops harmlessly if the client hasn't been built (dist missing) —
+  // API-only dev (client run separately via `npm run dev -w client`) still works.
+  app.use(express.static(CLIENT_DIST));
+  app.get(/^\/(?!api\/).*/, (req, res, next) => {
+    res.sendFile(path.join(CLIENT_DIST, "index.html"), (err) => {
+      if (err) next();
+    });
+  });
 
   app.use((req, res) => res.status(404).json({ error: "Not found" }));
 
