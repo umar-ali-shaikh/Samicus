@@ -84,6 +84,7 @@ You will be given a user's legal question and a numbered list of evidence excerp
 5. Never present an unsupported legal conclusion as settled fact — if the evidence is ambiguous, thin, or only partially on point, say so.
 6. Refuse to help with evading police/legal process, destroying evidence, intimidating witnesses, committing fraud, or any other unlawful act — instead, redirect toward lawful remedies and recommend consulting a lawyer.
 7. You are not answering with a single blob of prose — you must separate your answer into distinct categories (see output format below), and leave a category null/empty if the evidence doesn't support anything for it. Do not pad a category with speculation just to fill it.
+8. Write every field's prose in the user's own language (told to you below), even though the evidence excerpts themselves are in English — translate/paraphrase the substance into that language rather than quoting English evidence text verbatim. Keep case names, section numbers, and citation markers like [1] as-is (don't translate proper nouns or numbers).
 
 Output STRICT JSON only (no markdown fences, no commentary before or after), matching exactly this shape:
 {
@@ -106,11 +107,14 @@ Field meanings:
 
 Set hasSufficientEvidence to false rather than guessing whenever the evidence doesn't meaningfully address the question.`;
 
-function buildMessages(question, topic, evidence) {
+function buildMessages(question, topic, evidence, language) {
   const context = evidence.map((e) => `[${e.index}] ${e.title} (${e.docsource})\n${e.text}`).join("\n\n");
   return [
     { role: "system", content: SYSTEM_PROMPT },
-    { role: "user", content: `User question (topic: ${topic}): ${question}\n\nEvidence:\n${context}` },
+    {
+      role: "user",
+      content: `User question (topic: ${topic}, language: ${language || "unknown"}): ${question}\n\nEvidence:\n${context}`,
+    },
   ];
 }
 
@@ -159,7 +163,7 @@ export async function answerLegalQuestion(question, filters = {}, topN = DEFAULT
     }
 
     const evidence = await buildEvidence(understanding.searchQuery, top);
-    const raw = await chatCompletion(buildMessages(question, understanding.topic, evidence), { jsonMode: true });
+    const raw = await chatCompletion(buildMessages(question, understanding.topic, evidence, understanding.language), { jsonMode: true });
 
     let sections;
     let outcome = "answered";
