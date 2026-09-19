@@ -17,60 +17,73 @@ const EXAMPLE_PROMPTS = [
 ];
 
 const SECTION_META = [
-  { key: "statute", label: { en: "Law / statute", hi: "कानून / धारा" }, tone: "info" },
-  { key: "judgments", label: { en: "Court judgment(s)", hi: "न्यायालय के निर्णय" }, tone: "neutral" },
-  { key: "interpretation", label: { en: "Legal interpretation", hi: "कानूनी व्याख्या" }, tone: "warning" },
-  { key: "generalInformation", label: { en: "General information", hi: "सामान्य जानकारी" }, tone: "neutral" },
-  { key: "practicalNextSteps", label: { en: "Practical next steps", hi: "व्यावहारिक अगले कदम" }, tone: "success" },
+  { key: "statute", label: { en: "Law / statute", hi: "कानून / धारा", hinglish: "Kanoon / Dhara" }, tone: "info" },
+  { key: "judgments", label: { en: "Court judgment(s)", hi: "न्यायालय के निर्णय", hinglish: "Adalat ke faisle" }, tone: "neutral" },
+  { key: "interpretation", label: { en: "Legal interpretation", hi: "कानूनी व्याख्या", hinglish: "Kanooni vyakhya" }, tone: "warning" },
+  { key: "generalInformation", label: { en: "General information", hi: "सामान्य जानकारी", hinglish: "Samanya jaankari" }, tone: "neutral" },
+  { key: "practicalNextSteps", label: { en: "Practical next steps", hi: "व्यावहारिक अगले कदम", hinglish: "Vyavaharik agle kadam" }, tone: "success" },
 ];
 
 // Fixed (non-LLM) UI strings, translated once and reviewed — never machine-translated
 // per-request. Mirrors the server's own policy for the disclaimer/emergency text
 // (see legalAssistant.js): safety-critical copy must never depend on a model call.
+//
+// "hindi" and "hinglish" are two DIFFERENT scripts, not interchangeable: hindi is
+// Devanagari (हिंदी), hinglish is Hindi meaning transliterated strictly into Roman/
+// English letters (no Devanagari characters at all). A Hinglish-speaking user reads
+// Roman letters, not Devanagari — mixing the two mid-answer (e.g. Devanagari headings
+// over Romanized body text) is exactly the bug this three-way split fixes.
 const UI_STRINGS = {
-  timeSensitive: { en: "Time-sensitive", hi: "समय-संवेदनशील" },
-  insufficientSources: { en: "Insufficient sources", hi: "अपर्याप्त स्रोत" },
+  timeSensitive: { en: "Time-sensitive", hi: "समय-संवेदनशील", hinglish: "Samay-sanvedansheel" },
+  insufficientSources: { en: "Insufficient sources", hi: "अपर्याप्त स्रोत", hinglish: "Paryapt sources nahi mile" },
   unparsedWarning: {
     en: "The assistant's response couldn't be split into structured sections — shown below as general information.",
     hi: "सहायक की प्रतिक्रिया को संरचित अनुभागों में विभाजित नहीं किया जा सका — इसे नीचे सामान्य जानकारी के रूप में दिखाया गया है।",
+    hinglish: "Assistant ka jawab structured sections mein nahi baant paya — isliye neeche general information ke roop mein dikhaya gaya hai.",
   },
-  sources: { en: "Sources", hi: "स्रोत" },
+  sources: { en: "Sources", hi: "स्रोत", hinglish: "Sources" },
   disclaimer: {
     en: "This is general legal information for education and research purposes, generated only from the Indian Kanoon sources listed below — it is not legal advice from a lawyer, it does not create a lawyer-client relationship, and it cannot guarantee any outcome. For anything serious, urgent, criminal, financial, family, property, or litigation-related, please consult a qualified Indian lawyer.",
     hi: "यह सामान्य कानूनी जानकारी केवल शिक्षा और अनुसंधान के उद्देश्य से दी गई है, और नीचे सूचीबद्ध Indian Kanoon स्रोतों पर आधारित है — यह किसी वकील की कानूनी सलाह नहीं है, इससे वकील-मुवक्किल संबंध स्थापित नहीं होता, और यह किसी परिणाम की गारंटी नहीं देती। किसी भी गंभीर, तत्काल, आपराधिक, वित्तीय, पारिवारिक, संपत्ति संबंधी, या मुकदमेबाज़ी से जुड़े मामले के लिए कृपया किसी योग्य भारतीय वकील से सलाह लें।",
+    hinglish: "Yeh sirf general legal jaankari hai, sirf education aur research ke maksad se, aur neeche diye gaye Indian Kanoon sources par based hai — yeh kisi vakil ki legal advice nahi hai, isse vakil-client relationship nahi banta, aur yeh kisi outcome ki guarantee nahi deta. Kisi bhi serious, urgent, criminal, financial, family, property, ya litigation se judi baat ke liye kripya ek qualified Indian vakil se salah lein.",
   },
   emergencyMessage: {
     en: "This looks like it may be a time-sensitive or urgent situation (for example: an arrest, being in custody, an FIR just filed, an immediate threat, or a court deadline in the next day or two). Please contact a qualified lawyer, a legal aid service, or the relevant authority (police / court) immediately — do not rely only on this tool.",
     hi: "यह मामला समय-संवेदनशील या तत्काल स्थिति जैसा लग रहा है (उदाहरण के लिए: गिरफ़्तारी, हिरासत में होना, अभी-अभी दर्ज हुई FIR, तत्काल ख़तरा, या अगले एक-दो दिन में अदालत की समय-सीमा)। कृपया तुरंत किसी योग्य वकील, कानूनी सहायता सेवा, या संबंधित प्राधिकरण (पुलिस/अदालत) से संपर्क करें — केवल इस टूल पर निर्भर न रहें।",
+    hinglish: "Yeh mamla samay-sanvedansheel ya turant wali situation jaisa lag raha hai (jaise: giraftari, hiraasat mein hona, abhi-abhi darj hui FIR, turant khatra, ya agle ek-do din mein court ki deadline). Kripya turant kisi qualified vakil, legal aid service, ya sambandhit pradhikaran (police/court) se sampark karein — sirf is tool par bharosa na karein.",
   },
 };
 
-function isHindi(result) {
+// Three-way script selector — must match legalAssistant.js's SYSTEM_PROMPT contract
+// exactly: "hindi" -> Devanagari, "hinglish" -> Roman letters, else -> English.
+function pickScript(result) {
   const lang = (result?.understanding?.language || "").toLowerCase();
-  return lang === "hindi" || lang === "hinglish";
+  if (lang === "hindi") return "hi";
+  if (lang === "hinglish") return "hinglish";
+  return "en";
 }
 
-function t(strings, hindi) {
-  return hindi ? strings.hi : strings.en;
+function t(strings, script) {
+  return strings[script] || strings.en;
 }
 
 function AnswerCard({ turn }) {
   const { result } = turn;
   if (!result) return null;
 
-  const hindi = isHindi(result);
-  const emergencyMessage = result.emergency?.flag ? t(UI_STRINGS.emergencyMessage, hindi) : null;
-  const disclaimer = t(UI_STRINGS.disclaimer, hindi);
+  const script = pickScript(result);
+  const emergencyMessage = result.emergency?.flag ? t(UI_STRINGS.emergencyMessage, script) : null;
+  const disclaimer = t(UI_STRINGS.disclaimer, script);
 
   if (result.outcome === "no_evidence") {
     return (
       <Card>
         {result.emergency?.flag && (
-          <Callout tone="danger" title={t(UI_STRINGS.timeSensitive, hindi)} style={{ marginBottom: 12 }}>
+          <Callout tone="danger" title={t(UI_STRINGS.timeSensitive, script)} style={{ marginBottom: 12 }}>
             {emergencyMessage}
           </Callout>
         )}
-        <EmptyState title={t(UI_STRINGS.insufficientSources, hindi)} body={result.sections.insufficiencyNote} />
+        <EmptyState title={t(UI_STRINGS.insufficientSources, script)} body={result.sections.insufficiencyNote} />
         <Callout tone="neutral" style={{ marginTop: 12 }}>{disclaimer}</Callout>
       </Card>
     );
@@ -81,14 +94,14 @@ function AnswerCard({ turn }) {
   return (
     <Card>
       {result.emergency?.flag && (
-        <Callout tone="danger" title={t(UI_STRINGS.timeSensitive, hindi)} style={{ marginBottom: 12 }}>
+        <Callout tone="danger" title={t(UI_STRINGS.timeSensitive, script)} style={{ marginBottom: 12 }}>
           {emergencyMessage}
         </Callout>
       )}
 
       {result.outcome === "unparsed" && (
         <Callout tone="warning" style={{ marginBottom: 12 }}>
-          {t(UI_STRINGS.unparsedWarning, hindi)}
+          {t(UI_STRINGS.unparsedWarning, script)}
         </Callout>
       )}
 
@@ -99,7 +112,7 @@ function AnswerCard({ turn }) {
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         {sections.map((s) => (
           <div key={s.key}>
-            <Badge tone={s.tone}>{t(s.label, hindi)}</Badge>
+            <Badge tone={s.tone}>{t(s.label, script)}</Badge>
             <div style={{ fontSize: 13.5, lineHeight: 1.6, marginTop: 6, whiteSpace: "pre-wrap" }}>{result.sections[s.key]}</div>
           </div>
         ))}
@@ -107,7 +120,7 @@ function AnswerCard({ turn }) {
 
       {result.sources?.length > 0 && (
         <div style={{ marginTop: 14 }}>
-          <div style={{ fontWeight: 700, fontSize: 12, marginBottom: 6 }}>{t(UI_STRINGS.sources, hindi)}</div>
+          <div style={{ fontWeight: 700, fontSize: 12, marginBottom: 6 }}>{t(UI_STRINGS.sources, script)}</div>
           <ol style={{ fontSize: 12, color: "var(--color-text-muted)", paddingLeft: 18 }}>
             {result.sources.map((s, i) => (
               <li key={s.tid} style={{ marginBottom: 3 }}>
