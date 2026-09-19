@@ -54,7 +54,11 @@ function buildMessages(question) {
         "Field rules:\n" +
         "- searchQuery: a concise (3-10 word) English keyword phrase capturing the legal issue, suitable for a full-text case-law search engine. Translate/transliterate Hindi terms to their English legal equivalent (e.g. \"security deposit vapas nahi mila\" -> \"landlord security deposit not returned tenant remedy\"). Do not phrase it as a question.\n" +
         "- topic: a short label for the area of law (e.g. \"tenancy\", \"criminal procedure - arrest\", \"cheque bounce / Section 138 NI Act\", \"employment termination\").\n" +
-        "- language: the predominant language of the user's question (e.g. \"english\", \"hindi\", \"hinglish\").\n" +
+        "- language: the SCRIPT the user actually typed in, not just the vocabulary — this drives what script the final answer is written in, so get it right:\n" +
+        "  * \"hindi\" — written in Devanagari script (हिंदी में लिखा गया), e.g. \"मुझे गिरफ़्तार कर लिया गया, अब क्या करूं?\"\n" +
+        "  * \"hinglish\" — Hindi words/grammar (or a Hindi-English code-mix) written in Roman/Latin letters, e.g. \"mujhe arrest kar liya, ab kya karu?\" or \"mera FIR ho gaya hai\". This is the common case for Hindi speakers typing on an English keyboard — do NOT label it \"hindi\" just because the words are Hindi; Roman letters means \"hinglish\".\n" +
+        "  * \"english\" — predominantly English.\n" +
+        "  Judge by the actual characters typed (Devanagari vs Roman), never guess Devanagari from Romanized text.\n" +
         "- isEmergency: true only if the question describes something time-sensitive or dangerous right now — an arrest, in-custody situation, an FIR just filed against the user, immediate threat of violence, a court deadline in the next day or two, or similar. Ordinary questions about rights, procedures, or past events are NOT emergencies.\n" +
         "- emergencyReason: a short phrase explaining why, or null if isEmergency is false.",
     },
