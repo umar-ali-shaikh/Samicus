@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.env
+*.log
+
+# Original design mockups (reference only, not app source)
+original-design/
+
+# Editor / OS
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store

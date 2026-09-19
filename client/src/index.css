@@ -1,0 +1,18 @@
+* { box-sizing: border-box; }
+
+html, body, #root { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--color-rust); text-decoration: underline; text-underline-offset: 3px; }
+a:hover { color: var(--color-rust-hover); }
+
+button, input, select, textarea { font-family: inherit; }
+
+::selection { background: var(--color-gold); color: var(--color-navy); }

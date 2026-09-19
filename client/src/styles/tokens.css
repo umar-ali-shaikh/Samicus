@@ -1,0 +1,36 @@
+:root {
+  /* Surface */
+  --color-bg: #EFEAE0;
+  --color-surface: #F6F1E8;
+  --color-surface-alt: #FBF8F2;
+  --color-border: #E4DCCE;
+  --color-white: #ffffff;
+
+  /* Ink */
+  --color-navy: #101A2C;
+  --color-navy-2: #0B1220;
+  --color-ink: #1B2333;
+  --color-text: #3D4657;
+  --color-text-muted: #5C6577;
+  --color-label: #8A8578;
+  --color-label-2: #8A94A8;
+
+  /* Accent */
+  --color-gold: #E8B356;
+  --color-gold-dark: #B8863B;
+  --color-rust: #B23A22;
+  --color-rust-hover: #8E2C18;
+  --color-rust-alt: #DB4F35;
+  --color-purple: #4B3F86;
+  --color-purple-hover: #2A2352;
+
+  /* Fonts */
+  --font-serif: 'Newsreader', Georgia, serif;
+  --font-sans: 'Public Sans', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', 'JetBrains Mono', monospace;
+
+  --radius-sm: 7px;
+  --radius-md: 11px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+}
