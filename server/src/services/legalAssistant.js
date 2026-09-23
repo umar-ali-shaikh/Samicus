@@ -2,7 +2,8 @@
 //
 //   question -> understandQuery (Hinglish/English -> search query + emergency flag)
 //            -> Indian Kanoon search
-//            -> docfragment per top hit (targeted snippets, not just the search headline)
+//            -> full document text per top hit (docfragment snippet as a fallback if
+//               the full-document fetch fails or comes back empty)
 //            -> build a numbered evidence context
 //            -> OpenRouter, grounded strictly in that evidence, structured JSON output
 //            -> answer + citations + a fixed (non-LLM-generated) disclaimer/emergency banner
@@ -11,7 +12,7 @@
 // good at reasoning over evidence, but the safety-critical "this is not legal advice" /
 // "this looks urgent, call a lawyer now" framing must never depend on the model choosing
 // to say it.
-import { search, getFragment } from "./indianKanoon.js";
+import { search, getDocument, getFragment } from "./indianKanoon.js";
 import { understandQuery } from "./legalQueryUnderstanding.js";
 import { chatCompletion, OpenRouterAuthError, OpenRouterApiError } from "./openRouter.js";
 import { createCache } from "../utils/cache.js";
@@ -46,22 +47,35 @@ function docUrl(tid) {
   return `https://indiankanoon.org/doc/${tid}/`;
 }
 
-// Fetches a targeted snippet (docfragment) per top search hit so the model gets text
-// actually relevant to the distilled query, not just whatever the search API's own
-// headline happened to highlight. Falls back to the search headline per-doc on failure
-// so one bad fragment call can't sink the whole request.
+// Caps how much of one document's full text goes into the evidence context — full
+// judgments can run tens of thousands of words, and this pipeline sends up to
+// DEFAULT_TOP_N documents in a single prompt to free-tier models with limited context
+// windows. ~3000 chars (~750 tokens) per source keeps a 5-source bundle affordable.
+const DOC_TEXT_CHAR_LIMIT = 3000;
+
+// Fetches the full document text per top search hit (grounds the model in the actual
+// statute/judgment, not just a search headline) and falls back to a targeted snippet
+// (docfragment) — then the raw search headline — if the full-document fetch fails or
+// comes back empty, so one bad Indian Kanoon call can't sink the whole request.
+async function fetchEvidenceText(d, distilledQuery) {
+  try {
+    const full = await getDocument(d.tid);
+    const text = stripHtml(full.doc);
+    if (text) return text.slice(0, DOC_TEXT_CHAR_LIMIT);
+  } catch {
+    // fall through to the cheaper fragment call below
+  }
+  try {
+    const frag = await getFragment(d.tid, distilledQuery);
+    const text = frag.headline || (Array.isArray(frag.headlines) ? frag.headlines.join(" … ") : "");
+    return stripHtml(text) || d.headline;
+  } catch {
+    return d.headline;
+  }
+}
+
 async function buildEvidence(distilledQuery, docs) {
-  const fragments = await Promise.all(
-    docs.map(async (d) => {
-      try {
-        const frag = await getFragment(d.tid, distilledQuery);
-        const text = frag.headline || (Array.isArray(frag.headlines) ? frag.headlines.join(" … ") : "");
-        return text || d.headline;
-      } catch {
-        return d.headline;
-      }
-    })
-  );
+  const texts = await Promise.all(docs.map((d) => fetchEvidenceText(d, distilledQuery)));
 
   return docs.map((d, i) => ({
     index: i + 1,
@@ -69,7 +83,7 @@ async function buildEvidence(distilledQuery, docs) {
     title: d.title,
     docsource: d.docsource,
     url: docUrl(d.tid),
-    text: stripHtml(fragments[i]),
+    text: texts[i],
   }));
 }
 
@@ -84,12 +98,15 @@ You will be given a user's legal question and a numbered list of evidence excerp
 5. Never present an unsupported legal conclusion as settled fact — if the evidence is ambiguous, thin, or only partially on point, say so.
 6. Refuse to help with evading police/legal process, destroying evidence, intimidating witnesses, committing fraud, or any other unlawful act — instead, redirect toward lawful remedies and recommend consulting a lawyer.
 7. You are not answering with a single blob of prose — you must separate your answer into distinct categories (see output format below), and leave a category null/empty if the evidence doesn't support anything for it. Do not pad a category with speculation just to fill it.
-8. Write every field's prose in the user's own language AND SCRIPT (told to you below as "language"), even though the evidence excerpts themselves are in English — translate/paraphrase the substance rather than quoting English evidence text verbatim. Keep case names, section numbers, and citation markers like [1] as-is (don't translate proper nouns or numbers). The language value tells you the exact script to use, and script compliance is STRICT — never mix scripts within a single field or across fields:
-   - "hindi" -> write in Devanagari script (हिंदी में) ONLY. Not Romanized, not mixed with Latin letters (except case names, section numbers, [n] citation markers, and untranslatable English legal terms like "FIR").
+8. Write every field's prose in the user's own language AND SCRIPT (told to you below as "language"), even though the evidence excerpts themselves are in English — translate/paraphrase the substance rather than quoting English evidence text verbatim. Keep case names, section numbers, and citation markers like [1] as-is (don't translate proper nouns or numbers). The language value tells you the exact language and script to use, and compliance is STRICT — never mix languages or scripts within a single field or across fields:
+   - "hindi" -> write in Hindi, Devanagari script (हिंदी में) ONLY. Not Romanized, not mixed with Latin letters (except case names, section numbers, [n] citation markers, and untranslatable English legal terms like "FIR").
+   - "marathi" -> write in Marathi, Devanagari script (मराठीत) ONLY — Marathi vocabulary/grammar, not Hindi. Not Romanized, not mixed with Latin letters (except case names, section numbers, [n] citation markers, and untranslatable English legal terms like "FIR").
+   - "urdu" -> write in Urdu, Perso-Arabic (Nastaliq) script (اردو میں) ONLY. Not Romanized, not Devanagari.
    - "hinglish" -> write the Hindi meaning strictly in Roman/English letters (Latin script) ONLY, e.g. "aapko turant vakil se milna chahiye" — the Devanagari script (देवनागरी) is FORBIDDEN for this value, including for single words or headings. Do not slip into Devanagari even briefly. A Hinglish-speaking user reads Roman letters only.
+   - "marathlish" -> write the Marathi meaning strictly in Roman/English letters (Latin script) ONLY, e.g. "tumhi lagech vakilana bhetla pahije" — Marathi vocabulary/grammar in Latin script, not Hindi's. The Devanagari script (देवनागरी) is FORBIDDEN for this value, including for single words or headings.
    - "english" -> write in English.
    - "unknown" -> default to English.
-   Before finalizing each field, re-check every character against this rule — a field is non-compliant if it contains even one Devanagari character while language is "hinglish", or any Romanized Hindi sentence while language is "hindi".
+   Before finalizing each field, re-check every character against this rule — a field is non-compliant if it contains even one Devanagari character while language is "hinglish" or "marathlish", any Romanized sentence while language is "hindi"/"marathi"/"urdu", Hindi vocabulary while language is "marathi"/"marathlish", or any Devanagari/Latin character while language is "urdu".
 
 Output STRICT JSON only (no markdown fences, no commentary before or after), matching exactly this shape:
 {

@@ -53,8 +53,15 @@ const SECTIONS_JSON = JSON.stringify({
 });
 
 // Dispatches mocked fetch calls by host: OpenRouter is called twice (understanding, then
-// generation), Indian Kanoon's /search/ and /docfragment/ once each per doc.
-function routedFetch({ understanding = UNDERSTANDING_JSON, generation = SECTIONS_JSON, docs, fragmentText = "<b>deposit</b> clause" } = {}) {
+// generation), Indian Kanoon's /search/ and /doc/ once each per doc. /docfragment/ is
+// only hit when a test omits docText to simulate the full-document fetch failing.
+function routedFetch({
+  understanding = UNDERSTANDING_JSON,
+  generation = SECTIONS_JSON,
+  docs,
+  docText = "<p>The <b>deposit</b> clause requires the landlord to return it within 30 days.</p>",
+  fragmentText = "<b>deposit</b> clause",
+} = {}) {
   let orCalls = 0;
   const seen = [];
   return async (url) => {
@@ -66,6 +73,10 @@ function routedFetch({ understanding = UNDERSTANDING_JSON, generation = SECTIONS
     if (String(url).includes("/search/")) {
       return jsonResponse(200, { found: docs.length, docs, categories: [] });
     }
+    if (String(url).includes("/doc/")) {
+      if (docText === null) return jsonResponse(404, { error: "doc not found" }); // 4xx: no retry, fails fast
+      return jsonResponse(200, { doc: docText, title: "X vs Y", citeList: [], citedbyList: [] });
+    }
     if (String(url).includes("/docfragment/")) {
       return jsonResponse(200, { headline: fragmentText });
     }
@@ -75,7 +86,7 @@ function routedFetch({ understanding = UNDERSTANDING_JSON, generation = SECTIONS
 
 const SAMPLE_DOC = { tid: 555, title: "X vs Y (Tenancy)", headline: "deposit dispute", docsource: "Delhi High Court", docsize: 5 };
 
-test("answerLegalQuestion() runs understand -> search -> fragment -> generate and returns structured sections", async (t) => {
+test("answerLegalQuestion() runs understand -> search -> full document -> generate and returns structured sections", async (t) => {
   t.mock.method(globalThis, "fetch", routedFetch({ docs: [SAMPLE_DOC] }));
 
   const result = await answerLegalQuestion("Mere landlord ne security deposit return nahi kiya, kya kar sakta hoon?");
@@ -88,6 +99,15 @@ test("answerLegalQuestion() runs understand -> search -> fragment -> generate an
   assert.equal(result.sources.length, 1);
   assert.equal(result.sources[0].url, "https://indiankanoon.org/doc/555/");
   assert.equal(result.disclaimer, DISCLAIMER);
+});
+
+test("answerLegalQuestion() falls back to the docfragment snippet when the full-document fetch fails", async (t) => {
+  t.mock.method(globalThis, "fetch", routedFetch({ docs: [SAMPLE_DOC], docText: null }));
+
+  const result = await answerLegalQuestion("Mere landlord ne security deposit return nahi kiya, kya kar sakta hoon?");
+
+  assert.equal(result.outcome, "answered");
+  assert.equal(result.sources.length, 1); // evidence still built via the fragment fallback, not dropped
 });
 
 test("answerLegalQuestion() short-circuits to no_evidence when search finds nothing, without a generation call", async (t) => {
