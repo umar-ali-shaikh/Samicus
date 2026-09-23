@@ -150,6 +150,165 @@ test("answerLegalQuestion() falls back to raw text when the model doesn't return
   assert.equal(result.rawAnswer, "This is not JSON, just prose with a [1] citation.");
 });
 
+test("answerLegalQuestion() recovers a JSON object wrapped in commentary text", async (t) => {
+  const wrapped = `Sure, here's the answer:\n${SECTIONS_JSON}\nLet me know if you need more.`;
+  t.mock.method(globalThis, "fetch", routedFetch({ generation: wrapped, docs: [SAMPLE_DOC] }));
+
+  const result = await answerLegalQuestion("Section 138 NI Act ka kya meaning hai?");
+
+  assert.equal(result.outcome, "answered");
+  assert.match(result.sections.statute, /\[1\]/);
+});
+
+test("answerLegalQuestion() treats syntactically-valid but wrong-shaped JSON as unparsed", async (t) => {
+  const wrongShape = JSON.stringify({ hasSufficientEvidence: "true", statute: 42 }); // wrong types, not the six-field contract
+  t.mock.method(globalThis, "fetch", routedFetch({ generation: wrongShape, docs: [SAMPLE_DOC] }));
+
+  const result = await answerLegalQuestion("Section 138 NI Act ka kya meaning hai?");
+
+  assert.equal(result.outcome, "unparsed");
+  assert.equal(result.rawAnswer, wrongShape);
+});
+
+test("answerLegalQuestion() salvages individually well-formed fields from an object broken by one stray character", async (t) => {
+  // Reproduces a real production case: a stray ':' right after the opening brace
+  // ({":hasSufficientEvidence":false, ...) breaks JSON.parse on the whole object even
+  // though every individual "field":"value" pair is well-formed.
+  const glitched =
+    '{":hasSufficientEvidence":false, "statute":null, ' +
+    '"judgments":"Evidence [1] discusses a related order.", ' +
+    '"interpretation":null, "generalInformation":null, ' +
+    '"practicalNextSteps":"Turant ek qualified Indian lawyer se consult karein.", ' +
+    '"insufficiencyNote":"Evidence FIR ke baad ke steps par direct jawab nahi deta."}';
+  t.mock.method(globalThis, "fetch", routedFetch({ generation: glitched, docs: [SAMPLE_DOC] }));
+
+  const result = await answerLegalQuestion("Mujhe FIR ho gayi hai, ab kya karu?");
+
+  assert.equal(result.outcome, "answered"); // recovered cleanly, not dumped as unparsed
+  assert.equal(result.sections.hasSufficientEvidence, false);
+  assert.match(result.sections.judgments, /related order/);
+  assert.match(result.sections.practicalNextSteps, /qualified Indian lawyer/);
+  assert.match(result.sections.insufficiencyNote, /direct jawab nahi deta/);
+  // Never leak the raw curly-brace/JSON text into a user-facing field.
+  for (const value of Object.values(result.sections)) {
+    if (typeof value === "string") assert.ok(!value.includes("{"), `field leaked raw JSON: ${value}`);
+  }
+});
+
+test("answerLegalQuestion() suppresses raw JSON-looking text instead of showing it when nothing can be salvaged", async (t) => {
+  const unsalvageable = '{":totally broken, no recognizable fields at all';
+  t.mock.method(globalThis, "fetch", routedFetch({ generation: unsalvageable, docs: [SAMPLE_DOC] }));
+
+  const result = await answerLegalQuestion("Section 138 NI Act ka kya meaning hai?");
+
+  assert.equal(result.outcome, "unparsed");
+  assert.equal(result.sections.generalInformation, null); // not the raw '{...' text
+  assert.equal(result.rawAnswer, unsalvageable); // still preserved for debugging/API consumers
+});
+
+test("answerLegalQuestion() prioritizes doctypes:laws hits (bare acts) ahead of general case-law hits", async (t) => {
+  const FIR_UNDERSTANDING = JSON.stringify({
+    searchQuery: "FIR police procedure rights",
+    topic: "criminal procedure",
+    language: "hinglish",
+    isEmergency: false,
+    emergencyReason: null,
+  });
+  const CASE_DOC = { tid: 111, title: "Karan vs State", headline: "FIR mentioned", docsource: "Punjab-Haryana High Court", docsize: 3 };
+  const LAW_DOC = { tid: 222, title: "The Code Of Criminal Procedure, 1973 Section 154", headline: "FIR procedure", docsource: "Central Government Act", docsize: 1 };
+  let orCalls = 0;
+  t.mock.method(globalThis, "fetch", async (url) => {
+    const u = String(url);
+    if (u.startsWith("https://openrouter.ai")) {
+      orCalls += 1;
+      return llmMessage(orCalls === 1 ? FIR_UNDERSTANDING : SECTIONS_JSON);
+    }
+    if (u.includes("/search/")) {
+      const isLawsSearch = decodeURIComponent(u).includes("doctypes:laws");
+      return jsonResponse(200, { found: 1, docs: isLawsSearch ? [LAW_DOC] : [CASE_DOC], categories: [] });
+    }
+    if (u.includes("/doc/")) return jsonResponse(200, { doc: "<p>Statute or judgment text.</p>", title: "x", citeList: [], citedbyList: [] });
+    throw new Error(`Unexpected fetch to ${u}`);
+  });
+
+  const result = await answerLegalQuestion("Mujhe FIR ho gayi hai, ab kya karu?");
+
+  assert.equal(result.sources.length, 2);
+  assert.equal(result.sources[0].tid, 222); // the statute hit leads
+  assert.equal(result.sources[1].tid, 111);
+});
+
+test("answerLegalQuestion() drops candidates with zero relevance to the query instead of padding evidence", async (t) => {
+  // Mirrors a real production case: an FIR question where doctypes:laws only had
+  // completely unrelated Acts on offer (no shared vocabulary at all) — the old
+  // behavior force-included them anyway just to fill LAWS_TOP_N/topN slots.
+  const FIR_UNDERSTANDING = JSON.stringify({
+    searchQuery: "FIR registration police procedure next steps",
+    topic: "criminal procedure",
+    language: "hinglish",
+    isEmergency: false,
+    emergencyReason: null,
+  });
+  const UNRELATED_LAW = { tid: 401, title: "Kerala Municipality Act, 1994", headline: "municipal governance taxation provisions", docsource: "State of Kerala - Act", docsize: 6 };
+  const RELEVANT_CASE = { tid: 402, title: "Tej Kishan Sadhu vs State", headline: "FIR registration procedure quashing", docsource: "Delhi High Court", docsize: 2 };
+  let orCalls = 0;
+  t.mock.method(globalThis, "fetch", async (url) => {
+    const u = String(url);
+    if (u.startsWith("https://openrouter.ai")) {
+      orCalls += 1;
+      return llmMessage(orCalls === 1 ? FIR_UNDERSTANDING : SECTIONS_JSON);
+    }
+    if (u.includes("/search/")) {
+      const isLawsSearch = decodeURIComponent(u).includes("doctypes:laws");
+      return jsonResponse(200, { found: 1, docs: isLawsSearch ? [UNRELATED_LAW] : [RELEVANT_CASE], categories: [] });
+    }
+    if (u.includes("/doc/")) return jsonResponse(200, { doc: "<p>text</p>", title: "x", citeList: [], citedbyList: [] });
+    throw new Error(`Unexpected fetch to ${u}`);
+  });
+
+  const result = await answerLegalQuestion("Mujhe FIR ho gayi hai, ab kya karu?");
+
+  assert.equal(result.sources.length, 1); // the unrelated Municipality Act was dropped, not force-included
+  assert.equal(result.sources[0].tid, 402);
+});
+
+test("answerLegalQuestion() re-ranks general candidates by relevance, not just Indian Kanoon's raw order", async (t) => {
+  // A/B share one weak, generic term ("remedy") with the query so they survive the
+  // relevance filter (this test is about ordering, not filtering — see the dedicated
+  // "drops candidates with zero relevance" test above for the filtering behavior).
+  const IRRELEVANT_A = { tid: 301, title: "Random Tax Dispute vs Commissioner", headline: "income tax assessment appeal remedy sought", docsource: "ITAT", docsize: 4 };
+  const RELEVANT = { tid: 302, title: "Sharma vs Landlord Tenant Deposit Case", headline: "landlord security deposit not returned tenant remedy compensation", docsource: "Delhi High Court", docsize: 2 };
+  const IRRELEVANT_B = { tid: 303, title: "Random Motor Accident Claim", headline: "vehicle accident compensation tribunal remedy claim", docsource: "MACT", docsize: 3 };
+  let orCalls = 0;
+
+  t.mock.method(globalThis, "fetch", async (url) => {
+    const u = String(url);
+    if (u.startsWith("https://openrouter.ai")) {
+      orCalls += 1;
+      return llmMessage(orCalls === 1 ? UNDERSTANDING_JSON : SECTIONS_JSON);
+    }
+    if (u.includes("/search/")) {
+      const isLawsSearch = decodeURIComponent(u).includes("doctypes:laws");
+      return jsonResponse(200, {
+        found: isLawsSearch ? 0 : 3,
+        docs: isLawsSearch ? [] : [IRRELEVANT_A, RELEVANT, IRRELEVANT_B],
+        categories: [],
+      });
+    }
+    if (u.includes("/doc/")) return jsonResponse(200, { doc: "<p>text</p>", title: "x", citeList: [], citedbyList: [] });
+    throw new Error(`Unexpected fetch to ${u}`);
+  });
+
+  // IK's raw order is [IRRELEVANT_A, RELEVANT, IRRELEVANT_B] — a naive first-N slice
+  // would pick IRRELEVANT_A over RELEVANT. TF-IDF re-ranking (docText vs the distilled
+  // searchQuery, "landlord security deposit not returned tenant remedy") should promote
+  // the actually-relevant hit instead.
+  const result = await answerLegalQuestion("Mere landlord ne security deposit return nahi kiya, kya kar sakta hoon?", {}, 2);
+
+  assert.equal(result.sources.length, 2);
+  assert.equal(result.sources[0].tid, 302);
+});
+
 test("answerLegalQuestion() caches identical question+filters — no repeat fetch calls", async (t) => {
   let calls = 0;
   const dispatcher = routedFetch({ docs: [SAMPLE_DOC] });

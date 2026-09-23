@@ -1,6 +1,8 @@
 // Thin OpenRouter chat-completions client shared by every service that needs an LLM call
 // (query understanding, grounded answer generation). Centralised here so auth/error
 // handling behaves identically everywhere instead of being copy-pasted per call site.
+import { increment } from "../utils/callCounter.js";
+
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 // OpenRouter's free-tier catalogue changes; override via OPENROUTER_MODEL if this one
 // gets retired or rate-limited.
@@ -60,6 +62,7 @@ async function callModel(model, messages, jsonMode, token) {
     throw new OpenRouterApiError(`OpenRouter API error ${res.status}${text ? `: ${text}` : ""}`, res.status);
   }
 
+  increment("openrouter");
   const data = await res.json();
   return data.choices?.[0]?.message?.content?.trim() || "";
 }

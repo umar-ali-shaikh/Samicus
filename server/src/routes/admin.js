@@ -1,8 +1,16 @@
 import { Router } from "express";
 import { VerificationCase, Advocate, AuditLog } from "../models/index.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
+import { getCounts } from "../utils/callCounter.js";
 
 const router = Router();
+
+// Lightweight cost/usage visibility for the per-call-billed providers (Indian Kanoon,
+// OpenRouter) — see docs/legal-assistant-spec.md gap #6. In-memory only (resets on
+// restart); good enough for "are we about to get an IK bill surprise", not a ledger.
+router.get("/admin/usage", requireAuth, requireRole("admin"), (req, res) => {
+  res.json({ callsSinceStart: getCounts() });
+});
 
 router.get("/admin/verification-cases", requireAuth, requireRole("admin"), async (req, res) => {
   res.json(

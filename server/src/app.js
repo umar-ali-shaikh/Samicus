@@ -32,6 +32,12 @@ const CLIENT_DIST = path.join(__dirname, "../../client/dist");
 export function createApp() {
   const app = express();
 
+  // Render (and most PaaS hosts) sit in front of the app as a single reverse-proxy hop —
+  // without this, req.ip resolves to the proxy's address for every request, which breaks
+  // per-IP rate limiting (and makes express-rate-limit throw on the X-Forwarded-For
+  // mismatch it detects). "1" trusts exactly one hop, not an open-ended chain.
+  app.set("trust proxy", 1);
+
   app.use(cors({ origin: process.env.CLIENT_ORIGIN || "http://localhost:5173", credentials: true }));
   app.use(express.json({ limit: "5mb" }));
   app.use(morgan("dev"));

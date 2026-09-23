@@ -4,6 +4,7 @@
 import { buildFormInput } from "./indianKanoonFilters.js";
 import { createCache } from "../utils/cache.js";
 import { sanitizeJudgmentHtml } from "../utils/sanitizeHtml.js";
+import { increment } from "../utils/callCounter.js";
 
 const BASE_URL = "https://api.indiankanoon.org";
 
@@ -91,6 +92,7 @@ async function postToIndianKanoon(path) {
       throw new IndianKanoonApiError(`Indian Kanoon API error ${res.status}${body ? `: ${body}` : ""}`, res.status);
     }
 
+    increment("indianKanoon"); // only successful, cache-missed calls are the ones actually billed
     return res.json();
   }
 }

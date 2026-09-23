@@ -58,6 +58,8 @@ Set in `server/.env` (never commit this file — it's git-ignored):
 | `IK_API_TOKEN` | Indian Kanoon API token — powers case law search and the AI Legal Assistant. Costs money per call. |
 | `OPENROUTER_API_KEY` | OpenRouter API key — powers LLM calls (query understanding + answer generation). |
 | `OPENROUTER_MODEL` | OpenRouter model slug. Defaults to a free-tier model; check [openrouter.ai/models](https://openrouter.ai/models) if it stops working (free slugs get retired). |
+| `GEMINI_API_KEY` | Optional. Google Gemini API key ([aistudio.google.com/apikey](https://aistudio.google.com/apikey), free, no credit card) — powers semantic embedding re-ranking of AI Legal Assistant evidence. Unset = falls back to a local, free TF-IDF ranker automatically. |
+| `GEMINI_EMBEDDING_MODEL` | Optional. Gemini embedding model slug, only used if `GEMINI_API_KEY` is set. Defaults to `gemini-embedding-001`. |
 
 ## Project structure
 

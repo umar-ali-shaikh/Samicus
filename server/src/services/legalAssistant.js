@@ -1,7 +1,9 @@
 // Full RAG pipeline for the conversational "AI Legal Assistant":
 //
 //   question -> understandQuery (Hinglish/English -> search query + emergency flag)
-//            -> Indian Kanoon search
+//            -> Indian Kanoon search (general + doctypes:laws)
+//            -> relevance re-rank of the candidates (Gemini embeddings if configured,
+//               else local TF-IDF — see services/relevanceRanking.js)
 //            -> full document text per top hit (docfragment snippet as a fallback if
 //               the full-document fetch fails or comes back empty)
 //            -> build a numbered evidence context
@@ -12,16 +14,25 @@
 // good at reasoning over evidence, but the safety-critical "this is not legal advice" /
 // "this looks urgent, call a lawyer now" framing must never depend on the model choosing
 // to say it.
+import { z } from "zod";
 import { search, getDocument, getFragment } from "./indianKanoon.js";
 import { understandQuery } from "./legalQueryUnderstanding.js";
 import { chatCompletion, OpenRouterAuthError, OpenRouterApiError } from "./openRouter.js";
 import { createCache } from "../utils/cache.js";
+import { rankRelevantDocs } from "./relevanceRanking.js";
 
 export { OpenRouterAuthError, OpenRouterApiError };
 export { IndianKanoonAuthError, IndianKanoonApiError } from "./indianKanoon.js";
 
 const ANSWER_TTL_MS = 60 * 60 * 1000; // 1h — matches search's TTL, same staleness tradeoff
 const DEFAULT_TOP_N = 5;
+// Plain search skews toward judgments (case law), so a purely procedural question
+// ("what to do after an FIR") often surfaces tangential cases that merely mention the
+// term instead of the actual CrPC/statute provisions that answer it. `doctypes:laws`
+// is Indian Kanoon's aggregator for Central Acts and Rules — running it as a second,
+// parallel search and giving its hits priority ensures statutory text gets a chance to
+// show up even when it wouldn't rank in the general judgment-heavy result set.
+const LAWS_TOP_N = 2;
 
 const cache = createCache();
 
@@ -41,6 +52,53 @@ function stripHtml(html) {
 function stripCodeFence(text) {
   const match = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
   return match ? match[1].trim() : text.trim();
+}
+
+// Free models don't always honour jsonMode strictly — some wrap the object in a
+// sentence ("Here's the answer: {...}") or add trailing commentary after it, which
+// breaks a direct JSON.parse even though a valid object is in there. Try the strict
+// parse first, then fall back to the outermost {...} span before giving up.
+function extractJson(raw) {
+  const fenced = stripCodeFence(raw);
+  try {
+    return JSON.parse(fenced);
+  } catch {
+    const start = fenced.indexOf("{");
+    const end = fenced.lastIndexOf("}");
+    if (start === -1 || end <= start) throw new Error("No JSON object found in model output");
+    return JSON.parse(fenced.slice(start, end + 1));
+  }
+}
+
+const CONTENT_FIELDS = ["statute", "judgments", "interpretation", "generalInformation", "practicalNextSteps", "insufficiencyNote"];
+
+// Last-resort recovery when the object as a whole won't parse at all — e.g. a stray
+// character right after the opening brace (observed in production:
+// `{":hasSufficientEvidence":false, "statute":null, ...}`, a `:` glitch before the
+// first key) breaks JSON.parse on the *entire* object even though every individual
+// "field":"value" pair the model wrote is perfectly well-formed. Rather than throw away
+// good, structured, cited content because ONE character elsewhere is broken, pull out
+// whatever fields match on their own. Returns null (not an empty object) if nothing
+// usable was found, so callers can tell "salvage found real content" apart from
+// "there was nothing to salvage" — the latter must still fall through to the raw-text
+// fallback, not silently produce an all-null answer.
+function salvageFields(text) {
+  const result = {};
+  let matchedAny = false;
+  for (const field of CONTENT_FIELDS) {
+    const match = text.match(new RegExp(`"${field}"\\s*:\\s*(null|"(?:[^"\\\\]|\\\\.)*")`));
+    if (!match) continue;
+    matchedAny = true;
+    result[field] = match[1] === "null" ? null : JSON.parse(match[1]);
+  }
+  if (!matchedAny) return null;
+
+  // Tolerant of the exact glitch above: doesn't require a leading quote before the key.
+  const hasSufficientEvidenceMatch = text.match(/hasSufficientEvidence"\s*:\s*(true|false)/);
+  result.hasSufficientEvidence = hasSufficientEvidenceMatch
+    ? hasSufficientEvidenceMatch[1] === "true"
+    : Object.values(result).some(Boolean);
+  return result;
 }
 
 function docUrl(tid) {
@@ -144,6 +202,21 @@ function emptyAnswerShape() {
   return { hasSufficientEvidence: false, statute: null, judgments: null, interpretation: null, generalInformation: null, practicalNextSteps: null, insufficiencyNote: null };
 }
 
+// Enforces the six-field answer contract the SYSTEM_PROMPT asks for — a model can
+// return syntactically valid JSON that's still the wrong shape (e.g. hasSufficientEvidence
+// as the string "true", or a field as a number). Schema failure routes into the same
+// "unparsed" fallback as a JSON.parse failure, so the API never hands out sections that
+// don't match the documented type.
+const AnswerSchema = z.object({
+  hasSufficientEvidence: z.boolean(),
+  statute: z.string().nullable().optional(),
+  judgments: z.string().nullable().optional(),
+  interpretation: z.string().nullable().optional(),
+  generalInformation: z.string().nullable().optional(),
+  practicalNextSteps: z.string().nullable().optional(),
+  insufficiencyNote: z.string().nullable().optional(),
+});
+
 /**
  * @param {string} question - raw user question, any language/register.
  * @param {import("./indianKanoonFilters.js").CaseLawFilters} [filters]
@@ -169,8 +242,36 @@ export async function answerLegalQuestion(question, filters = {}, topN = DEFAULT
       message: understanding.isEmergency ? EMERGENCY_MESSAGE : null,
     };
 
-    const { docs } = await search(understanding.searchQuery, filters, 0, 1);
-    const top = (docs || []).slice(0, topN);
+    const [{ docs }, lawsResult] = await Promise.all([
+      search(understanding.searchQuery, filters, 0, 1),
+      // Best-effort: a real auth/token problem will also surface via the call above
+      // (same token, same failure mode), so a failure here is safe to swallow rather
+      // than sinking the whole request over an enhancement search.
+      search(understanding.searchQuery, { ...filters, court: "laws" }, 0, 1).catch(() => ({ docs: [] })),
+    ]);
+
+    // Score each candidate pool by relevance to the query — Gemini embeddings when
+    // GEMINI_API_KEY is configured (a real semantic match, which catches a
+    // paraphrased/conversational question that shares no exact keywords with the
+    // right statute/judgment), local TF-IDF otherwise (see relevanceRanking.js) — and
+    // drop anything judged unrelated rather than forcing it in. Indian Kanoon's own
+    // search (especially doctypes:laws, a much smaller corpus than case law) can
+    // return a hit that shares nothing with the actual question just because it was
+    // the closest thing available; blindly taking the top LAWS_TOP_N/topN regardless
+    // of relevance forces unrelated Acts/cases into the evidence, which the model then
+    // has to cite around and which misleads the user into thinking they're "the"
+    // sources. Fewer, genuinely relevant sources (even zero, which falls through to
+    // no_evidence below) beats padding with noise.
+    const docText = (d) => `${d.title} ${stripHtml(d.headline)}`;
+    const [rankedLaw, rankedGeneral] = await Promise.all([
+      rankRelevantDocs(understanding.searchQuery, lawsResult.docs || [], docText),
+      rankRelevantDocs(understanding.searchQuery, docs || [], docText),
+    ]);
+
+    const lawDocs = rankedLaw.map((x) => x.item).slice(0, LAWS_TOP_N);
+    const lawTids = new Set(lawDocs.map((d) => d.tid));
+    const generalDocs = rankedGeneral.map((x) => x.item).filter((d) => !lawTids.has(d.tid));
+    const top = [...lawDocs, ...generalDocs].slice(0, topN);
 
     if (top.length === 0) {
       return {
@@ -190,13 +291,39 @@ export async function answerLegalQuestion(question, filters = {}, topN = DEFAULT
     let sections;
     let outcome = "answered";
     let rawAnswer = null;
+
+    let candidate = null;
     try {
-      const parsed = JSON.parse(stripCodeFence(raw));
-      sections = { ...emptyAnswerShape(), ...parsed };
+      candidate = extractJson(raw);
     } catch {
+      candidate = null;
+    }
+    let validated = candidate !== null ? AnswerSchema.safeParse(candidate) : null;
+
+    if (!validated?.success) {
+      // The object as a whole didn't parse — try salvaging individual well-formed
+      // fields before giving up entirely (see salvageFields' doc comment for why).
+      const salvaged = salvageFields(raw);
+      validated = salvaged ? AnswerSchema.safeParse(salvaged) : null;
+    }
+
+    if (validated?.success) {
+      sections = { ...emptyAnswerShape(), ...validated.data };
+    } else {
       outcome = "unparsed";
       rawAnswer = raw;
-      sections = { ...emptyAnswerShape(), hasSufficientEvidence: true, generalInformation: raw };
+      const cleanRaw = raw.trim();
+      // Never show the user raw JSON-looking text (curly braces, "key":"value" noise)
+      // that neither parse attempt nor salvage could make sense of — that's confusing,
+      // not informative. Genuine unstructured prose (a model that just answered in
+      // plain sentences instead of JSON) is still shown as-is; only text that still
+      // looks like broken JSON syntax gets suppressed.
+      const looksLikeBrokenJson = cleanRaw.startsWith("{") || /"[a-zA-Z]+"\s*:/.test(cleanRaw);
+      sections = {
+        ...emptyAnswerShape(),
+        hasSufficientEvidence: true,
+        generalInformation: looksLikeBrokenJson ? null : cleanRaw || null,
+      };
     }
 
     return {

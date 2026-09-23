@@ -31,6 +31,7 @@ export { default as ContractReview } from "./ContractReview.js";
 export { PackRuleset, PackScan, RulesetDiff } from "./Pack.js";
 export { PublicQuestion, PublicAnswer, Guide, Firm } from "./AskLearn.js";
 export { default as AuditLog } from "./AuditLog.js";
+export { default as LegalAssistantSession } from "./LegalAssistantSession.js";
 export {
   AnalyticsSnapshot,
   CorporateAccountHealth,

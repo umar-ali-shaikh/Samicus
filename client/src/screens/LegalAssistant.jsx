@@ -1,5 +1,5 @@
-import { useRef, useState } from "react";
-import { askLegalAssistant } from "../api/legalAssistantClient";
+import { useEffect, useRef, useState } from "react";
+import { askLegalAssistant, getLegalAssistantSession } from "../api/legalAssistantClient";
 import { Card, Button, Badge, Callout, EmptyState } from "../components/ui";
 
 // Conversational "AI Legal Assistant" — distinct from the Case law search screen
@@ -78,6 +78,14 @@ const UI_STRINGS = {
     ur: "معاون کے جواب کو منظم حصوں میں تقسیم نہیں کیا جا سکا — اس لیے اسے نیچے عمومی معلومات کے طور پر دکھایا گیا ہے۔",
   },
   sources: { en: "Sources", hi: "स्रोत", hinglish: "Sources", mr: "स्रोत", marathlish: "Strot", ur: "ذرائع" },
+  fallbackNextSteps: {
+    en: "Practical next steps: consult a qualified Indian lawyer for guidance specific to your situation, and keep any documents (FIR, notice, agreement, etc.) related to the matter ready to show them.",
+    hi: "व्यावहारिक अगले कदम: अपनी स्थिति के अनुसार सलाह के लिए किसी योग्य भारतीय वकील से संपर्क करें, और मामले से जुड़े दस्तावेज़ (FIR, नोटिस, एग्रीमेंट आदि) उन्हें दिखाने के लिए तैयार रखें।",
+    hinglish: "Practical agle kadam: apni situation ke hisaab se salah ke liye ek qualified Indian vakil se sampark karein, aur is mamle se jude documents (FIR, notice, agreement, waghera) unhe dikhane ke liye taiyaar rakhein.",
+    mr: "व्यावहारिक पुढील पावले: तुमच्या परिस्थितीनुसार सल्ल्यासाठी एका पात्र भारतीय वकिलाशी संपर्क साधा, आणि या प्रकरणाशी संबंधित कागदपत्रे (FIR, नोटीस, करार इ.) त्यांना दाखवण्यासाठी तयार ठेवा.",
+    marathlish: "Vyavaharik pudhil paavale: tumchya paristhitinusar sallyasathi ek patra Bharatiya vakilashi sampark sadha, ani ya prakaranashi sambandhit kagadpatre (FIR, notice, karar itr) tyanna dakhavnyasathi taiyar theva.",
+    ur: "عملی اگلے اقدامات: اپنی صورتحال کے مطابق مشورے کے لیے کسی مستند بھارتی وکیل سے رابطہ کریں، اور اس معاملے سے متعلق دستاویزات (FIR، نوٹس، معاہدہ وغیرہ) انہیں دکھانے کے لیے تیار رکھیں۔",
+  },
   disclaimer: {
     en: "This is general legal information for education and research purposes, generated only from the Indian Kanoon sources listed below — it is not legal advice from a lawyer, it does not create a lawyer-client relationship, and it cannot guarantee any outcome. For anything serious, urgent, criminal, financial, family, property, or litigation-related, please consult a qualified Indian lawyer.",
     hi: "यह सामान्य कानूनी जानकारी केवल शिक्षा और अनुसंधान के उद्देश्य से दी गई है, और नीचे सूचीबद्ध Indian Kanoon स्रोतों पर आधारित है — यह किसी वकील की कानूनी सलाह नहीं है, इससे वकील-मुवक्किल संबंध स्थापित नहीं होता, और यह किसी परिणाम की गारंटी नहीं देती। किसी भी गंभीर, तत्काल, आपराधिक, वित्तीय, पारिवारिक, संपत्ति संबंधी, या मुकदमेबाज़ी से जुड़े मामले के लिए कृपया किसी योग्य भारतीय वकील से सलाह लें।",
@@ -156,6 +164,12 @@ function AnswerCard({ turn }) {
         <Callout tone="warning" style={{ marginBottom: 12 }}>{result.sections.insufficiencyNote}</Callout>
       )}
 
+      {!result.sections.practicalNextSteps && (
+        <Callout tone="success" style={{ marginBottom: 12 }}>
+          {t(UI_STRINGS.fallbackNextSteps, script)}
+        </Callout>
+      )}
+
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         {sections.map((s) => (
           <div key={s.key}>
@@ -187,12 +201,50 @@ function AnswerCard({ turn }) {
   );
 }
 
+// Persists across a refresh (localStorage), not across devices/browsers — good enough
+// for "don't lose my conversation on reload" without needing a login.
+const SESSION_STORAGE_KEY = "legalAssistant.sessionId";
+
+function getOrCreateSessionId() {
+  if (typeof window === "undefined") return null;
+  let id;
+  try {
+    id = window.localStorage.getItem(SESSION_STORAGE_KEY);
+    if (!id) {
+      id = crypto.randomUUID();
+      window.localStorage.setItem(SESSION_STORAGE_KEY, id);
+    }
+  } catch {
+    return null; // localStorage unavailable (private mode, etc.) — chat still works, just doesn't persist
+  }
+  return id;
+}
+
 export function LegalAssistant() {
   const [input, setInput] = useState("");
   const [turns, setTurns] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const nextTurnId = useRef(0);
+  const sessionIdRef = useRef(null);
+  if (sessionIdRef.current === null) sessionIdRef.current = getOrCreateSessionId();
+
+  useEffect(() => {
+    const sessionId = sessionIdRef.current;
+    if (!sessionId) return;
+    getLegalAssistantSession(sessionId)
+      .then(({ turns: persisted }) => {
+        if (!persisted?.length) return;
+        setTurns(
+          persisted.map((t) => {
+            nextTurnId.current += 1;
+            return { id: nextTurnId.current, question: t.question, result: t.result };
+          })
+        );
+      })
+      .catch(() => {}); // best-effort rehydrate — a failed fetch just starts a fresh-looking session
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function ask(question) {
     const q = question.trim();
@@ -204,7 +256,7 @@ export function LegalAssistant() {
     setTurns((t) => [...t, { id: turnId, question: q, result: null }]);
     setLoading(true);
     try {
-      const result = await askLegalAssistant(q);
+      const result = await askLegalAssistant(q, {}, sessionIdRef.current);
       setTurns((t) => t.map((turn) => (turn.id === turnId ? { ...turn, result } : turn)));
     } catch (err) {
       setError(err.message);
