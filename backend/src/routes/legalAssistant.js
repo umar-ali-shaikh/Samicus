@@ -8,6 +8,7 @@ import {
   IndianKanoonApiError,
 } from "../services/legalAssistant.js";
 import { getSupabase } from "../config/db.js";
+import { requireAuth } from "../middleware/auth.js";
 
 const router = Router();
 
@@ -26,6 +27,9 @@ function isValidSessionId(id) {
 const askLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 20,
+  // Per signed-in user (the route is behind requireAuth), not per shared IP.
+  keyGenerator: (req) => req.user?.id || req.ip,
+  validate: { keyGeneratorIpFallback: false },
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Too many questions from this address — please wait a few minutes and try again." },
@@ -59,22 +63,20 @@ function handleError(err, res) {
 
 // Best-effort: a persistence hiccup shouldn't cost the user the answer they already
 // paid (in IK/OpenRouter calls) to get, so this is fire-and-forget from the caller.
-async function persistTurn(sessionId, question, result) {
+async function persistTurn(userId, sessionId, question, result) {
   const supabase = getSupabase();
-  let { data: session, error } = await supabase.from("legal_assistant_sessions").select("id").eq("session_id", sessionId).maybeSingle();
+  let { data: session, error } = await supabase.from("legal_assistant_sessions").select("id, user_id").eq("session_id", sessionId).maybeSingle();
   if (error) throw error;
+  if (session && session.user_id && session.user_id !== userId) throw new Error("Session belongs to another user");
   if (!session) {
-    ({ data: session, error } = await supabase.from("legal_assistant_sessions").insert({ session_id: sessionId }).select("id").single());
+    ({ data: session, error } = await supabase.from("legal_assistant_sessions").insert({ session_id: sessionId, user_id: userId }).select("id").single());
     if (error) throw error;
   }
   const { error: turnError } = await supabase.from("legal_assistant_turns").insert({ session_id: session.id, question, result });
   if (turnError) throw turnError;
 }
 
-// NOTE: not behind requireAuth, matching routes/indianKanoon.js — this client has no
-// login flow wired up yet. Every hit here spends real money (Indian Kanoon + OpenRouter),
-// so if this app ever gets a real auth boundary, gate this route too.
-router.post("/legal-assistant/ask", askLimiter, async (req, res) => {
+router.post("/legal-assistant/ask", requireAuth, askLimiter, async (req, res) => {
   const { question, court, fromDate, toDate, title, cite, author, bench, topN, sessionId } = req.body || {};
   if (!question || !String(question).trim()) return res.status(400).json({ error: "'question' is required." });
   if (sessionId !== undefined && !isValidSessionId(sessionId)) {
@@ -89,7 +91,7 @@ router.post("/legal-assistant/ask", askLimiter, async (req, res) => {
     );
 
     if (sessionId) {
-      persistTurn(sessionId, String(question), result).catch((err) => console.error("Failed to persist legal-assistant turn:", err.message));
+      persistTurn(req.user.id, sessionId, String(question), result).catch((err) => console.error("Failed to persist legal-assistant turn:", err.message));
     }
 
     res.json(result);
@@ -101,12 +103,12 @@ router.post("/legal-assistant/ask", askLimiter, async (req, res) => {
 // Rehydrates a conversation after a page refresh — client keeps sessionId in
 // localStorage, and this returns whatever turns were persisted for it (empty for a
 // brand-new session, not a 404, since "no history yet" is the normal first-visit case).
-router.get("/legal-assistant/session/:sessionId", async (req, res) => {
+router.get("/legal-assistant/session/:sessionId", requireAuth, async (req, res) => {
   const { sessionId } = req.params;
   if (!isValidSessionId(sessionId)) return res.status(400).json({ error: "Invalid sessionId." });
 
   const supabase = getSupabase();
-  const { data: session, error } = await supabase.from("legal_assistant_sessions").select("id").eq("session_id", sessionId).maybeSingle();
+  const { data: session, error } = await supabase.from("legal_assistant_sessions").select("id").eq("session_id", sessionId).eq("user_id", req.user.id).maybeSingle();
   if (error) throw error;
   if (!session) return res.json({ turns: [] });
 

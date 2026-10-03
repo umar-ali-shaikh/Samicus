@@ -1,62 +1,72 @@
 import { Router } from "express";
+import rateLimit from "express-rate-limit";
 import { getSupabase } from "../config/db.js";
-import { signToken, requireAuth } from "../middleware/auth.js";
+import { authenticate, requireAuth, AUTH_ERRORS } from "../middleware/auth.js";
 
 const router = Router();
 
-// Mocked SMS provider: every phone accepts process.env.DEV_OTP.
-router.post("/auth/otp", async (req, res) => {
-  const { phone } = req.body;
-  if (!phone) return res.status(400).json({ error: "phone is required" });
-  res.json({ ok: true, message: `OTP sent to ${phone} (dev mode: use ${process.env.DEV_OTP})` });
-});
+// Sign-in/sign-up/Google OAuth happen in the browser against Supabase Auth (supabase-js).
+// The API only ever sees the resulting access token.
 
-router.post("/auth/verify", async (req, res) => {
-  const { phone, otp, fullName } = req.body;
-  if (!phone || !otp) return res.status(400).json({ error: "phone and otp are required" });
-  if (otp !== process.env.DEV_OTP) return res.status(401).json({ error: "Invalid OTP" });
-
-  const supabase = getSupabase();
-  let { data: user, error } = await supabase.from("users").select("*").eq("phone", phone).maybeSingle();
-  if (error) throw error;
-
-  if (!user) {
-    ({ data: user, error } = await supabase
-      .from("users")
-      .insert({ phone, full_name: fullName || "New user" })
-      .select()
-      .single());
-    if (error) throw error;
-
-    const { data: account, error: accountError } = await supabase
-      .from("accounts")
-      .insert({ type: "individual", display_name: user.full_name })
-      .select()
-      .single();
-    if (accountError) throw accountError;
-
-    const { error: memberError } = await supabase
-      .from("account_members")
-      .insert({ account_id: account.id, user_id: user.id, role: "owner", accepted_at: new Date().toISOString() });
-    if (memberError) throw memberError;
-  }
-
-  const token = signToken(user);
-  res.json({ token, user });
-});
-
-router.get("/me", requireAuth, async (req, res) => {
+async function loadAccounts(userId) {
   const { data: memberships, error } = await getSupabase()
     .from("account_members")
     .select("*, account:accounts(*)")
-    .eq("user_id", req.user.id)
+    .eq("user_id", userId)
     .not("accepted_at", "is", null);
   if (error) throw error;
+  return memberships.map((m) => ({ ...m.account, myRole: m.role }));
+}
 
+async function loadAdvocate(userId) {
+  const { data, error } = await getSupabase()
+    .from("advocates")
+    .select("id, verification_status, bar_council, enrolment_number, availability_state, accepts_urgent")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+// Current session. Unlike every other route this tolerates an unverified email, so the
+// client can show a "verify your email" screen instead of a bare 403.
+router.get("/me", authenticate({ allowUnverified: true }), async (req, res) => {
+  if (!req.emailVerified) {
+    return res.status(AUTH_ERRORS.unverified.status).json({
+      ...AUTH_ERRORS.unverified,
+      email: req.authUser.email,
+    });
+  }
+  const [accounts, advocate] = await Promise.all([loadAccounts(req.user.id), loadAdvocate(req.user.id)]);
   res.json({
     user: req.user,
-    accounts: memberships.map((m) => ({ ...m.account, myRole: m.role })),
+    accounts,
+    advocate,
+    provider: req.authUser.app_metadata?.provider || "email",
   });
+});
+
+const profileLimiter = rateLimit({ windowMs: 60 * 1000, limit: 20, standardHeaders: true, legacyHeaders: false });
+
+router.patch("/me", profileLimiter, requireAuth, async (req, res) => {
+  const { fullName, city, state, preferredLanguage, phone } = req.body || {};
+  const patch = {};
+  if (fullName !== undefined) {
+    if (!String(fullName).trim()) return res.status(400).json({ error: "Name cannot be empty." });
+    patch.full_name = String(fullName).trim().slice(0, 120);
+  }
+  if (city !== undefined) patch.city = city ? String(city).slice(0, 80) : null;
+  if (state !== undefined) patch.state = state ? String(state).slice(0, 80) : null;
+  if (preferredLanguage !== undefined) {
+    if (!["en", "hi"].includes(preferredLanguage)) return res.status(400).json({ error: "preferredLanguage must be 'en' or 'hi'." });
+    patch.preferred_language = preferredLanguage;
+  }
+  if (phone !== undefined) patch.phone = phone ? String(phone).slice(0, 20) : null;
+  if (Object.keys(patch).length === 0) return res.status(400).json({ error: "Nothing to update." });
+
+  const { data, error } = await getSupabase().from("users").update(patch).eq("id", req.user.id).select().single();
+  if (error) throw error;
+  res.json({ user: data });
 });
 
 export default router;

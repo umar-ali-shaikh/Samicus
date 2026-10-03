@@ -126,16 +126,27 @@ export async function search(query, filters = {}, pagenum = 0, maxpages) {
  * @param {number} [maxcitedby] - up to 50.
  * @returns {Promise<{doc: string, title: string, citeList: any[], citedbyList: any[]}>}
  */
-export async function getDocument(docid, maxcites, maxcitedby) {
+async function fetchDocument(docid, maxcites, maxcitedby) {
   const params = new URLSearchParams();
   if (maxcites) params.set("maxcites", String(Math.min(maxcites, 50)));
   if (maxcitedby) params.set("maxcitedby", String(Math.min(maxcitedby, 50)));
   const qs = params.toString();
 
   const cacheKey = `doc:${docid}:${qs}`;
-  const result = await cache.getOrSet(cacheKey, DOC_TTL_MS, () => postToIndianKanoon(`/doc/${docid}/${qs ? `?${qs}` : ""}`));
+  return cache.getOrSet(cacheKey, DOC_TTL_MS, () => postToIndianKanoon(`/doc/${docid}/${qs ? `?${qs}` : ""}`));
+}
 
+export async function getDocument(docid, maxcites, maxcitedby) {
+  const result = await fetchDocument(docid, maxcites, maxcitedby);
   return { ...result, doc: sanitizeJudgmentHtml(result.doc) };
+}
+
+/**
+ * Un-sanitized document HTML for server-side indexing only (never send this to a browser):
+ * the sanitizer strips the `title` attributes that mark Fact / Issue / Reasoning paragraphs.
+ */
+export async function getDocumentRaw(docid) {
+  return fetchDocument(docid);
 }
 
 /**

@@ -1,61 +1,54 @@
-// Vidhira's grounding constraint (API & Data Model doc §6), implemented for real:
-//   1. retrieve(query) -> chunks with scores
-//   2. filter score >= THRESHOLD
-//   3. zero hits -> {outcome: "not_found"}, no generation step at all
-//   4. "generate" = assemble segments EXCLUSIVELY from retrieved chunk text (extractive,
-//      no LLM in this build per the "stub integrations" decision) — this makes citation
-//      validation a structural guarantee rather than a check bolted on afterwards.
-//   5. paragraph_class gate: petitioner/respondent-argument chunks can be shown but never
-//      cited as authority for an assertion.
-
+// Vidhira research library — grounded in the Qdrant knowledge base:
+//   1. retrieve(query) -> passages with cosine scores (semantic, Gemini embeddings)
+//   2. keep score >= threshold
+//   3. zero hits -> {outcome: "not_found"}, no answer is assembled at all
+//   4. the "answer" is EXTRACTIVE: every segment is a retrieved passage's own text, so every
+//      citation resolves by construction (no model can invent one)
+//   5. paragraph-class gate: a party's *arguments* can be shown but never cited as authority.
 import { getSupabase } from "../config/db.js";
+import { retrievePassages, minScore } from "./rag/retrieve.js";
+import { ragEnabled } from "./rag/ingest.js";
 
-export const RELEVANCE_THRESHOLD = 0.62;
-
-const STOPWORDS = new Set(["the", "a", "an", "of", "to", "in", "is", "and", "for", "on", "by", "or", "does", "can", "my", "after"]);
-
-function tokenize(text) {
-  return text
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, " ")
-    .split(/\s+/)
-    .filter((t) => t && !STOPWORDS.has(t));
+export class KnowledgeBaseUnavailableError extends Error {
+  constructor() {
+    super("The research library is not configured on this deployment (needs QDRANT_URL and GEMINI_API_KEY).");
+    this.status = 503;
+    this.expose = true;
+    this.code = "RAG_DISABLED";
+  }
 }
 
-// Dev-mode substitute for a real vector index: keyword overlap against curated chunk
-// keywords + chunk text. Scored against a fixed target overlap rather than query length,
-// so a longer natural-language question isn't penalised just for having more filler words.
-const RELEVANT_OVERLAP_TARGET = 3;
+export function relevanceThreshold() {
+  return minScore();
+}
 
+/**
+ * @returns {Promise<{ chunk: object, score: number }[]>} best first; includes below-threshold
+ *   passages so the UI can show what was kept and what was dropped.
+ */
 export async function retrieve(queryText, { sourcesEnabled } = {}) {
-  const queryTokens = new Set(tokenize(queryText));
-  if (queryTokens.size === 0) return [];
-
-  const { data: chunks, error } = await getSupabase().from("corpus_chunks").select("*, document:corpus_documents(*)");
-  if (error) throw error;
-
-  const scored = chunks
-    .filter((c) => !sourcesEnabled || sourcesEnabled.length === 0 || sourcesEnabled.includes(c.document?.source))
-    .filter((c) => !c.document?.superseded_by) // superseded provisions excluded at retrieval
-    .map((c) => {
-      // Keywords are tokenized the same way as the query so hyphenated phrases like
-      // "non-compete" line up with a query that says "non compete" / "noncompete".
-      const chunkTokens = new Set([...tokenize((c.keywords || []).join(" ")), ...tokenize(c.text)]);
-      const overlap = [...queryTokens].filter((t) => chunkTokens.has(t)).length;
-      const score = Math.min(1, overlap / RELEVANT_OVERLAP_TARGET);
-      return { chunk: c, score: Math.round(score * 100) / 100 };
-    })
-    .filter((r) => r.score > 0)
-    .sort((a, b) => b.score - a.score);
-
-  return scored;
+  if (!ragEnabled()) throw new KnowledgeBaseUnavailableError();
+  const passages = await retrievePassages(queryText, { limit: 12, threshold: null });
+  return passages
+    .filter((p) => !sourcesEnabled || sourcesEnabled.length === 0 || sourcesEnabled.includes(p.source))
+    .map((p) => ({
+      score: Math.round(p.score * 100) / 100,
+      chunk: {
+        id: p.id,
+        text: p.text,
+        paragraph_class: p.paraClass,
+        section_label: p.paraNumber ? `¶ ${p.paraNumber}` : null,
+        document: { id: p.documentId, title: p.title, citation: p.citation, source: p.source, canonical_url: p.url },
+      },
+    }));
 }
 
 // Only these paragraph classes may support an assertion; arguments are shown but never cited as law.
 const CITABLE_CLASSES = new Set(["provision", "reasoning", "holding", "directions"]);
 
 export async function answerFromRetrieval(retrieved) {
-  const kept = retrieved.filter((r) => r.score >= RELEVANCE_THRESHOLD);
+  const threshold = relevanceThreshold();
+  const kept = retrieved.filter((r) => r.score >= threshold);
   const discardedCount = retrieved.length - kept.length;
 
   if (kept.length === 0) {
@@ -68,27 +61,21 @@ export async function answerFromRetrieval(retrieved) {
     return { outcome: "not_found", segments: [], discardedCount, unsupportedSpanCount: 0 };
   }
 
-  // Extractive assembly: every segment IS a retrieved chunk's own text, so every
-  // citation trivially resolves — validation is structural, not a post-hoc check.
   const segments = citable.map((r) => ({
     text: r.chunk.text,
     chunkId: r.chunk.id,
     score: r.score,
     documentTitle: r.chunk.document?.title,
     citation: r.chunk.document?.citation,
+    url: r.chunk.document?.canonical_url,
   }));
 
   const outcome = citable.length < kept.length || discardedCount > 0 ? "partial" : "answered";
-
   return { outcome, segments, discardedCount, unsupportedSpanCount: 0 };
 }
 
 export async function resolveCitation(chunkId) {
-  const { data, error } = await getSupabase()
-    .from("corpus_chunks")
-    .select("*, document:corpus_documents(*)")
-    .eq("id", chunkId)
-    .maybeSingle();
+  const { data, error } = await getSupabase().from("corpus_chunks").select("*, document:corpus_documents(*)").eq("id", chunkId).maybeSingle();
   if (error) throw error;
   return data;
 }

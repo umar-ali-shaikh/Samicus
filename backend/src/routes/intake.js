@@ -1,6 +1,8 @@
 import { Router } from "express";
 import { getSupabase } from "../config/db.js";
+import { z } from "zod";
 import { requireAuth } from "../middleware/auth.js";
+import { HttpError, assertAccountMember, defaultAccountId, memberAccountIds } from "../services/access.js";
 import { rankAdvocates, MATCHING_WEIGHTS_VERSION } from "../services/matching.js";
 
 const router = Router();
@@ -41,40 +43,118 @@ function toMatchingIntake(row) {
   };
 }
 
-// Facts (description) are stored but never returned to an advocate until conflict-check
-// clears AND the client explicitly consents — see /intake-requests/:id/consent below.
-router.post("/intake-requests", requireAuth, async (req, res) => {
-  const body = req.body;
-  const { data: intake, error } = await getSupabase()
+const MODES = ["video", "phone", "chat", "in_person"];
+const intakeSchema = z.object({
+  accountId: z.string().uuid().optional(),
+  description: z.string().trim().max(5000).optional(),
+  counterpartyName: z.string().trim().max(160).optional(),
+  situationId: z.string().uuid().optional(),
+  routedPracticeAreaId: z.string().uuid().optional(),
+  urgency: z.enum(["today", "48h", "week", "deadline"]),
+  city: z.string().trim().max(80).optional(),
+  state: z.string().trim().max(80).optional(),
+  forum: z.string().trim().max(120).optional(),
+  mode: z.enum(MODES),
+  language: z.string().trim().min(2).max(20),
+  kind: z.enum(["instant", "scheduled"]).default("scheduled"),
+});
+
+function parse(schema, body) {
+  const result = schema.safeParse(body);
+  if (!result.success) {
+    throw new HttpError(400, result.error.issues.map((i) => `${i.path.join(".") || "body"}: ${i.message}`).join("; "));
+  }
+  return result.data;
+}
+
+// Creates the intake row after verifying the caller belongs to the account, and works out
+// the practice area from the chosen situation when the client didn't pick one directly.
+async function createIntake(user, input, kind) {
+  const supabase = getSupabase();
+  const accountId = input.accountId || (await defaultAccountId(user.id));
+  await assertAccountMember(user.id, accountId);
+
+  let areaId = input.routedPracticeAreaId;
+  let routingConfidence = areaId ? 1 : null;
+  if (!areaId && input.situationId) {
+    const { data: situation, error } = await supabase.from("situations").select("mapped_practice_area_id").eq("id", input.situationId).maybeSingle();
+    if (error) throw error;
+    if (!situation) throw new HttpError(400, "Unknown situation.");
+    areaId = situation.mapped_practice_area_id;
+    routingConfidence = 0.95;
+  }
+  if (!areaId) throw new HttpError(400, "Choose a situation or practice area so we can route your request.");
+
+  const { data: intake, error } = await supabase
     .from("intake_requests")
     .insert({
-      account_id: body.accountId,
-      created_by: req.user.id,
-      description: body.description,
-      voice_transcript_id: body.voiceTranscriptId,
-      situation_id: body.situationId,
-      routed_practice_area_id: body.routedPracticeAreaId,
-      routing_confidence: body.routingConfidence,
-      urgency: body.urgency,
-      city: body.city,
-      state: body.state,
-      forum: body.forum,
-      mode: body.mode,
-      language: body.language,
-      kind: body.kind,
+      account_id: accountId,
+      created_by: user.id,
+      description: input.description,
+      counterparty_name: input.counterpartyName,
+      situation_id: input.situationId,
+      routed_practice_area_id: areaId,
+      routing_confidence: routingConfidence,
+      urgency: input.urgency,
+      city: input.city,
+      state: input.state,
+      forum: input.forum,
+      mode: input.mode,
+      language: input.language,
+      kind,
       status: "searching",
     })
     .select()
     .single();
   if (error) throw error;
+  return intake;
+}
+
+async function loadOwnIntake(user, id) {
+  const { data: intake, error } = await getSupabase().from("intake_requests").select("*").eq("id", id).maybeSingle();
+  if (error) throw error;
+  if (!intake) throw new HttpError(404, "Not found");
+  await assertAccountMember(user.id, intake.account_id).catch(() => {
+    throw new HttpError(404, "Not found");
+  });
+  return intake;
+}
+
+// Facts (description) are stored but never returned to an advocate until conflict-check
+// clears AND the client explicitly consents — see /intake-requests/:id/consent below.
+router.post("/intake-requests", requireAuth, async (req, res) => {
+  const input = parse(intakeSchema, req.body);
+  const intake = await createIntake(req.user, input, input.kind);
   res.status(201).json(intake);
 });
 
+router.get("/intake-requests", requireAuth, async (req, res) => {
+  const accountIds = await memberAccountIds(req.user.id);
+  if (accountIds.length === 0) return res.json([]);
+  const { data, error } = await getSupabase()
+    .from("intake_requests")
+    .select("*, practice_area:practice_areas(name)")
+    .in("account_id", accountIds)
+    .order("created_at", { ascending: false })
+    .limit(50);
+  if (error) throw error;
+  res.json(data);
+});
+
+async function attachAdvocates(rows) {
+  if (rows.length === 0) return [];
+  const { data, error } = await getSupabase()
+    .from("advocates")
+    .select("id, city, years_of_practice, availability_state, instant_fee, scheduled_fee, bar_council, user:users(full_name, avatar_url)")
+    .in("id", rows.map((r) => r.advocate_id));
+  if (error) throw error;
+  const byId = new Map(data.map((a) => [a.id, a]));
+  return rows.map((r) => ({ ...r, advocate: byId.get(r.advocate_id) || null }));
+}
+
 router.get("/intake-requests/:id/matches", requireAuth, async (req, res) => {
   const supabase = getSupabase();
-  const { data: intake, error: intakeError } = await supabase.from("intake_requests").select("*").eq("id", req.params.id).maybeSingle();
-  if (intakeError) throw intakeError;
-  if (!intake) return res.status(404).json({ error: "Not found" });
+  const intake = await loadOwnIntake(req.user, req.params.id);
 
   const { data: advocateRows, error: advocateError } = await supabase
     .from("advocates")
@@ -100,56 +180,45 @@ router.get("/intake-requests/:id/matches", requireAuth, async (req, res) => {
   });
   if (replaceError) throw replaceError;
 
-  res.json({ weightsVersion: MATCHING_WEIGHTS_VERSION, matches: saved });
+  res.json({ weightsVersion: MATCHING_WEIGHTS_VERSION, matches: await attachAdvocates(saved) });
 });
 
 router.post("/intake-requests/:id/consent", requireAuth, async (req, res) => {
-  const { data: intake, error } = await getSupabase()
+  const intake = await loadOwnIntake(req.user, req.params.id);
+  const { data, error } = await getSupabase()
     .from("intake_requests")
     .update({ consent_given_at: new Date().toISOString() })
-    .eq("id", req.params.id)
+    .eq("id", intake.id)
     .select()
     .single();
   if (error) throw error;
-  res.json(intake);
+  res.json(data);
+});
+
+const urgentSchema = intakeSchema.omit({ kind: true, mode: true, language: true, urgency: true }).extend({
+  mode: z.enum(MODES).default("phone"),
+  language: z.string().trim().min(2).max(20).default("en"),
+  urgency: z.enum(["today", "48h", "week", "deadline"]).default("today"),
 });
 
 // Urgent path — same request model, shorter SLA framing, fastest-callback fallback.
 router.post("/urgent-requests", requireAuth, async (req, res) => {
   const supabase = getSupabase();
-  const body = req.body;
-  const { data: intake, error } = await supabase
-    .from("intake_requests")
-    .insert({
-      account_id: body.accountId,
-      created_by: req.user.id,
-      description: body.description,
-      voice_transcript_id: body.voiceTranscriptId,
-      situation_id: body.situationId,
-      routed_practice_area_id: body.routedPracticeAreaId,
-      routing_confidence: body.routingConfidence,
-      urgency: body.urgency,
-      city: body.city,
-      state: body.state,
-      forum: body.forum,
-      mode: body.mode,
-      language: body.language,
-      kind: "urgent",
-      status: "searching",
-    })
-    .select()
-    .single();
-  if (error) throw error;
+  const input = parse(urgentSchema, req.body);
+  const intake = await createIntake(req.user, input, "urgent");
 
   const { data: advocateRows, error: advocateError } = await supabase
     .from("advocates")
     .select(ADVOCATE_JOIN_SELECT)
     .eq("verification_status", "verified")
-    .eq("accepts_urgent", true);
+    .eq("accepts_urgent", true)
+    .eq("availability_state", "available");
   if (advocateError) throw advocateError;
 
-  const advocates = advocateRows.map(toMatchingAdvocate);
-  const ranked = rankAdvocates(advocates, toMatchingIntake(intake));
+  // Urgent matching ignores language/mode/state hard filters: the first available
+  // verified advocate in the right practice area is better than none.
+  const relaxed = { ...toMatchingIntake(intake), state: undefined, language: undefined, mode: undefined };
+  const ranked = rankAdvocates(advocateRows.map(toMatchingAdvocate), relaxed);
 
   if (ranked.length === 0) {
     const { data: updatedIntake, error: updateError } = await supabase
@@ -159,7 +228,7 @@ router.post("/urgent-requests", requireAuth, async (req, res) => {
       .select()
       .single();
     if (updateError) throw updateError;
-    return res.json({ intake: updatedIntake, status: "none_available", helpline: "State Legal Services Authority · 15100" });
+    return res.json({ intake: updatedIntake, status: "none_available", helpline: "NALSA free legal aid helpline · 15100" });
   }
 
   const top = ranked[0];
@@ -176,22 +245,28 @@ router.post("/urgent-requests", requireAuth, async (req, res) => {
     .single();
   if (updateError) throw updateError;
 
-  res.json({
-    intake: updatedIntake,
-    status: "advocate_reviewing",
-    candidate: { advocateId: top.advocate._id, whyMatched: top.whyMatched, quotedFee: top.quotedFee },
-  });
+  const [candidate] = await attachAdvocates([{ advocate_id: top.advocate._id, why_matched: top.whyMatched, quoted_fee: top.quotedFee }]);
+  res.json({ intake: updatedIntake, status: "advocate_reviewing", candidate });
+});
+
+// Poll target for the urgent flow: has the advocate accepted yet?
+router.get("/intake-requests/:id", requireAuth, async (req, res) => {
+  const intake = await loadOwnIntake(req.user, req.params.id);
+  const { data: matter, error } = await getSupabase().from("matters").select("id, reference, stage").eq("account_id", intake.account_id).order("created_at", { ascending: false }).limit(1).maybeSingle();
+  if (error) throw error;
+  res.json({ intake, matter: intake.status === "matched" ? matter : null });
 });
 
 router.post("/urgent-requests/:id/callback", requireAuth, async (req, res) => {
-  const { data: intake, error } = await getSupabase()
+  const intake = await loadOwnIntake(req.user, req.params.id);
+  const { data, error } = await getSupabase()
     .from("intake_requests")
     .update({ status: "callback_scheduled" })
-    .eq("id", req.params.id)
+    .eq("id", intake.id)
     .select()
     .single();
   if (error) throw error;
-  res.json(intake);
+  res.json(data);
 });
 
 export default router;
