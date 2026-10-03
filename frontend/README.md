@@ -1,16 +1,16 @@
-# React + Vite
+# Samicus frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+React 19 + Vite. All data comes from the API (`/api`, see `src/lib/api.js`); sign-in is Supabase Auth
+(`src/lib/supabase.js`, `src/auth/`). Server state is cached with TanStack Query (`src/api/hooks.js`).
 
-Currently, two official plugins are available:
+```bash
+cp .env.example .env     # VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY
+npm run dev              # http://localhost:5173 (expects the API on :4000)
+npm run build            # → dist/ (served by the backend in production)
+npm run lint
+npm run e2e              # browser tests with a stubbed backend, see e2e/README.md
+```
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+Layout: `auth/` (login, verify email, reset password) · `shell/` (nav, role routing) · `screens/` ·
+`modals/` · `components/` (UI primitives, forms) · `state/UIState.jsx` (hash routing, toasts, modals).
+The signed-in user's role decides the experience: client, advocate, admin or founder.

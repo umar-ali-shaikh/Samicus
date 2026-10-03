@@ -1,13 +1,12 @@
--- Supabase/Postgres schema — ported from the 44 Mongoose models in backend/src/models/.
--- Conversion rules (see docs/MIGRATION plan): uuid PKs; ObjectId refs -> uuid FKs;
--- arrays of scalars used as query filters -> junction tables; arrays of embedded
--- subdocs with their own identity/refs that get populated -> child tables with a
--- `position` column to preserve order; everything else embedded/Mixed -> jsonb
--- (never queried into by the DB today, so jsonb is a direct, lossless port).
--- No ON DELETE behavior is added beyond the two account_members FKs (a pure
--- membership/junction row, the uncontroversial default) — everything else stays
--- plain `references` (no action), matching Mongo's lack of enforced referential
--- integrity rather than inventing a new cascade strategy.
+-- Samicus database schema (Supabase / Postgres). Run once in the Supabase SQL editor on a fresh project;
+-- existing databases upgrade with the files in db/migrations/ instead.
+-- Conventions: uuid primary keys; scalar arrays used as query filters live in junction tables;
+-- ordered child records carry a `position` column; everything else is jsonb. Foreign keys use
+-- the default (no cascade) except account_members and the auth link on users — deleting history
+-- is a deliberate, explicit act (see /privacy/delete, which anonymises instead).
+--
+-- Security: the last section enables row-level security with NO policies, so Supabase's public
+-- "anon" key cannot read or write anything. Only the API server (service-role key) touches data.
 
 create extension if not exists pgcrypto;
 
@@ -23,8 +22,11 @@ $$ language plpgsql;
 
 create table users (
   id uuid primary key default gen_random_uuid(),
-  phone text not null unique,
+  auth_id uuid unique references auth.users(id) on delete set null, -- Supabase Auth identity
+  phone text unique,
   email text,
+  avatar_url text,
+  last_login_at timestamptz,
   full_name text not null,
   preferred_language text not null default 'en' check (preferred_language in ('en', 'hi')),
   city text,
@@ -34,6 +36,7 @@ create table users (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+create unique index users_email_lower_key on users (lower(email)) where email is not null;
 create trigger users_set_updated_at before update on users for each row execute function set_updated_at();
 
 create table plans (
@@ -131,6 +134,7 @@ create table advocates (
   chamber_address text,
   city text,
   keywords text[] not null default '{}',
+  weekly_schedule jsonb not null default '{"days":[1,2,3,4,5,6],"start":"09:00","end":"19:00","slotMinutes":60}'::jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -164,22 +168,6 @@ create table advocate_jurisdictions (
 create index advocate_jurisdictions_advocate_id_idx on advocate_jurisdictions(advocate_id);
 create index advocate_jurisdictions_forum_idx on advocate_jurisdictions(forum);
 
--- Convenience view so route code can read an advocate "the old Mongoose way" (languages/
--- consultation_modes/jurisdictions back as arrays) without hand-writing the aggregation
--- at every call site — the junction/child tables above remain the source of truth for
--- writes and for filtering by containment.
-create view advocates_full as
-  select
-    a.*,
-    coalesce((select array_agg(language) from advocate_languages where advocate_id = a.id), '{}') as languages,
-    coalesce((select array_agg(mode) from advocate_consultation_modes where advocate_id = a.id), '{}') as consultation_modes,
-    coalesce((select array_agg(practice_area_id) from advocate_practice_areas where advocate_id = a.id), '{}') as practice_area_ids,
-    coalesce(
-      (select jsonb_agg(jsonb_build_object('state', state, 'forum', forum)) from advocate_jurisdictions where advocate_id = a.id),
-      '[]'::jsonb
-    ) as jurisdictions
-  from advocates a;
-
 -- ===================== verification / conflict checks =====================
 
 create table verification_cases (
@@ -201,6 +189,7 @@ create table intake_requests (
   account_id uuid not null references accounts(id),
   created_by uuid not null references users(id),
   description text,
+  counterparty_name text, -- used by the advocate's conflict check
   voice_transcript_id text,
   situation_id uuid references situations(id),
   routed_practice_area_id uuid references practice_areas(id),
@@ -272,8 +261,7 @@ create table matters (
 create index matters_account_id_idx on matters(account_id);
 create index matters_advocate_id_idx on matters(advocate_id);
 create trigger matters_set_updated_at before update on matters for each row execute function set_updated_at();
--- Matter.STAGES (Mongoose static) is now just an ordered constant in application code,
--- not a DB concept — keep ["intake","lawyer_matched","consultation","engagement_confirmed","action_in_progress","resolution"].
+-- Matter stages are an ordered constant in application code (not a DB concept): ["intake","lawyer_matched","consultation","engagement_confirmed","action_in_progress","resolution"].
 
 create table tasks (
   id uuid primary key default gen_random_uuid(),
@@ -310,7 +298,7 @@ create table timeline_events (
   title text not null,
   body text,
   actor_type text not null check (actor_type in ('user', 'advocate', 'system', 'platform')),
-  actor_id uuid, -- polymorphic (matches actor_type) — no FK, same as Mongo
+  actor_id uuid, -- polymorphic (matches actor_type) — no FK
   occurred_at timestamptz not null default now(),
   created_at timestamptz not null default now()
   -- append-only: no updated_at, matching {timestamps:{createdAt:true, updatedAt:false}}
@@ -320,7 +308,7 @@ create index timeline_events_matter_id_idx on timeline_events(matter_id);
 create table matter_access_grants (
   id uuid primary key default gen_random_uuid(),
   matter_id uuid not null references matters(id),
-  subject_id uuid not null, -- polymorphic (user or advocate) — no FK, same as Mongo
+  subject_id uuid not null, -- polymorphic (user or advocate) — no FK
   subject_type text not null check (subject_type in ('user', 'advocate')),
   subject_name text,
   subject_role text,
@@ -398,14 +386,14 @@ create trigger message_threads_set_updated_at before update on message_threads f
 
 create table thread_participants (
   thread_id uuid not null references message_threads(id),
-  participant_id uuid not null, -- polymorphic (user or advocate) — no FK, same as Mongo
+  participant_id uuid not null, -- polymorphic (user or advocate) — no FK
   primary key (thread_id, participant_id)
 );
 
 create table messages (
   id uuid primary key default gen_random_uuid(),
   thread_id uuid not null references message_threads(id),
-  sender_id uuid not null, -- polymorphic — no FK, same as Mongo
+  sender_id uuid not null, -- polymorphic — no FK
   body text not null,
   attachments uuid[] not null default '{}', -- Document ids; never joined in app code today
   sent_at timestamptz not null default now(),
@@ -426,7 +414,7 @@ create table documents (
   storage_key text,
   encryption_key_id text not null default 'dev-key-1',
   uploaded_by uuid not null references users(id),
-  shared_with uuid[] not null default '{}', -- Advocate ids; membership checked in app code, same as Mongo
+  shared_with uuid[] not null default '{}', -- Advocate ids; membership checked in app code
   virus_scan_status text not null default 'clean' check (virus_scan_status in ('pending', 'clean', 'infected')),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -514,6 +502,7 @@ create table draft_reviews (
   status text not null default 'pending' check (status in ('pending', 'in_progress', 'returned')),
   submitted_at timestamptz not null default now(),
   returned_at timestamptz,
+  paid_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -549,7 +538,8 @@ create table contract_reviews (
   clauses_identified integer,
   redline_key text,
   advocate_review_id uuid references advocates(id),
-  status text not null default 'scanning' check (status in ('scanning', 'done')),
+  notes text,
+  status text not null default 'scanning' check (status in ('scanning', 'done', 'failed')),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -567,7 +557,9 @@ create table contract_review_findings (
   favors text check (favors in ('drafter', 'counterparty', 'balanced')),
   deviation_note text,
   recommended_ask text,
-  authority_citation text
+  authority_citation text,
+  similarity numeric, -- cosine similarity to the matched baseline clause
+  why_it_matters text
 );
 create index contract_review_findings_contract_review_id_idx on contract_review_findings(contract_review_id);
 
@@ -593,6 +585,9 @@ create table service_orders (
   account_id uuid not null references accounts(id),
   status text not null default 'started' check (status in ('started', 'in_progress', 'delivered', 'abandoned')),
   matter_id uuid references matters(id),
+  paid_at timestamptz,
+  advocate_id uuid references advocates(id), -- assigned by an admin after payment
+  notes text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -621,17 +616,21 @@ create table consultations (
   fee_total numeric,
   payment_method text,
   paid_at timestamptz,
+  csat_rating smallint check (csat_rating between 1 and 5), -- client feedback, internal only
+  csat_comment text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
 create index consultations_intake_id_idx on consultations(intake_id);
+create unique index consultations_advocate_slot_key on consultations(advocate_id, scheduled_start)
+  where state in ('scheduled', 'reminder_sent', 'in_progress'); -- no double-booking
 create trigger consultations_set_updated_at before update on consultations for each row execute function set_updated_at();
 
--- ===================== corpus / research (RAG-adjacent, Mongo-backed today) =====================
+-- ===================== corpus / research (RAG: text + metadata live here, vectors live in Qdrant) =====================
 
 create table corpus_documents (
   id uuid primary key default gen_random_uuid(),
-  source text not null check (source in ('bare_act', 'supreme_court', 'high_court', 'rules', 'ccpa', 'asci')),
+  source text not null check (source in ('bare_act', 'supreme_court', 'high_court', 'rules', 'ccpa', 'asci', 'tribunal', 'other')),
   citation text not null,
   title text not null,
   court text,
@@ -643,8 +642,10 @@ create table corpus_documents (
   raw_text text,
   treatment text,
   superseded_by uuid references corpus_documents(id),
+  external_id text, -- e.g. 'ik:12345' for Indian Kanoon documents (dedupe key)
   indexed_at timestamptz not null default now()
 );
+create unique index corpus_documents_external_id_key on corpus_documents(external_id);
 
 create table corpus_chunks (
   id uuid primary key default gen_random_uuid(),
@@ -659,7 +660,8 @@ create table corpus_chunks (
   deep_link text,
   headnote_flag boolean not null default false,
   token_count integer,
-  keywords text[] not null default '{}' -- dev-mode retrieval substitute for a real vector index
+  keywords text[] not null default '{}',
+  embedded_at timestamptz -- set once the chunk's vector is upserted into Qdrant (point id = this row's id)
 );
 create index corpus_chunks_document_id_idx on corpus_chunks(document_id);
 
@@ -680,8 +682,7 @@ create table research_queries (
 create index research_queries_account_id_idx on research_queries(account_id);
 create trigger research_queries_set_updated_at before update on research_queries for each row execute function set_updated_at();
 
--- Replaces Mongo's two index-correlated parallel arrays (retrievedChunkIds[] + scores[])
--- with a proper child table — a direct improvement, trivial since the table is new anyway.
+-- One row per retrieved chunk, with its score and rank.
 create table research_query_chunks (
   id uuid primary key default gen_random_uuid(),
   query_id uuid not null references research_queries(id),
@@ -718,9 +719,11 @@ create index research_answer_segments_research_answer_id_idx on research_answer_
 create table legal_assistant_sessions (
   id uuid primary key default gen_random_uuid(),
   session_id text not null unique,
+  user_id uuid references users(id) on delete cascade,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+create index legal_assistant_sessions_user_id_idx on legal_assistant_sessions(user_id);
 create trigger legal_assistant_sessions_set_updated_at before update on legal_assistant_sessions for each row execute function set_updated_at();
 
 create table legal_assistant_turns (
@@ -736,7 +739,7 @@ create index legal_assistant_turns_session_id_idx on legal_assistant_turns(sessi
 
 create table public_questions (
   id uuid primary key default gen_random_uuid(),
-  author_account_id uuid not null references accounts(id), -- app layer must mimic Mongoose's select:false (never SELECT this column back to end users)
+  author_account_id uuid not null references accounts(id), -- never SELECT this column back to end users (anonymous Q&A)
   body text not null,
   practice_area text,
   city text,
@@ -851,11 +854,11 @@ create trigger ruleset_diffs_set_updated_at before update on ruleset_diffs for e
 
 create table audit_logs (
   id uuid primary key default gen_random_uuid(),
-  actor_id uuid not null, -- polymorphic — no FK, same as Mongo
+  actor_id uuid not null, -- polymorphic — no FK
   actor_role text,
   action text not null,
   subject_type text,
-  subject_id uuid, -- polymorphic — no FK, same as Mongo
+  subject_id uuid, -- polymorphic — no FK
   reason text,
   outcome text not null default 'recorded' check (outcome in ('recorded', 'denied')),
   ip text,
@@ -922,7 +925,7 @@ create table complaints (
   id uuid primary key default gen_random_uuid(),
   ref text not null unique,
   title text,
-  category text check (category in ('deliverable_delay', 'compliance_coverage', 'supply_gap', 'citation_accuracy', 'payment')),
+  category text check (category in ('deliverable_delay', 'compliance_coverage', 'supply_gap', 'citation_accuracy', 'payment', 'advocate_conduct', 'other')),
   status text not null default 'open' check (status in ('open', 'escalated', 'resolved')),
   severity text not null default 'medium' check (severity in ('low', 'medium', 'high')),
   service_involved text,
@@ -931,7 +934,9 @@ create table complaints (
   corrective_action text,
   refund_amount numeric,
   linked_record_type text check (linked_record_type in ('matter', 'consultation', 'pack_scan', 'research_query', 'payment')),
-  linked_record_id uuid, -- polymorphic (matches linked_record_type) — no FK, same as Mongo
+  linked_record_id uuid, -- polymorphic (matches linked_record_type) — no FK
+  raised_by uuid references users(id),
+  description text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -948,7 +953,7 @@ create table admin_access_grants (
 );
 create trigger admin_access_grants_set_updated_at before update on admin_access_grants for each row execute function set_updated_at();
 
--- Replacement for the two Mongo aggregation pipelines ($unwind+$group, $group):
+-- Aggregations used by the API:
 
 -- askLearn.js's "/specialisations": count of verified advocates per practice area.
 create or replace function advocate_counts_by_practice_area()
@@ -1024,3 +1029,53 @@ begin
   return v_matter;
 end;
 $$ language plpgsql volatile;
+
+-- ===================== online payments (Razorpay) =====================
+
+create table payment_orders (
+  id uuid primary key default gen_random_uuid(),
+  kind text not null check (kind in ('consultation', 'invoice', 'service_order', 'draft_review')),
+  subject_id uuid not null,
+  account_id uuid not null references accounts(id),
+  created_by uuid not null references users(id),
+  amount_paise bigint not null check (amount_paise > 0),
+  currency text not null default 'INR',
+  provider text not null default 'razorpay',
+  provider_order_id text not null unique,
+  provider_payment_id text,
+  status text not null default 'created' check (status in ('created', 'paid', 'failed')),
+  method text,
+  paid_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index payment_orders_subject_idx on payment_orders(kind, subject_id);
+create trigger payment_orders_set_updated_at before update on payment_orders for each row execute function set_updated_at();
+
+-- ===================== security: deny direct access with the public anon key =====================
+do $$
+declare r record;
+begin
+  for r in select tablename from pg_tables where schemaname = 'public' loop
+    execute format('alter table public.%I enable row level security', r.tablename);
+  end loop;
+end $$;
+
+revoke all on all tables in schema public from anon, authenticated;
+revoke all on all sequences in schema public from anon, authenticated;
+revoke execute on all functions in schema public from anon, authenticated, public;
+
+-- The API's service-role connection keeps full access (explicit, so it never depends on defaults).
+grant all on all tables in schema public to service_role;
+grant all on all sequences in schema public to service_role;
+grant execute on all functions in schema public to service_role;
+alter default privileges in schema public grant all on tables to service_role;
+alter default privileges in schema public grant all on sequences to service_role;
+alter default privileges in schema public grant execute on functions to service_role;
+
+alter default privileges in schema public revoke all on tables from anon, authenticated;
+alter default privileges in schema public revoke all on sequences from anon, authenticated;
+alter default privileges in schema public revoke execute on functions from anon, authenticated, public;
+
+-- Private bucket for uploaded documents (the API also creates it on boot if missing).
+insert into storage.buckets (id, name, public) values ('documents', 'documents', false) on conflict (id) do nothing;

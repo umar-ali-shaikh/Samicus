@@ -1,4 +1,5 @@
 import { Router } from "express";
+import rateLimit from "express-rate-limit";
 import {
   search,
   getDocument,
@@ -8,6 +9,7 @@ import {
   IndianKanoonAuthError,
   IndianKanoonApiError,
 } from "../services/indianKanoon.js";
+import { requireAuth } from "../middleware/auth.js";
 import { answerCaseLawQuestion, OpenRouterAuthError, OpenRouterApiError } from "../services/aiCaseLawAnswer.js";
 
 const router = Router();
@@ -28,9 +30,17 @@ function handleIkError(err, res) {
   return res.status(500).json({ error: "Case law search failed unexpectedly." });
 }
 
-// NOTE: not behind requireAuth — this client has no login flow wired up yet (see the
-// integration notes). If this app ever gets a real auth boundary, gate these too,
-// since every hit here spends real money.
+// Every Indian Kanoon call costs real money, so the whole router sits behind sign-in.
+const caseLawLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 60,
+  keyGenerator: (req) => req.user?.id || req.ip,
+  validate: { keyGeneratorIpFallback: false },
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many case-law requests — please wait a few minutes." },
+});
+router.use("/case-law", requireAuth, caseLawLimiter);
 
 router.get("/case-law/search", async (req, res) => {
   const { q, pagenum, maxpages, court, fromDate, toDate, title, cite, author, bench } = req.query;

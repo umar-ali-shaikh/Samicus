@@ -15,11 +15,13 @@
 // "this looks urgent, call a lawyer now" framing must never depend on the model choosing
 // to say it.
 import { z } from "zod";
-import { search, getDocument, getFragment } from "./indianKanoon.js";
+import { search, getDocument, getDocumentRaw, getFragment } from "./indianKanoon.js";
 import { understandQuery } from "./legalQueryUnderstanding.js";
 import { chatCompletion, OpenRouterAuthError, OpenRouterApiError } from "./openRouter.js";
 import { createCache } from "../utils/cache.js";
 import { rankRelevantDocs } from "./relevanceRanking.js";
+import { ragEnabled, ingestIndianKanoonDoc } from "./rag/ingest.js";
+import { retrievePassages } from "./rag/retrieve.js";
 
 export { OpenRouterAuthError, OpenRouterApiError };
 export { IndianKanoonAuthError, IndianKanoonApiError } from "./indianKanoon.js";
@@ -141,6 +143,55 @@ async function buildEvidence(distilledQuery, docs) {
     url: docUrl(d.tid),
     text: texts[i],
   }));
+}
+
+// ---- Qdrant knowledge-base (RAG) path -------------------------------------------------
+// Passages the knowledge base returns with at least this score are trusted enough to answer
+// from without paying for a live Indian Kanoon search. As the KB grows with usage, more
+// questions are served from it (cheaper and faster).
+const CONFIDENT_SCORE = Number(process.env.RAG_SKIP_LIVE_SEARCH_SCORE) || 0.72;
+const CONFIDENT_MIN_PASSAGES = Number(process.env.RAG_SKIP_LIVE_MIN_PASSAGES) || 3;
+const MAX_PASSAGES = 8;
+const MAX_NEW_DOCS_PER_QUESTION = 4;
+const PASSAGE_CHAR_LIMIT = 1600;
+const PARA_LABEL = {
+  provision: "statutory provision",
+  facts: "facts of the case",
+  issues: "issue before the court",
+  petitioner_arguments: "petitioner's argument (not the court's view)",
+  respondent_arguments: "respondent's argument (not the court's view)",
+  reasoning: "court's reasoning",
+  holding: "court's holding/conclusion",
+  directions: "court's directions",
+};
+
+function tidFromExternalId(externalId) {
+  const m = /^ik:(\d+)$/.exec(externalId || "");
+  return m ? Number(m[1]) : null;
+}
+
+function passagesToEvidence(passages) {
+  return passages.slice(0, MAX_PASSAGES).map((p, i) => ({
+    index: i + 1,
+    tid: tidFromExternalId(p.externalId),
+    title: p.title,
+    docsource: p.court || p.source,
+    url: p.url,
+    text: `[${PARA_LABEL[p.paraClass] || p.paraClass}] ${p.text.slice(0, PASSAGE_CHAR_LIMIT)}`,
+  }));
+}
+
+// Index the documents the live search surfaced so this and future questions can be answered
+// passage-by-passage from the vector store. Best-effort: indexing problems never fail the answer.
+async function indexSearchHits(docs) {
+  const fresh = docs.slice(0, MAX_NEW_DOCS_PER_QUESTION);
+  const results = await Promise.allSettled(
+    fresh.map(async (d) => {
+      const full = await getDocumentRaw(d.tid);
+      return ingestIndianKanoonDoc({ tid: d.tid, title: d.title, docsource: d.docsource, html: full.doc });
+    })
+  );
+  for (const r of results) if (r.status === "rejected") console.error("RAG ingest failed:", r.reason?.message || r.reason);
 }
 
 const SYSTEM_PROMPT = `You are "${APP_NAME}", an AI legal-information assistant for India, embedded in a legal-services platform. You are NOT a lawyer, and you must never imply that you are one.
@@ -292,6 +343,18 @@ function attachSourceUrls(sections, evidence) {
   };
 }
 
+function dedupeSources(evidence) {
+  const seen = new Set();
+  const out = [];
+  for (const e of evidence) {
+    const key = e.url || `${e.tid}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ tid: e.tid, title: e.title, docsource: e.docsource, url: e.url });
+  }
+  return out;
+}
+
 /**
  * @param {string} question - raw user question, any language/register.
  * @param {import("./indianKanoonFilters.js").CaseLawFilters} [filters]
@@ -317,26 +380,44 @@ export async function answerLegalQuestion(question, filters = {}, topN = DEFAULT
       message: understanding.isEmergency ? EMERGENCY_MESSAGE : null,
     };
 
-    const [{ docs }, lawsResult] = await Promise.all([
-      search(understanding.searchQuery, filters, 0, 1),
-      // Best-effort: a real auth/token problem will also surface via the call above
-      // (same token, same failure mode), so a failure here is safe to swallow rather
-      // than sinking the whole request over an enhancement search.
-      search(understanding.searchQuery, { ...filters, court: "laws" }, 0, 1).catch(() => ({ docs: [] })),
-    ]);
+    // 1) Knowledge base first (Qdrant): semantic passages from everything indexed so far.
+    let kbPassages = [];
+    if (ragEnabled()) {
+      try {
+        kbPassages = await retrievePassages(understanding.searchQuery, { limit: MAX_PASSAGES + 2 });
+      } catch (err) {
+        console.error("Qdrant retrieval failed, falling back to live search only:", err.message);
+      }
+    }
+    const kbConfident = kbPassages.filter((p) => p.score >= CONFIDENT_SCORE).length >= CONFIDENT_MIN_PASSAGES;
+
+    // 2) Live Indian Kanoon search — skipped when the KB already answers confidently.
+    let docs = [];
+    let lawsResult = { docs: [] };
+    let liveError = null;
+    if (!kbConfident) {
+      try {
+        [{ docs }, lawsResult] = await Promise.all([
+          search(understanding.searchQuery, filters, 0, 1),
+          // Best-effort: a real auth/token problem will also surface via the call above
+          // (same token, same failure mode), so a failure here is safe to swallow rather
+          // than sinking the whole request over an enhancement search.
+          search(understanding.searchQuery, { ...filters, court: "laws" }, 0, 1).catch(() => ({ docs: [] })),
+        ]);
+      } catch (err) {
+        liveError = err;
+        // With a populated KB we can still answer; otherwise surface the real error.
+        if (kbPassages.length === 0) throw err;
+        console.error("Live search failed, answering from the knowledge base:", err.message);
+      }
+    }
 
     // Score each candidate pool by relevance to the query — Gemini embeddings when
     // GEMINI_API_KEY is configured (a real semantic match, which catches a
     // paraphrased/conversational question that shares no exact keywords with the
     // right statute/judgment), local TF-IDF otherwise (see relevanceRanking.js) — and
-    // drop anything judged unrelated rather than forcing it in. Indian Kanoon's own
-    // search (especially doctypes:laws, a much smaller corpus than case law) can
-    // return a hit that shares nothing with the actual question just because it was
-    // the closest thing available; blindly taking the top LAWS_TOP_N/topN regardless
-    // of relevance forces unrelated Acts/cases into the evidence, which the model then
-    // has to cite around and which misleads the user into thinking they're "the"
-    // sources. Fewer, genuinely relevant sources (even zero, which falls through to
-    // no_evidence below) beats padding with noise.
+    // drop anything judged unrelated rather than forcing it in. Fewer, genuinely relevant
+    // sources (even zero, which falls through to no_evidence below) beats padding with noise.
     const docText = (d) => `${d.title} ${stripHtml(d.headline)}`;
     const [rankedLaw, rankedGeneral] = await Promise.all([
       rankRelevantDocs(understanding.searchQuery, lawsResult.docs || [], docText),
@@ -348,7 +429,19 @@ export async function answerLegalQuestion(question, filters = {}, topN = DEFAULT
     const generalDocs = rankedGeneral.map((x) => x.item).filter((d) => !lawTids.has(d.tid));
     const top = [...lawDocs, ...generalDocs].slice(0, topN);
 
-    if (top.length === 0) {
+    // 3) Passage-level evidence. Index what the live search found, then re-query the KB so the
+    //    model reads the best *passages* (not the first 3,000 characters of each document).
+    let passages = kbPassages;
+    if (ragEnabled() && top.length > 0 && !liveError) {
+      await indexSearchHits(top);
+      try {
+        passages = await retrievePassages(understanding.searchQuery, { limit: MAX_PASSAGES + 2 });
+      } catch (err) {
+        console.error("Qdrant re-query failed:", err.message);
+      }
+    }
+
+    if (top.length === 0 && passages.length === 0) {
       return {
         outcome: "no_evidence",
         understanding: { searchQuery: understanding.searchQuery, topic: understanding.topic, language: understanding.language },
@@ -360,7 +453,7 @@ export async function answerLegalQuestion(question, filters = {}, topN = DEFAULT
       };
     }
 
-    const evidence = await buildEvidence(understanding.searchQuery, top);
+    const evidence = passages.length > 0 ? passagesToEvidence(passages) : await buildEvidence(understanding.searchQuery, top);
     const raw = await chatCompletion(buildMessages(question, understanding.topic, evidence, understanding.language, understanding.isEmergency), {
       jsonMode: true,
     });
@@ -410,7 +503,8 @@ export async function answerLegalQuestion(question, filters = {}, topN = DEFAULT
       emergency,
       sections,
       rawAnswer,
-      sources: evidence.map((e) => ({ tid: e.tid, title: e.title, docsource: e.docsource, url: e.url })),
+      sources: dedupeSources(evidence),
+      retrieval: { mode: passages.length > 0 ? "knowledge_base" : "live_search", passages: passages.length, servedFromKnowledgeBase: kbConfident },
       disclaimer: DISCLAIMER,
     };
   });

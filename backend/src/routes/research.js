@@ -1,30 +1,36 @@
 import { Router } from "express";
 import { getSupabase } from "../config/db.js";
 import { requireAuth } from "../middleware/auth.js";
-import { retrieve, answerFromRetrieval, RELEVANCE_THRESHOLD } from "../services/research.js";
+import { retrieve, answerFromRetrieval, relevanceThreshold } from "../services/research.js";
+import { assertAccountMember, defaultAccountId, HttpError } from "../services/access.js";
+import { knowledgeBaseStats } from "../services/rag/retrieve.js";
 
 const router = Router();
 
 // Step 1: retrieve — a separate callable step, so the client sees retrieval before any answer exists.
 router.post("/research/retrieve", requireAuth, async (req, res) => {
   const supabase = getSupabase();
-  const { text, sourcesEnabled } = req.body;
+  const { text, sourcesEnabled } = req.body || {};
+  if (typeof text !== "string" || text.trim().length < 5 || text.length > 1000) throw new HttpError(400, "Enter a question of 5–1,000 characters.");
+  const accountId = req.body.accountId || (await defaultAccountId(req.user.id));
+  await assertAccountMember(req.user.id, accountId);
+  const threshold = relevanceThreshold();
   const scored = await retrieve(text, { sourcesEnabled });
 
   const { data: query, error } = await supabase
     .from("research_queries")
     .insert({
-      account_id: req.body.accountId || null,
+      account_id: accountId,
       text,
       sources_enabled: sourcesEnabled || [],
-      threshold: RELEVANCE_THRESHOLD,
-      outcome: scored.some((s) => s.score >= RELEVANCE_THRESHOLD) ? "answered" : "not_found",
+      threshold,
+      model_version: "gemini-embedding-001+qdrant",
+      outcome: scored.some((s) => s.score >= threshold) ? "answered" : "not_found",
     })
     .select()
     .single();
   if (error) throw error;
 
-  // Replaces Mongo's two index-correlated parallel arrays (retrievedChunkIds[] + scores[]).
   if (scored.length > 0) {
     const { error: chunksError } = await supabase
       .from("research_query_chunks")
@@ -34,16 +40,17 @@ router.post("/research/retrieve", requireAuth, async (req, res) => {
 
   res.json({
     retrievalId: query.id,
-    threshold: RELEVANCE_THRESHOLD,
+    threshold,
     chunks: scored.map((s) => ({
       chunkId: s.chunk.id,
       score: s.score,
-      kept: s.score >= RELEVANCE_THRESHOLD,
+      kept: s.score >= threshold,
       text: s.chunk.text,
       paragraphClass: s.chunk.paragraph_class,
       sectionLabel: s.chunk.section_label,
       documentTitle: s.chunk.document?.title,
       source: s.chunk.document?.source,
+      url: s.chunk.document?.canonical_url,
     })),
   });
 });
@@ -51,10 +58,11 @@ router.post("/research/retrieve", requireAuth, async (req, res) => {
 // Step 2: answer — takes a retrieval id, NEVER a bare question.
 router.post("/research/answer", requireAuth, async (req, res) => {
   const supabase = getSupabase();
-  const { retrievalId } = req.body;
+  const { retrievalId } = req.body || {};
   const { data: query, error } = await supabase.from("research_queries").select("*").eq("id", retrievalId).maybeSingle();
   if (error) throw error;
   if (!query) return res.status(404).json({ error: "Unknown retrieval id" });
+  await assertAccountMember(req.user.id, query.account_id).catch(() => { throw new HttpError(404, "Unknown retrieval id"); });
 
   const { data: queryChunks, error: chunksError } = await supabase
     .from("research_query_chunks")
@@ -87,14 +95,14 @@ router.post("/research/answer", requireAuth, async (req, res) => {
   res.json({ outcome: result.outcome, answer, segments: result.segments, discardedCount: result.discardedCount });
 });
 
-router.get("/corpus/:id", async (req, res) => {
+router.get("/corpus/documents/:id", requireAuth, async (req, res) => {
   const { data: doc, error } = await getSupabase().from("corpus_documents").select("*").eq("id", req.params.id).maybeSingle();
   if (error) throw error;
   if (!doc) return res.status(404).json({ error: "Not found" });
   res.json(doc);
 });
 
-router.get("/corpus/chunks/:id", async (req, res) => {
+router.get("/corpus/chunks/:id", requireAuth, async (req, res) => {
   const { data: chunk, error } = await getSupabase()
     .from("corpus_chunks")
     .select("*, document:corpus_documents(*)")
@@ -105,14 +113,14 @@ router.get("/corpus/chunks/:id", async (req, res) => {
   res.json(chunk);
 });
 
-router.get("/corpus/status", async (req, res) => {
+router.get("/corpus/status", requireAuth, async (req, res) => {
   const supabase = getSupabase();
-  // Replaces CorpusDocument.aggregate([{$group: ...}]) — see corpus_document_counts_by_source() in schema.sql.
+  // See corpus_document_counts_by_source() in schema.sql.
   const { data: bySource, error } = await supabase.rpc("corpus_document_counts_by_source");
   if (error) throw error;
   const { count: chunkCount, error: countError } = await supabase.from("corpus_chunks").select("*", { count: "exact", head: true });
   if (countError) throw countError;
-  res.json({ bySource, chunkCount, asOf: new Date().toISOString().slice(0, 10) });
+  res.json({ bySource, chunkCount, vectorIndex: await knowledgeBaseStats().catch((e) => ({ enabled: true, error: e.message })), asOf: new Date().toISOString().slice(0, 10) });
 });
 
 export default router;

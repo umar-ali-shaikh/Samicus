@@ -2,9 +2,7 @@
 // (backend/src/routes/legalAssistant.js). See frontend/src/api/caseLawClient.js for the
 // sibling case-law-search client this pipeline is built alongside.
 
-// Same-origin "/api" in production builds (server serves the built client and the API
-// from one process) — override with VITE_API_BASE_URL for a split deployment.
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? "http://localhost:4000/api" : "/api");
+import { api } from "../lib/api";
 
 /**
  * Ask the AI legal assistant a question (any language/register — Hindi, Marathi, Urdu,
@@ -16,15 +14,8 @@ const BASE_URL = import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? "ht
  * @param {string} [sessionId] - when provided, the server appends this turn to that
  *   session's persisted history (see getLegalAssistantSession).
  */
-export async function askLegalAssistant(question, filters = {}, sessionId) {
-  const res = await fetch(`${BASE_URL}/legal-assistant/ask`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ question, ...filters, ...(sessionId ? { sessionId } : {}) }),
-  });
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(body.error || `Request failed (${res.status})`);
-  return body;
+export function askLegalAssistant(question, filters = {}, sessionId) {
+  return api.post("/legal-assistant/ask", { question, ...filters, ...(sessionId ? { sessionId } : {}) });
 }
 
 /**
@@ -32,9 +23,6 @@ export async function askLegalAssistant(question, filters = {}, sessionId) {
  * @param {string} sessionId
  * @returns {Promise<{turns: Array<{question: string, result: object, createdAt?: string}>}>}
  */
-export async function getLegalAssistantSession(sessionId) {
-  const res = await fetch(`${BASE_URL}/legal-assistant/session/${encodeURIComponent(sessionId)}`);
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(body.error || `Request failed (${res.status})`);
-  return body;
+export function getLegalAssistantSession(sessionId) {
+  return api.get(`/legal-assistant/session/${encodeURIComponent(sessionId)}`);
 }

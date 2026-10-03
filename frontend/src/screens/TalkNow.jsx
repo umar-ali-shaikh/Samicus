@@ -1,79 +1,59 @@
-import { useAppState, computeFees } from "../state/AppState";
-import { LAWYERS } from "../data/mockData";
-import { Card, Button, Callout, ProgressBar, AvatarTile } from "../components/ui";
+import { useState } from "react";
+import { useAuth } from "../auth/AuthProvider";
+import { useUI } from "../state/UIState";
+import { useGet, useMut } from "../api/hooks";
+import { api } from "../lib/api";
+import { Card, Button, Callout } from "../components/ui";
+import { PageHeader } from "../components/PageHeader";
+import { Select, TextArea } from "../components/forms";
+import { LiveConsult } from "../components/LiveConsult";
+import { LANGUAGES, STATES } from "../lib/format";
 
 export function TalkNow() {
-  const { state, act } = useAppState();
-  const { stage, fields, lawyerId } = state.talkNow;
-  const lawyer = LAWYERS.find((l) => l.id === lawyerId) || LAWYERS[0];
-  const fees = computeFees(lawyer.fee);
+  const { activeAccount } = useAuth();
+  const { lang } = useUI();
+  const situations = useGet("/situations", undefined, { staleTime: 3600000 });
+  const [form, setForm] = useState({ description: "", situationId: "", urgency: "today", mode: "video", language: "en", state: "", consent: false });
+  const [live, setLive] = useState(null); // { intakeId, startedAt }
+  const patch = (p) => setForm((f) => ({ ...f, ...p }));
+
+  const start = useMut(async () => {
+    const intake = await api.post("/intake-requests", {
+      accountId: activeAccount?.id, description: form.description.trim(), situationId: form.situationId, urgency: form.urgency,
+      mode: form.mode, language: form.language, state: form.state || undefined, kind: "instant",
+    });
+    await api.post(`/intake-requests/${intake.id}/consent`);
+    // Computing the matches is what offers the request to the best-matched advocates.
+    const { matches } = await api.get(`/intake-requests/${intake.id}/matches`);
+    return { intake, count: matches.length };
+  }, { onSuccess: ({ intake, count }) => setLive({ intakeId: intake.id, startedAt: Date.now(), count }) });
+
+  const none = start.data && start.data.count === 0;
+  const ready = form.description.trim().length >= 10 && form.situationId && form.consent;
 
   return (
-    <div>
-      <div style={{ fontFamily: "var(--font-serif)", fontSize: 22, marginBottom: 4 }}>Talk now</div>
-      <div style={{ fontSize: 12.5, color: "var(--color-text-muted)", marginBottom: 16 }}>Only category and city are shared before the conflict check clears.</div>
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <PageHeader title="Talk now" subtitle="Only the category and city are shared before the advocate's conflict check clears." />
 
-      {stage === "setup" && (
+      {live && !none ? (
+        <div style={{ maxWidth: 560 }}><LiveConsult intakeId={live.intakeId} startedAt={live.startedAt} onCancelled={() => setLive(null)} onGone={() => setLive(null)} /></div>
+      ) : (
         <Card style={{ maxWidth: 560, display: "flex", flexDirection: "column", gap: 12 }}>
-          <textarea value={fields.situation || ""} onChange={(e) => act.setTalkField("situation", e.target.value)} rows={3} placeholder="What's going on?" style={{ padding: 12, borderRadius: 10, border: "1px solid var(--color-border)" }} />
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10 }}>
-            <select value={fields.urgency || "today"} onChange={(e) => act.setTalkField("urgency", e.target.value)} style={{ padding: 10, borderRadius: 9, border: "1px solid var(--color-border)" }}>
-              <option value="today">Today</option><option value="48h">Within 48h</option>
-            </select>
-            <select value={fields.mode || "video"} onChange={(e) => act.setTalkField("mode", e.target.value)} style={{ padding: 10, borderRadius: 9, border: "1px solid var(--color-border)" }}>
-              <option value="video">Video</option><option value="phone">Phone</option><option value="chat">Chat</option>
-            </select>
+          <TextArea label="What's going on?" rows={3} value={form.description} onChange={(e) => patch({ description: e.target.value })} placeholder="Describe the issue in a few sentences" />
+          <Select label="What kind of issue is it?" value={form.situationId} onChange={(e) => patch({ situationId: e.target.value })} placeholder="Choose the closest match" options={(situations.data || []).map((s) => [s.id, lang === "hi" ? s.label_hi : s.label_en])} />
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10 }}>
+            <Select label="Urgency" value={form.urgency} onChange={(e) => patch({ urgency: e.target.value })} options={[["today", "Today"], ["48h", "Within 48h"]]} />
+            <Select label="Mode" value={form.mode} onChange={(e) => patch({ mode: e.target.value })} options={[["video", "Video"], ["phone", "Phone"], ["chat", "Chat"]]} />
+            <Select label="Language" value={form.language} onChange={(e) => patch({ language: e.target.value })} options={LANGUAGES} />
+            <Select label="State (optional)" value={form.state} onChange={(e) => patch({ state: e.target.value })} placeholder="Any" options={STATES} />
           </div>
-          <div style={{ fontSize: 13 }}>Estimated fee: ₹{fees.total}</div>
-          <Button onClick={act.startMatch}>Find an available advocate</Button>
-          <div style={{ fontSize: 11.5, color: "var(--color-label)" }}>Only category and city are shared pre-conflict-check.</div>
-        </Card>
-      )}
-
-      {stage === "searching" && (
-        <Card style={{ maxWidth: 560, background: "var(--color-navy)", color: "#fff", display: "flex", flexDirection: "column", gap: 12 }}>
-          <div>Searching for an available advocate…</div>
-          <ProgressBar pct={34} tone="mint" />
-          <div style={{ fontSize: 12, color: "#9AA5BC" }}>Request created → Available advocates identified</div>
-          <Button variant="outline" onClick={act.cancelMatch}>Cancel request</Button>
-        </Card>
-      )}
-
-      {stage === "reviewing" && (
-        <Card style={{ maxWidth: 560, background: "var(--color-navy)", color: "#fff", display: "flex", flexDirection: "column", gap: 12 }}>
-          <div>Advocate reviewing your request (running conflict check)…</div>
-          <ProgressBar pct={72} tone="mint" />
-          <div style={{ fontSize: 12, color: "#9AA5BC" }}>Conflict check → Advocate accepted</div>
-          <Button variant="outline" onClick={act.cancelMatch}>Cancel request</Button>
-        </Card>
-      )}
-
-      {stage === "matched" && (
-        <Card style={{ maxWidth: 560, display: "flex", flexDirection: "column", gap: 12 }}>
-          <Callout tone="success">Advocate matched · conflict check cleared</Callout>
-          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-            <AvatarTile initials={lawyer.initials} />
-            <div><div style={{ fontWeight: 700 }}>{lawyer.name}</div><div style={{ fontSize: 12, color: "var(--color-text-muted)" }}>{lawyer.whyMatch}</div></div>
-          </div>
-          <div style={{ fontWeight: 700 }}>₹{fees.total} total (incl. platform fee & GST)</div>
-          <div style={{ display: "flex", gap: 10 }}>
-            <Button onClick={act.connectNow}>Pay & start</Button>
-            <Button variant="outline" onClick={() => act.openLawyer(lawyer.id)}>View profile</Button>
-            <Button variant="ghost" onClick={act.cancelMatch}>Not now</Button>
-          </div>
-        </Card>
-      )}
-
-      {stage === "live" && (
-        <Card style={{ maxWidth: 560, background: "var(--color-navy)", color: "#fff", display: "flex", flexDirection: "column", gap: 14 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap" }}>
-            <div style={{ background: "#182338", borderRadius: 10, height: 140, flex: 1, marginRight: 8, display: "flex", alignItems: "center", justifyContent: "center" }}>You</div>
-            <div style={{ background: "#182338", borderRadius: 10, height: 140, flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>{lawyer.name}</div>
-          </div>
-          <div style={{ textAlign: "center", fontFamily: "var(--font-mono)" }}>Recording is off by default</div>
-          <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
-            <Button variant="outline" onClick={act.convertMatter}>End & convert to tracked matter</Button>
-          </div>
+          {none && <Callout tone="warning">No verified advocate is currently available for those preferences. Try another language or mode, or <a href="#find">browse advocates</a> to book a slot.</Callout>}
+          <label style={{ display: "flex", gap: 8, fontSize: 13, alignItems: "flex-start" }}>
+            <input type="checkbox" checked={form.consent} onChange={(e) => patch({ consent: e.target.checked })} style={{ marginTop: 3 }} />
+            I consent to sharing my described issue with the advocate who accepts, after their conflict check clears.
+          </label>
+          <Button onClick={() => { setLive(null); start.mutate(); }} disabled={!ready || start.isPending}>{start.isPending ? "Finding advocates…" : "Find an available advocate"}</Button>
+          <div style={{ fontSize: 11.5, color: "var(--color-label)" }}>The advocate's fee is shown before you pay or join.</div>
         </Card>
       )}
     </div>

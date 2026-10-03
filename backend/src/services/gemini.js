@@ -46,6 +46,33 @@ export function isGeminiConfigured() {
  * @param {"RETRIEVAL_QUERY"|"RETRIEVAL_DOCUMENT"} taskType
  * @returns {Promise<number[][]>} one embedding vector per input text, same order
  */
+const MAX_BATCH = 64;
+const MAX_ATTEMPTS = 4;
+
+/**
+ * Like embedTexts, but splits large inputs into API-sized batches and retries 429/5xx with
+ * backoff (the free tier rate-limits bursts). Order of the returned vectors matches `texts`.
+ */
+export async function embedMany(texts, taskType) {
+  const out = [];
+  for (let i = 0; i < texts.length; i += MAX_BATCH) {
+    const batch = texts.slice(i, i + MAX_BATCH);
+    for (let attempt = 1; ; attempt++) {
+      try {
+        out.push(...(await embedTexts(batch, taskType)));
+        break;
+      } catch (err) {
+        const retryable = err instanceof GeminiApiError && (err.status === 429 || err.status >= 500 || err.status === 0);
+        if (!retryable || attempt >= MAX_ATTEMPTS) throw err;
+        await new Promise((r) => setTimeout(r, 800 * 2 ** (attempt - 1)));
+      }
+    }
+  }
+  return out;
+}
+
+export const EMBEDDING_DIMENSIONS = OUTPUT_DIMENSIONS;
+
 export async function embedTexts(texts, taskType) {
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new GeminiAuthError();

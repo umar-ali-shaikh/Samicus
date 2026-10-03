@@ -1,20 +1,20 @@
-import { useAppState } from "../state/AppState";
+import { useUI } from "../state/UIState";
 import { BookingModal } from "./BookingModal";
 import { UrgentModal } from "./UrgentModal";
 import { LawyerProfileModal } from "./LawyerProfileModal";
 import { ServiceModal } from "./ServiceModal";
-import { QuoteModal } from "./QuoteModal";
-import { PayModal } from "./PayModal";
+import { GuideModal } from "./GuideModal";
 
 export function ModalHost() {
-  const { state } = useAppState();
-  switch (state.modal) {
-    case "booking": return <BookingModal />;
+  const { modal } = useUI();
+  if (!modal) return null;
+  const { name, props } = modal;
+  switch (name) {
+    case "booking": return <BookingModal {...props} />;
     case "urgent": return <UrgentModal />;
-    case "lawyer": return <LawyerProfileModal />;
-    case "service": return <ServiceModal />;
-    case "quote": return <QuoteModal />;
-    case "pay": return <PayModal />;
+    case "lawyer": return <LawyerProfileModal {...props} />;
+    case "service": return <ServiceModal {...props} />;
+    case "guide": return <GuideModal {...props} />;
     default: return null;
   }
 }

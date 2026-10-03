@@ -19,9 +19,10 @@ function passesHardFilters(advocate, intake) {
   if (advocate.verificationStatus !== "verified") return false;
   const wantedAreaId = intake.routedPracticeAreaId?.toString();
   if (!advocate.practiceAreas.some((pa) => idStr(pa) === wantedAreaId)) return false;
-  if (intake.state && !advocate.jurisdictions.some((j) => j.state === intake.state)) return false;
+  // An advocate who declared no jurisdictions has not restricted their practice by state.
+  if (intake.state && advocate.jurisdictions.length > 0 && !advocate.jurisdictions.some((j) => j.state === intake.state)) return false;
   if (intake.language && !advocate.languages.includes(intake.language)) return false;
-  if (!advocate.consultationModes.includes(intake.mode)) return false;
+  if (intake.mode && !advocate.consultationModes.includes(intake.mode)) return false;
   return true;
 }
 
