@@ -3,15 +3,15 @@
   "private": true,
   "version": "0.1.0",
   "workspaces": [
-    "client",
-    "server"
+    "frontend",
+    "backend"
   ],
   "scripts": {
-    "dev": "npm run dev -w client",
-    "dev:full": "concurrently -n SERVER,CLIENT -c blue,green \"npm run dev -w server\" \"npm run dev -w client\"",
-    "seed": "npm run seed -w server",
-    "build": "npm run build -w client",
-    "start": "npm run start -w server"
+    "dev": "npm run dev -w frontend",
+    "dev:full": "concurrently -n SERVER,CLIENT -c blue,green \"npm run dev -w backend\" \"npm run dev -w frontend\"",
+    "seed": "npm run seed -w backend",
+    "build": "npm run build -w frontend",
+    "start": "npm run start -w backend"
   },
   "devDependencies": {
     "concurrently": "^9.0.1"

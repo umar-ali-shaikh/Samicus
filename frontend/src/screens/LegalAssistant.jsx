@@ -1,0 +1,519 @@
+import { useEffect, useRef, useState } from "react";
+import { askLegalAssistant, getLegalAssistantSession } from "../api/legalAssistantClient";
+import { Card, Button, Badge, Callout, EmptyState } from "../components/ui";
+
+// Conversational AI Legal Assistant ("Vidhira") — distinct from the Case law search
+// screen (which is a faceted research tool for browsing judgments directly). This
+// screen is the RAG chat surface: natural-language questions in, a grounded + structured
+// answer out, always with citations and a safety disclaimer.
+
+const EXAMPLE_PROMPTS = [
+  "Mere landlord ne security deposit return nahi kiya, kya kar sakta hoon?",
+  "What are my rights if I am arrested?",
+  "Section 138 NI Act ka kya meaning hai?",
+  "Can an employer terminate me without notice?",
+  "What does the Supreme Court say about anticipatory bail?",
+  "Mere against FIR ho gayi hai, ab mujhe kya karna chahiye?",
+];
+
+// Fixed (non-LLM) UI strings, translated once and reviewed — never machine-translated
+// per-request. Mirrors the server's own policy for the disclaimer/emergency text
+// (see legalAssistant.js): safety-critical copy must never depend on a model call.
+//
+// Six distinct language/script keys, none interchangeable: hi/mr are Devanagari
+// (Hindi vs Marathi vocabulary), ur is Perso-Arabic, hinglish/marathlish are Hindi
+// or Marathi meaning transliterated STRICTLY into Roman/English letters (no
+// Devanagari at all) — mixing scripts mid-answer is exactly the bug this split fixes.
+const UI_STRINGS = {
+  timeSensitive: {
+    en: "Time-sensitive",
+    hi: "समय-संवेदनशील",
+    hinglish: "Samay-sanvedansheel",
+    mr: "वेळ-संवेदनशील",
+    marathlish: "Vel-samvedansheel",
+    ur: "وقت کی نزاکت والا",
+  },
+  insufficientSources: {
+    en: "Insufficient sources",
+    hi: "अपर्याप्त स्रोत",
+    hinglish: "Paryapt sources nahi mile",
+    mr: "अपुरे स्रोत",
+    marathlish: "Puresa strot nahi",
+    ur: "ناکافی ذرائع",
+  },
+  unparsedWarning: {
+    en: "The assistant's response couldn't be split into structured sections — shown below as a summary.",
+    hi: "सहायक की प्रतिक्रिया को संरचित अनुभागों में विभाजित नहीं किया जा सका — इसे नीचे सारांश के रूप में दिखाया गया है।",
+    hinglish: "Assistant ka jawab structured sections mein nahi baant paya — isliye neeche summary ke roop mein dikhaya gaya hai.",
+    mr: "सहाय्यकाचा प्रतिसाद संरचित विभागांमध्ये विभागता आला नाही — म्हणून खाली सारांश म्हणून दाखवला आहे.",
+    marathlish: "Assistant cha javab structured sections madhe vibhagata aala nahi — mhanun khali saransh mhanun dakhavla aahe.",
+    ur: "معاون کے جواب کو منظم حصوں میں تقسیم نہیں کیا جا سکا — اس لیے اسے نیچے خلاصے کے طور پر دکھایا گیا ہے۔",
+  },
+  sources: { en: "Sources", hi: "स्रोत", hinglish: "Sources", mr: "स्रोत", marathlish: "Strot", ur: "ذرائع" },
+  fallbackNextSteps: {
+    en: "Practical next steps: consult a qualified Indian lawyer for guidance specific to your situation, and keep any documents (FIR, notice, agreement, etc.) related to the matter ready to show them.",
+    hi: "व्यावहारिक अगले कदम: अपनी स्थिति के अनुसार सलाह के लिए किसी योग्य भारतीय वकील से संपर्क करें, और मामले से जुड़े दस्तावेज़ (FIR, नोटिस, एग्रीमेंट आदि) उन्हें दिखाने के लिए तैयार रखें।",
+    hinglish: "Practical agle kadam: apni situation ke hisaab se salah ke liye ek qualified Indian vakil se sampark karein, aur is mamle se jude documents (FIR, notice, agreement, waghera) unhe dikhane ke liye taiyaar rakhein.",
+    mr: "व्यावहारिक पुढील पावले: तुमच्या परिस्थितीनुसार सल्ल्यासाठी एका पात्र भारतीय वकिलाशी संपर्क साधा, आणि या प्रकरणाशी संबंधित कागदपत्रे (FIR, नोटीस, करार इ.) त्यांना दाखवण्यासाठी तयार ठेवा.",
+    marathlish: "Vyavaharik pudhil paavale: tumchya paristhitinusar sallyasathi ek patra Bharatiya vakilashi sampark sadha, ani ya prakaranashi sambandhit kagadpatre (FIR, notice, karar itr) tyanna dakhavnyasathi taiyar theva.",
+    ur: "عملی اگلے اقدامات: اپنی صورتحال کے مطابق مشورے کے لیے کسی مستند بھارتی وکیل سے رابطہ کریں، اور اس معاملے سے متعلق دستاویزات (FIR، نوٹس، معاہدہ وغیرہ) انہیں دکھانے کے لیے تیار رکھیں۔",
+  },
+  disclaimer: {
+    en: "This is general legal information for education and research purposes, generated only from the Indian Kanoon sources listed below — it is not legal advice from a lawyer, it does not create a lawyer-client relationship, and it cannot guarantee any outcome. For anything serious, urgent, criminal, financial, family, property, or litigation-related, please consult a qualified Indian lawyer.",
+    hi: "यह सामान्य कानूनी जानकारी केवल शिक्षा और अनुसंधान के उद्देश्य से दी गई है, और नीचे सूचीबद्ध Indian Kanoon स्रोतों पर आधारित है — यह किसी वकील की कानूनी सलाह नहीं है, इससे वकील-मुवक्किल संबंध स्थापित नहीं होता, और यह किसी परिणाम की गारंटी नहीं देती। किसी भी गंभीर, तत्काल, आपराधिक, वित्तीय, पारिवारिक, संपत्ति संबंधी, या मुकदमेबाज़ी से जुड़े मामले के लिए कृपया किसी योग्य भारतीय वकील से सलाह लें।",
+    hinglish: "Yeh sirf general legal jaankari hai, sirf education aur research ke maksad se, aur neeche diye gaye Indian Kanoon sources par based hai — yeh kisi vakil ki legal advice nahi hai, isse vakil-client relationship nahi banta, aur yeh kisi outcome ki guarantee nahi deta. Kisi bhi serious, urgent, criminal, financial, family, property, ya litigation se judi baat ke liye kripya ek qualified Indian vakil se salah lein.",
+    mr: "ही केवळ सामान्य कायदेशीर माहिती आहे, शिक्षण आणि संशोधनाच्या उद्देशाने दिली आहे, आणि खाली दिलेल्या Indian Kanoon स्रोतांवर आधारित आहे — ही वकिलाचा कायदेशीर सल्ला नाही, यामुळे वकील-अशील संबंध निर्माण होत नाही, आणि ही कोणत्याही निकालाची हमी देत नाही. कोणत्याही गंभीर, तातडीच्या, फौजदारी, आर्थिक, कौटुंबिक, मालमत्ता किंवा खटल्याशी संबंधित बाबीसाठी कृपया एका पात्र भारतीय वकिलाचा सल्ला घ्या.",
+    marathlish: "Hi keval samanya kaydeshir mahiti aahe, shikshan ani sanshodhanachya uddeshane dili aahe, ani khali dilelya Indian Kanoon strotanvar aadharit aahe — hi vakilacha kaydeshir salla nahi, yamule vakil-ashil sambandh nirman hot nahi, ani hi konatyahi nikalachi hami det nahi. Konatyahi gambhir, tatdichya, faujdari, aarthik, kautumbik, malmatta kinva khatlyashi sambandhit babisathi krupaya ek patra Bharatiya vakilacha salla ghya.",
+    ur: "یہ صرف عمومی قانونی معلومات ہیں، تعلیمی اور تحقیقی مقاصد کے لیے فراہم کی گئی ہیں، اور نیچے دیے گئے Indian Kanoon ذرائع پر مبنی ہیں — یہ کسی وکیل کا قانونی مشورہ نہیں ہے، اس سے وکیل اور موکل کا تعلق قائم نہیں ہوتا، اور یہ کسی نتیجے کی ضمانت نہیں دیتا۔ کسی بھی سنگین، فوری، فوجداری، مالی، خاندانی، جائیداد، یا مقدمہ بازی سے متعلق معاملے کے لیے براہ کرم کسی مستند بھارتی وکیل سے مشورہ کریں۔",
+  },
+  emergencyMessage: {
+    en: "This looks like it may be a time-sensitive or urgent situation (for example: an arrest, being in custody, an FIR just filed, an immediate threat, or a court deadline in the next day or two). Please contact a qualified lawyer, a legal aid service, or the relevant authority (police / court) immediately — do not rely only on this tool.",
+    hi: "यह मामला समय-संवेदनशील या तत्काल स्थिति जैसा लग रहा है (उदाहरण के लिए: गिरफ़्तारी, हिरासत में होना, अभी-अभी दर्ज हुई FIR, तत्काल ख़तरा, या अगले एक-दो दिन में अदालत की समय-सीमा)। कृपया तुरंत किसी योग्य वकील, कानूनी सहायता सेवा, या संबंधित प्राधिकरण (पुलिस/अदालत) से संपर्क करें — केवल इस टूल पर निर्भर न रहें।",
+    hinglish: "Yeh mamla samay-sanvedansheel ya turant wali situation jaisa lag raha hai (jaise: giraftari, hiraasat mein hona, abhi-abhi darj hui FIR, turant khatra, ya agle ek-do din mein court ki deadline). Kripya turant kisi qualified vakil, legal aid service, ya sambandhit pradhikaran (police/court) se sampark karein — sirf is tool par bharosa na karein.",
+    mr: "हे प्रकरण वेळेच्या दृष्टीने महत्त्वाचे किंवा तातडीचे वाटत आहे (उदाहरणार्थ: अटक, ताब्यात असणे, नुकतीच दाखल झालेली FIR, तात्काळ धोका, किंवा पुढील एक-दोन दिवसांत न्यायालयाची अंतिम मुदत). कृपया त्वरित एका पात्र वकिलाशी, कायदेशीर मदत सेवेशी, किंवा संबंधित प्राधिकरणाशी (पोलीस/न्यायालय) संपर्क साधा — केवळ या साधनावर अवलंबून राहू नका.",
+    marathlish: "He prakaran vel-samvedansheel kinva tatdiche vatat aahe (udaharanarth: atak, tabyat asane, nukatich dakhal zaleli FIR, tatkal dhoka, kinva pudhil ek-don diwasat nyayalayachi antim mudat). Krupaya tvarit ek patra vakilashi, kaydeshir madad sevesi, kinva sambandhit pradhikaranashi (police/nyayalay) sampark sadha — keval ya sadhanavar avalambun rahu naka.",
+    ur: "یہ معاملہ وقت کی نزاکت والا یا فوری نوعیت کا لگتا ہے (مثال کے طور پر: گرفتاری، حراست میں ہونا، ابھی درج ہونے والی FIR، فوری خطرہ، یا اگلے ایک دو دن میں عدالت کی آخری تاریخ)۔ براہ کرم فوری طور پر کسی مستند وکیل، قانونی امدادی خدمت، یا متعلقہ ادارے (پولیس/عدالت) سے رابطہ کریں — صرف اس ٹول پر بھروسہ نہ کریں۔",
+  },
+  immediateActions: {
+    en: "Immediate actions", hi: "तत्काल कदम", hinglish: "Turant uthaye jaane wale kadam", mr: "तातडीची पावले", marathlish: "Tatdichi paavale", ur: "فوری اقدامات",
+  },
+  stepByStep: {
+    en: "Step-by-step", hi: "चरण दर चरण", hinglish: "Step by step", mr: "टप्प्याटप्प्याने", marathlish: "Tappa-tappyane", ur: "مرحلہ وار",
+  },
+  yourRights: {
+    en: "Your rights", hi: "आपके अधिकार", hinglish: "Aapke rights", mr: "तुमचे हक्क", marathlish: "Tumche hakk", ur: "آپ کے حقوق",
+  },
+  applicableLaws: {
+    en: "Applicable law", hi: "लागू कानून", hinglish: "Applicable kanoon", mr: "लागू कायदा", marathlish: "Lagu kayda", ur: "قابل اطلاق قانون",
+  },
+  caseLaw: {
+    en: "Court judgments", hi: "न्यायालय के निर्णय", hinglish: "Adalat ke faisle", mr: "न्यायालयाचे निर्णय", marathlish: "Nyayalayache nirnay", ur: "عدالتی فیصلے",
+  },
+  whereToGetHelp: {
+    en: "Where to get help", hi: "मदद कहाँ से लें", hinglish: "Madad kahan se milegi", mr: "मदत कुठे मिळेल", marathlish: "Madad kuthe milel", ur: "مدد کہاں سے ملے گی",
+  },
+  gapsTitle: {
+    en: "Not covered by available sources", hi: "उपलब्ध स्रोतों में शामिल नहीं", hinglish: "Available sources mein cover nahi hua", mr: "उपलब्ध स्रोतांमध्ये समाविष्ट नाही", marathlish: "Uplabdh strotanmadhye samavisht nahi", ur: "دستیاب ذرائع میں شامل نہیں",
+  },
+  followUpTitle: {
+    en: "This could change the advice", hi: "इससे सलाह बदल सकती है", hinglish: "Isse salah badal sakti hai", mr: "यामुळे सल्ला बदलू शकतो", marathlish: "Yamule salla badlu shakto", ur: "اس سے مشورہ بدل سکتا ہے",
+  },
+  confidenceLabel: {
+    en: "Confidence", hi: "विश्वसनीयता", hinglish: "Confidence", mr: "विश्वासार्हता", marathlish: "Confidence", ur: "اعتماد",
+  },
+  whereLabel: { en: "Where", hi: "कहाँ", hinglish: "Kahan", mr: "कुठे", marathlish: "Kuthe", ur: "کہاں" },
+  documentsLabel: {
+    en: "Documents needed", hi: "ज़रूरी दस्तावेज़", hinglish: "Zaroori documents", mr: "आवश्यक कागदपत्रे", marathlish: "Avashyak kagadpatre", ur: "ضروری دستاویزات",
+  },
+  timeLimitLabel: { en: "Deadline", hi: "समय-सीमा", hinglish: "Deadline", mr: "अंतिम मुदत", marathlish: "Antim mudat", ur: "آخری تاریخ" },
+};
+
+const CONFIDENCE_WORDS = {
+  en: { high: "High", medium: "Medium", low: "Low" },
+  hi: { high: "उच्च", medium: "मध्यम", low: "कम" },
+  hinglish: { high: "High", medium: "Medium", low: "Low" },
+  mr: { high: "उच्च", medium: "मध्यम", low: "कमी" },
+  marathlish: { high: "High", medium: "Medium", low: "Low" },
+  ur: { high: "زیادہ", medium: "درمیانہ", low: "کم" },
+};
+const CONFIDENCE_TONE = { high: "success", medium: "warning", low: "danger" };
+
+// Six-way script selector — must match legalAssistant.js's SYSTEM_PROMPT contract
+// exactly: "hindi"/"marathi" -> Devanagari, "urdu" -> Perso-Arabic, "hinglish"/
+// "marathlish" -> Roman letters, else -> English.
+function pickScript(result) {
+  const lang = (result?.understanding?.language || "").toLowerCase();
+  if (lang === "hindi") return "hi";
+  if (lang === "marathi") return "mr";
+  if (lang === "urdu") return "ur";
+  if (lang === "hinglish") return "hinglish";
+  if (lang === "marathlish") return "marathlish";
+  return "en";
+}
+
+function t(strings, script) {
+  return strings[script] || strings.en;
+}
+
+function SourceMarkers({ sourceIds }) {
+  if (!sourceIds?.length) return null;
+  return <span style={{ opacity: 0.6, fontSize: 12 }}> {sourceIds.map((id) => `[${id}]`).join(" ")}</span>;
+}
+
+function AnswerCard({ turn, onAsk }) {
+  const { result } = turn;
+  if (!result) return null;
+
+  const script = pickScript(result);
+  const dir = script === "ur" ? "rtl" : "ltr";
+  const emergencyMessage = result.emergency?.flag ? t(UI_STRINGS.emergencyMessage, script) : null;
+  const disclaimer = t(UI_STRINGS.disclaimer, script);
+  const sections = result.sections || {};
+
+  if (result.outcome === "no_evidence") {
+    return (
+      <Card dir={dir}>
+        {result.emergency?.flag && (
+          <Callout tone="danger" title={t(UI_STRINGS.timeSensitive, script)} style={{ marginBottom: 12 }}>
+            {emergencyMessage}
+          </Callout>
+        )}
+        <EmptyState title={t(UI_STRINGS.insufficientSources, script)} body={sections.gaps?.[0]} />
+        <Callout tone="neutral" style={{ marginTop: 12 }}>{disclaimer}</Callout>
+      </Card>
+    );
+  }
+
+  const stepByStep = [...(sections.stepByStep || [])].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+
+  return (
+    <Card dir={dir}>
+      {result.emergency?.flag && (
+        <Callout tone="danger" title={t(UI_STRINGS.timeSensitive, script)} style={{ marginBottom: 12 }}>
+          {emergencyMessage}
+        </Callout>
+      )}
+
+      {result.outcome === "unparsed" && (
+        <Callout tone="warning" style={{ marginBottom: 12 }}>
+          {t(UI_STRINGS.unparsedWarning, script)}
+        </Callout>
+      )}
+
+      {sections.confidence && (
+        <div style={{ marginBottom: 10 }}>
+          <Badge tone={CONFIDENCE_TONE[sections.confidence] || "neutral"}>
+            {t(UI_STRINGS.confidenceLabel, script)}: {t(CONFIDENCE_WORDS, script)[sections.confidence] || sections.confidence}
+          </Badge>
+        </div>
+      )}
+
+      {sections.summary && <div style={{ fontSize: 14, lineHeight: 1.6, marginBottom: 14, whiteSpace: "pre-wrap" }}>{sections.summary}</div>}
+
+      {sections.gaps?.length > 0 && (
+        <Callout tone="warning" title={t(UI_STRINGS.gapsTitle, script)} style={{ marginBottom: 12 }}>
+          <ul style={{ margin: 0, paddingInlineStart: 18 }}>
+            {sections.gaps.map((g, i) => (
+              <li key={i}>{g}</li>
+            ))}
+          </ul>
+        </Callout>
+      )}
+
+      {!stepByStep.length && !sections.immediateActions?.length && (
+        <Callout tone="success" style={{ marginBottom: 12 }}>
+          {t(UI_STRINGS.fallbackNextSteps, script)}
+        </Callout>
+      )}
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        {sections.immediateActions?.length > 0 && (
+          <div>
+            <Badge tone="danger">{t(UI_STRINGS.immediateActions, script)}</Badge>
+            <ol style={{ margin: "6px 0 0", paddingInlineStart: 18, fontSize: 13.5, lineHeight: 1.6 }}>
+              {sections.immediateActions.map((a, i) => (
+                <li key={i} style={{ marginBottom: 4 }}>
+                  {a.step}
+                  {a.why && <div style={{ fontSize: 12, color: "var(--color-text-muted)" }}>{a.why}</div>}
+                  <SourceMarkers sourceIds={a.sourceIds} />
+                </li>
+              ))}
+            </ol>
+          </div>
+        )}
+
+        {stepByStep.length > 0 && (
+          <div>
+            <Badge tone="success">{t(UI_STRINGS.stepByStep, script)}</Badge>
+            <ol style={{ margin: "6px 0 0", paddingInlineStart: 18, fontSize: 13.5, lineHeight: 1.6 }}>
+              {stepByStep.map((s, i) => (
+                <li key={i} style={{ marginBottom: 6 }}>
+                  {s.action}
+                  <div style={{ fontSize: 12, color: "var(--color-text-muted)" }}>
+                    {s.where && <div>{t(UI_STRINGS.whereLabel, script)}: {s.where}</div>}
+                    {s.documentsNeeded?.length > 0 && (
+                      <div>{t(UI_STRINGS.documentsLabel, script)}: {s.documentsNeeded.join(", ")}</div>
+                    )}
+                    {s.timeLimit && <div>{t(UI_STRINGS.timeLimitLabel, script)}: {s.timeLimit}</div>}
+                  </div>
+                  <SourceMarkers sourceIds={s.sourceIds} />
+                </li>
+              ))}
+            </ol>
+          </div>
+        )}
+
+        {sections.yourRights?.length > 0 && (
+          <div>
+            <Badge tone="info">{t(UI_STRINGS.yourRights, script)}</Badge>
+            <ul style={{ margin: "6px 0 0", paddingInlineStart: 18, fontSize: 13.5, lineHeight: 1.6 }}>
+              {sections.yourRights.map((r, i) => (
+                <li key={i}>
+                  {r.right}
+                  <SourceMarkers sourceIds={r.sourceIds} />
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {sections.applicableLaws?.length > 0 && (
+          <div>
+            <Badge tone="info">{t(UI_STRINGS.applicableLaws, script)}</Badge>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 6 }}>
+              {sections.applicableLaws.map((law, i) => (
+                <div key={i} style={{ fontSize: 13.5, lineHeight: 1.6 }}>
+                  <strong>{law.act}{law.section ? ` — ${law.section}` : ""}</strong>
+                  {law.sourceUrl ? (
+                    <a href={law.sourceUrl} target="_blank" rel="noopener noreferrer" style={{ color: "inherit", marginInlineStart: 4 }}>
+                      [{law.sourceId}]
+                    </a>
+                  ) : (
+                    <SourceMarkers sourceIds={law.sourceId ? [law.sourceId] : []} />
+                  )}
+                  <div>{law.plainMeaning}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {sections.caseLaw?.length > 0 && (
+          <div>
+            <Badge tone="neutral">{t(UI_STRINGS.caseLaw, script)}</Badge>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 6 }}>
+              {sections.caseLaw.map((c, i) => (
+                <div key={i} style={{ fontSize: 13.5, lineHeight: 1.6 }}>
+                  <strong>
+                    {c.caseName}
+                    {c.court ? `, ${c.court}` : ""}
+                    {c.year ? ` (${c.year})` : ""}
+                  </strong>
+                  {c.sourceUrl ? (
+                    <a href={c.sourceUrl} target="_blank" rel="noopener noreferrer" style={{ color: "inherit", marginInlineStart: 4 }}>
+                      [{c.sourceId}]
+                    </a>
+                  ) : (
+                    <SourceMarkers sourceIds={c.sourceId ? [c.sourceId] : []} />
+                  )}
+                  <div>{c.whatItMeansForYou}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {sections.whereToGetHelp?.length > 0 && (
+          <div>
+            <Badge tone="warning">{t(UI_STRINGS.whereToGetHelp, script)}</Badge>
+            <ul style={{ margin: "6px 0 0", paddingInlineStart: 18, fontSize: 13.5, lineHeight: 1.6 }}>
+              {sections.whereToGetHelp.map((h, i) => (
+                <li key={i}>
+                  <strong>{h.name}</strong>
+                  {h.contact ? ` — ${h.contact}` : ""}
+                  {h.whenToUse && <div style={{ fontSize: 12, color: "var(--color-text-muted)" }}>{h.whenToUse}</div>}
+                  <SourceMarkers sourceIds={h.sourceIds} />
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+
+      {sections.followUpQuestions?.length > 0 && (
+        <div style={{ marginTop: 14 }}>
+          <div style={{ fontWeight: 700, fontSize: 12, marginBottom: 6 }}>{t(UI_STRINGS.followUpTitle, script)}</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {sections.followUpQuestions.map((q, i) => (
+              <button
+                key={i}
+                onClick={() => onAsk(q)}
+                style={{
+                  padding: "7px 12px",
+                  borderRadius: 999,
+                  border: "1px solid var(--color-border)",
+                  background: "#fff",
+                  fontSize: 12.5,
+                  cursor: "pointer",
+                  textAlign: "left",
+                }}
+              >
+                {q}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {result.sources?.length > 0 && (
+        <div style={{ marginTop: 14 }}>
+          <div style={{ fontWeight: 700, fontSize: 12, marginBottom: 6 }}>{t(UI_STRINGS.sources, script)}</div>
+          <ol style={{ fontSize: 12, color: "var(--color-text-muted)", paddingInlineStart: 18 }}>
+            {result.sources.map((s, i) => (
+              <li key={s.tid} style={{ marginBottom: 3 }}>
+                [{i + 1}]{" "}
+                <a href={s.url} target="_blank" rel="noopener noreferrer" style={{ color: "inherit" }}>
+                  {s.title}
+                </a>{" "}
+                <span style={{ opacity: 0.7 }}>({s.docsource})</span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+
+      <Callout tone="neutral" style={{ marginTop: 14 }}>{disclaimer}</Callout>
+    </Card>
+  );
+}
+
+// Persists across a refresh (localStorage), not across devices/browsers — good enough
+// for "don't lose my conversation on reload" without needing a login.
+const SESSION_STORAGE_KEY = "legalAssistant.sessionId";
+
+function getOrCreateSessionId() {
+  if (typeof window === "undefined") return null;
+  let id;
+  try {
+    id = window.localStorage.getItem(SESSION_STORAGE_KEY);
+    if (!id) {
+      id = crypto.randomUUID();
+      window.localStorage.setItem(SESSION_STORAGE_KEY, id);
+    }
+  } catch {
+    return null; // localStorage unavailable (private mode, etc.) — chat still works, just doesn't persist
+  }
+  return id;
+}
+
+export function LegalAssistant() {
+  const [input, setInput] = useState("");
+  const [turns, setTurns] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const nextTurnId = useRef(0);
+  const sessionIdRef = useRef(null);
+  if (sessionIdRef.current === null) sessionIdRef.current = getOrCreateSessionId();
+
+  useEffect(() => {
+    const sessionId = sessionIdRef.current;
+    if (!sessionId) return;
+    getLegalAssistantSession(sessionId)
+      .then(({ turns: persisted }) => {
+        if (!persisted?.length) return;
+        setTurns(
+          persisted.map((t) => {
+            nextTurnId.current += 1;
+            return { id: nextTurnId.current, question: t.question, result: t.result };
+          })
+        );
+      })
+      .catch(() => {}); // best-effort rehydrate — a failed fetch just starts a fresh-looking session
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function ask(question) {
+    const q = question.trim();
+    if (!q || loading) return;
+    setInput("");
+    setError("");
+    nextTurnId.current += 1;
+    const turnId = nextTurnId.current;
+    setTurns((t) => [...t, { id: turnId, question: q, result: null }]);
+    setLoading(true);
+    try {
+      const result = await askLegalAssistant(q, {}, sessionIdRef.current);
+      setTurns((t) => t.map((turn) => (turn.id === turnId ? { ...turn, result } : turn)));
+    } catch (err) {
+      setError(err.message);
+      setTurns((t) => t.filter((turn) => turn.id !== turnId));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function onSubmit(e) {
+    e.preventDefault();
+    ask(input);
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+      <div>
+        <div style={{ fontFamily: "var(--font-serif)", fontSize: 22 }}>Vidhira</div>
+        <div style={{ fontSize: 12.5, color: "var(--color-text-muted)" }}>
+          Ask a question about Indian law in your own words — English, Hindi, Marathi, Urdu, or a mix (Roman-script Hinglish/Marathlish
+          works too). Answers are grounded in real Indian Kanoon sources with citations.
+        </div>
+      </div>
+
+      <Callout tone="warning" title="Not a substitute for a lawyer">
+        Vidhira gives general legal information, not legal advice — it never guarantees outcomes and can't replace a
+        qualified Indian lawyer. For arrests, violence, or urgent deadlines, contact a lawyer or the relevant authority
+        immediately.
+      </Callout>
+
+      {turns.length === 0 && (
+        <Card>
+          <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 10 }}>Try asking</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {EXAMPLE_PROMPTS.map((p) => (
+              <button
+                key={p}
+                onClick={() => ask(p)}
+                style={{
+                  padding: "8px 12px",
+                  borderRadius: 999,
+                  border: "1px solid var(--color-border)",
+                  background: "#fff",
+                  fontSize: 12.5,
+                  cursor: "pointer",
+                  textAlign: "left",
+                }}
+              >
+                {p}
+              </button>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        {turns.map((turn) => (
+          <div key={turn.id} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <div
+              style={{
+                alignSelf: "flex-end",
+                maxWidth: "85%",
+                background: "var(--color-navy)",
+                color: "#fff",
+                padding: "10px 14px",
+                borderRadius: "14px 14px 2px 14px",
+                fontSize: 13.5,
+              }}
+            >
+              {turn.question}
+            </div>
+            {turn.result ? (
+              <AnswerCard turn={turn} onAsk={ask} />
+            ) : (
+              <Card style={{ fontSize: 13, color: "var(--color-text-muted)" }}>Researching Indian Kanoon…</Card>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {error && <Callout tone="danger">{error}</Callout>}
+
+      <form onSubmit={onSubmit} style={{ display: "flex", gap: 10, position: "sticky", bottom: 0 }}>
+        <input
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          placeholder="e.g. Mujhe FIR ke baare mein jaanna hai…"
+          style={{ flex: 1, padding: 12, borderRadius: 10, border: "1px solid var(--color-border)" }}
+        />
+        <Button type="submit" disabled={loading || !input.trim()}>{loading ? "Asking…" : "Ask"}</Button>
+      </form>
+    </div>
+  );
+}

@@ -9,25 +9,25 @@ concrete, scoped gaps worth closing next.
 
 ## 1. Where it lives
 
-It's one feature among many in the existing `client/` + `server/` npm-workspaces app, not a
+It's one feature among many in the existing `frontend/` + `backend/` npm-workspaces app, not a
 separate project:
 
 | Concern | File |
 |---|---|
-| Route | [server/src/routes/legalAssistant.js](../server/src/routes/legalAssistant.js) — `POST /api/legal-assistant/ask` |
-| RAG orchestration | [server/src/services/legalAssistant.js](../server/src/services/legalAssistant.js) |
-| Query understanding (rewrite + language + emergency detection) | [server/src/services/legalQueryUnderstanding.js](../server/src/services/legalQueryUnderstanding.js) |
-| Indian Kanoon client + cache | [server/src/services/indianKanoon.js](../server/src/services/indianKanoon.js), [indianKanoonFilters.js](../server/src/services/indianKanoonFilters.js) |
-| LLM client | [server/src/services/openRouter.js](../server/src/services/openRouter.js) |
-| Generic TTL cache | [server/src/utils/cache.js](../server/src/utils/cache.js) |
-| HTML sanitizer | [server/src/utils/sanitizeHtml.js](../server/src/utils/sanitizeHtml.js) |
-| Chat UI | [client/src/screens/LegalAssistant.jsx](../client/src/screens/LegalAssistant.jsx) |
-| API client | [client/src/api/legalAssistantClient.js](../client/src/api/legalAssistantClient.js) |
-| Chat history persistence | [server/src/models/LegalAssistantSession.js](../server/src/models/LegalAssistantSession.js) |
-| Relevance re-ranking orchestration (Gemini embeddings if configured, else local TF-IDF) | [server/src/services/relevanceRanking.js](../server/src/services/relevanceRanking.js) |
-| Gemini embeddings client (optional) | [server/src/services/gemini.js](../server/src/services/gemini.js) |
-| Local TF-IDF fallback ranker | [server/src/utils/tfidf.js](../server/src/utils/tfidf.js), [server/src/utils/cosine.js](../server/src/utils/cosine.js) |
-| Cost/usage counter | [server/src/utils/callCounter.js](../server/src/utils/callCounter.js), exposed via `GET /api/admin/usage` in [admin.js](../server/src/routes/admin.js) |
+| Route | [backend/src/routes/legalAssistant.js](../backend/src/routes/legalAssistant.js) — `POST /api/legal-assistant/ask` |
+| RAG orchestration | [backend/src/services/legalAssistant.js](../backend/src/services/legalAssistant.js) |
+| Query understanding (rewrite + language + emergency detection) | [backend/src/services/legalQueryUnderstanding.js](../backend/src/services/legalQueryUnderstanding.js) |
+| Indian Kanoon client + cache | [backend/src/services/indianKanoon.js](../backend/src/services/indianKanoon.js), [indianKanoonFilters.js](../backend/src/services/indianKanoonFilters.js) |
+| LLM client | [backend/src/services/openRouter.js](../backend/src/services/openRouter.js) |
+| Generic TTL cache | [backend/src/utils/cache.js](../backend/src/utils/cache.js) |
+| HTML sanitizer | [backend/src/utils/sanitizeHtml.js](../backend/src/utils/sanitizeHtml.js) |
+| Chat UI | [frontend/src/screens/LegalAssistant.jsx](../frontend/src/screens/LegalAssistant.jsx) |
+| API client | [frontend/src/api/legalAssistantClient.js](../frontend/src/api/legalAssistantClient.js) |
+| Chat history persistence | [backend/src/models/LegalAssistantSession.js](../backend/src/models/LegalAssistantSession.js) |
+| Relevance re-ranking orchestration (Gemini embeddings if configured, else local TF-IDF) | [backend/src/services/relevanceRanking.js](../backend/src/services/relevanceRanking.js) |
+| Gemini embeddings client (optional) | [backend/src/services/gemini.js](../backend/src/services/gemini.js) |
+| Local TF-IDF fallback ranker | [backend/src/utils/tfidf.js](../backend/src/utils/tfidf.js), [backend/src/utils/cosine.js](../backend/src/utils/cosine.js) |
+| Cost/usage counter | [backend/src/utils/callCounter.js](../backend/src/utils/callCounter.js), exposed via `GET /api/admin/usage` in [admin.js](../backend/src/routes/admin.js) |
 
 It shares the Indian Kanoon client/cache with the separate **Case Law** browse screen
 (`CaseLaw.jsx` / `indianKanoon.js` route) — that's a faceted search UI, distinct from this
@@ -99,13 +99,13 @@ cached once for both.
 ## 3. Tech actually in use (vs. what to assume)
 
 - **Caching**: an in-process `Map` with TTL + in-flight de-dupe
-  ([utils/cache.js](../server/src/utils/cache.js)), reused independently by the IK client, the
+  ([utils/cache.js](../backend/src/utils/cache.js)), reused independently by the IK client, the
   query-understanding step, and the whole-answer cache in `legalAssistant.js`. **Not** a
   MongoDB `apiCache` collection — the codebase already has full Mongoose/MongoDB (30+ models)
   but deliberately didn't route this through it, since nothing here needs to survive a restart
   and the app runs as one process.
 - **LLM access**: raw `fetch` to OpenRouter's `chat/completions`
-  ([openRouter.js](../server/src/services/openRouter.js)) — no `openai` npm package. On a 429
+  ([openRouter.js](../backend/src/services/openRouter.js)) — no `openai` npm package. On a 429
   it doesn't just retry once; it **chains through a list of fallback free models** from
   different upstream providers (`FALLBACK_MODELS`), since free-tier pools rate-limit
   independently of each other.
@@ -143,14 +143,14 @@ a production incident (irrelevant Acts cited as sources for an FIR question) tra
 "always take the top N candidates regardless of relevance."
 
 1. **Claude/Anthropic switch** — *deferred, not implemented.* Genuinely missing. Add
-   `server/src/services/anthropic.js` using `@anthropic-ai/sdk`, matching
+   `backend/src/services/anthropic.js` using `@anthropic-ai/sdk`, matching
    `openRouter.js`'s call shape (`chatCompletion(messages, opts) -> string`). Introduce a thin
    `LLM_PROVIDER` env switch (`openrouter` default, `anthropic`) at one seam — either inline in
    the two call sites (`legalAssistant.js`, `legalQueryUnderstanding.js`) or behind a new
    `services/llm.js` facade so neither file imports a provider SDK directly. New dependency:
    `@anthropic-ai/sdk`. New env vars: `LLM_PROVIDER`, `ANTHROPIC_API_KEY`, `CLAUDE_MODEL`.
 
-2. **Chat history persistence** — ✅ **done.** `server/src/models/LegalAssistantSession.js`
+2. **Chat history persistence** — ✅ **done.** `backend/src/models/LegalAssistantSession.js`
    (`sessionId`, `turns: [{ question, result, createdAt }]`, upserted per turn). Client
    generates a `sessionId` (`crypto.randomUUID()`, stored in `localStorage`) in
    `LegalAssistant.jsx`; `POST /legal-assistant/ask` appends to it (best-effort — a persistence
@@ -176,7 +176,7 @@ a production incident (irrelevant Acts cited as sources for an FIR question) tra
    shared. If it becomes one, back `utils/cache.js` with a Mongo collection behind the same
    `getOrSet()` interface so callers don't change.
 
-6. **No cost/usage observability** — ✅ **done.** `server/src/utils/callCounter.js` is a tiny
+6. **No cost/usage observability** — ✅ **done.** `backend/src/utils/callCounter.js` is a tiny
    in-memory per-provider counter, incremented on every successful (cache-missed, i.e.
    actually billed) call in `indianKanoon.js`'s `postToIndianKanoon`, `openRouter.js`'s
    `callModel`, and `gemini.js`'s `embedTexts`. Exposed via `GET /api/admin/usage`
@@ -207,7 +207,7 @@ a production incident (irrelevant Acts cited as sources for an FIR question) tra
      `GEMINI_API_KEY` (optional), `GEMINI_EMBEDDING_MODEL` (optional, defaults to
      `gemini-embedding-001`).
 
-## 5. Env vars to add (`server/.env.example`)
+## 5. Env vars to add (`backend/.env.example`)
 
 ```env
 # LLM provider switch — "openrouter" (default, current) or "anthropic"
