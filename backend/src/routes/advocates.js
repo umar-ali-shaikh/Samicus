@@ -4,6 +4,7 @@ import { getSupabase } from "../config/db.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { HttpError, advocateForUser } from "../services/access.js";
 import { openMatterThread } from "../services/messaging.js";
+import { computeFees } from "../services/matching.js";
 import { BOOKED_STATES, buildAvailability, normalizeSchedule } from "../services/slots.js";
 
 const router = Router();
@@ -135,24 +136,34 @@ router.get("/advocates/:id/slots", async (req, res) => {
 // --- Advocate onboarding ---
 
 const MODES = ["video", "phone", "chat", "in_person"];
+
+// Zod 4's .partial() still applies .default() values, which would silently wipe arrays on a
+// partial PATCH — so the optional (PATCH) and defaulted (apply) shapes are built separately.
+function fieldShape({ forApply }) {
+  const list = (item, max) => (forApply ? z.array(item).max(max).default([]) : z.array(item).max(max).optional());
+  return {
+    subSpecialisations: list(z.string().trim().max(60), 10),
+    yearsOfPractice: z.number().int().min(0).max(70).optional(),
+    education: list(z.string().trim().max(160), 6),
+    relevantExperience: list(z.string().trim().max(300), 10),
+    city: forApply ? z.string().trim().min(2).max(80) : z.string().trim().min(2).max(80).optional(),
+    chamberAddress: z.string().trim().max(300).optional(),
+    languages: forApply ? z.array(z.string().trim().min(2).max(20)).min(1).max(8) : z.array(z.string().trim().min(2).max(20)).min(1).max(8).optional(),
+    consultationModes: forApply ? z.array(z.enum(MODES)).min(1) : z.array(z.enum(MODES)).min(1).optional(),
+    jurisdictions: list(z.object({ state: z.string().trim().min(2).max(60), forum: z.string().trim().min(2).max(100) }), 12),
+    instantFee: z.number().min(0).max(1000000).optional(),
+    scheduledFee: z.number().min(0).max(1000000).optional(),
+    acceptsUrgent: forApply ? z.boolean().default(false) : z.boolean().optional(),
+    keywords: list(z.string().trim().max(40), 15),
+  };
+}
+
 const applySchema = z.object({
   barCouncil: z.string().trim().min(2).max(120),
   enrolmentNumber: z.string().trim().min(3).max(60),
   enrolmentYear: z.number().int().min(1950).max(new Date().getFullYear()).optional(),
   practiceAreaIds: z.array(z.string().uuid()).min(1).max(6),
-  subSpecialisations: z.array(z.string().trim().max(60)).max(10).default([]),
-  yearsOfPractice: z.number().int().min(0).max(70).optional(),
-  education: z.array(z.string().trim().max(160)).max(6).default([]),
-  relevantExperience: z.array(z.string().trim().max(300)).max(10).default([]),
-  city: z.string().trim().min(2).max(80),
-  chamberAddress: z.string().trim().max(300).optional(),
-  languages: z.array(z.string().trim().min(2).max(20)).min(1).max(8),
-  consultationModes: z.array(z.enum(MODES)).min(1),
-  jurisdictions: z.array(z.object({ state: z.string().trim().min(2).max(60), forum: z.string().trim().min(2).max(100) })).max(12).default([]),
-  instantFee: z.number().min(0).max(1000000).optional(),
-  scheduledFee: z.number().min(0).max(1000000).optional(),
-  acceptsUrgent: z.boolean().default(false),
-  keywords: z.array(z.string().trim().max(40)).max(15).default([]),
+  ...fieldShape({ forApply: true }),
 });
 
 function parse(schema, body) {
@@ -376,6 +387,29 @@ router.post("/advocate/requests/:id/accept", requireAuth, requireRole("advocate"
 
   await openMatterThread(matter, { advocateUserId: req.user.id, accountId: intake.account_id, requesterId: intake.created_by });
 
+  // Instant / urgent requests start right away, so the acceptance also opens the call.
+  let consultation = null;
+  if (["instant", "urgent"].includes(intake.kind)) {
+    const fee = computeFees(Number(req.advocate.instant_fee ?? req.advocate.scheduled_fee ?? 0));
+    const { data, error: consultError } = await supabase
+      .from("consultations")
+      .insert({
+        intake_id: intake.id,
+        advocate_id: req.advocate.id,
+        account_id: intake.account_id,
+        mode: intake.mode,
+        scheduled_start: new Date().toISOString(),
+        fee_professional: fee.professionalFee,
+        fee_platform: fee.platformFee,
+        fee_gst: fee.gst,
+        fee_total: fee.total,
+      })
+      .select()
+      .single();
+    if (consultError) throw consultError;
+    consultation = data;
+  }
+
   const { error: timelineError } = await supabase.from("timeline_events").insert({
     matter_id: matter.id,
     type: "matter_opened",
@@ -388,7 +422,7 @@ router.post("/advocate/requests/:id/accept", requireAuth, requireRole("advocate"
 
   const { data: updatedIntake, error: updatedIntakeError } = await supabase.from("intake_requests").select("*").eq("id", intake.id).single();
   if (updatedIntakeError) throw updatedIntakeError;
-  res.json({ intake: updatedIntake, matter });
+  res.json({ intake: updatedIntake, matter, consultation });
 });
 
 router.post("/advocate/requests/:id/decline", requireAuth, requireRole("advocate"), selfAdvocate, async (req, res) => {
@@ -412,10 +446,7 @@ router.get("/advocate/profile", requireAuth, requireRole("advocate"), async (req
   res.json(flattenAdvocate(data));
 });
 
-const profileSchema = applySchema
-  .partial()
-  .omit({ barCouncil: true, enrolmentNumber: true, enrolmentYear: true })
-  .extend({ weeklySchedule: z.object({}).passthrough().optional() });
+const profileSchema = z.object({ ...fieldShape({ forApply: false }), weeklySchedule: z.object({}).passthrough().optional() });
 
 // Bar enrolment details are locked after submission; they can only change through admin review.
 router.patch("/advocate/profile", requireAuth, requireRole("advocate"), async (req, res) => {

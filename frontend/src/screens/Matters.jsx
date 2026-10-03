@@ -1,138 +1,108 @@
-import { useAppState } from "../state/AppState";
-import { MATTERS, TASKS, STAGES } from "../data/mockData";
-import { Card, Pill, Badge, Callout, Button, AvatarTile, ProgressBar } from "../components/ui";
+import { useState } from "react";
+import { useAuth } from "../auth/AuthProvider";
+import { useUI } from "../state/UIState";
+import { useGet, useMut } from "../api/hooks";
+import { api } from "../lib/api";
+import { Card, Pill, Button, AvatarTile, ProgressBar, QueryBoundary, EmptyState, Loading, ErrorNote } from "../components/ui";
+import { Select, TextInput } from "../components/forms";
+import { PageHeader } from "../components/PageHeader";
+import { STAGE_LABEL, fmtDate, initials, stageProgress } from "../lib/format";
+import { Access, Fees, MatterDocuments, TasksAndHearings, Timeline } from "./matter/MatterTabs";
 
-const TABS = ["Timeline", "Tasks & hearings", "Documents", "Fees", "Access"];
+const STAGE_OPTIONS = [["consultation", "Consultation"], ["engagement_confirmed", "Engagement confirmed"], ["action_in_progress", "Action in progress"], ["resolution", "Resolution"], ["closed", "Closed"]];
 
-export function Matters() {
-  const { state, act } = useAppState();
-  const isBusiness = state.account === "business";
-  const matters = MATTERS.filter((m) => m.forBusiness === isBusiness);
-  const matter = matters.find((m) => m.id === state.matterId) || matters[0];
-  const tasks = TASKS.filter((t) => t.matter === matter.id);
-  const totalDue = matter.fees.reduce((s, f) => s + f.amount, 0);
+function AdvocateControls({ data, matterId }) {
+  const [stage, setStage] = useState(data.matter.stage === "lawyer_matched" || data.matter.stage === "intake" ? "consultation" : data.matter.stage);
+  const [nextAction, setNextAction] = useState(data.matter.next_action || "");
+  const save = useMut((b) => api.patch(`/matters/${matterId}`, b), { invalidate: ["/matters"], success: "Matter updated." });
+  return (
+    <Card style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "flex-end" }}>
+      <Select label="Stage" value={stage} onChange={(e) => setStage(e.target.value)} options={STAGE_OPTIONS} style={{ minWidth: 190 }} />
+      <TextInput label="Next action" value={nextAction} onChange={(e) => setNextAction(e.target.value)} style={{ flex: 1, minWidth: 220 }} />
+      <Button onClick={() => save.mutate({ stage, nextAction })} disabled={save.isPending}>Save</Button>
+    </Card>
+  );
+}
+
+function MatterDetail({ id }) {
+  const { go } = useUI();
+  const detail = useGet(`/matters/${id}`);
+  const threads = useGet("/threads");
+  const [tab, setTab] = useState("Timeline");
+  const close = useMut(() => api.patch(`/matters/${id}`, { stage: "closed" }), { invalidate: ["/matters"], success: "Matter closed." });
+
+  if (detail.isPending) return <Loading />;
+  if (detail.isError) return <ErrorNote error={detail.error} onRetry={detail.refetch} />;
+  const data = detail.data;
+  const { matter, side } = data;
+  const counterpart = side === "advocate" ? matter.account?.display_name?.replace(/\s*\([0-9a-f]{6}\)$/, "") : `Adv. ${matter.advocate?.user?.full_name?.replace(/^Adv\.?\s*/i, "")}`;
+  const thread = (threads.data || []).find((t) => t.matter?.reference === matter.reference);
+  const tabs = ["Timeline", "Tasks & hearings", "Documents", "Fees", ...(side === "client" ? ["Access"] : [])];
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        {matters.map((m) => <Pill key={m.id} active={matter.id === m.id} onClick={() => act.openMatter(m.id)}>{m.short}</Pill>)}
-      </div>
-
       <div>
         <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
           <div>
             <div style={{ fontFamily: "var(--font-serif)", fontSize: 22 }}>{matter.title}</div>
-            <div style={{ fontSize: 12.5, color: "var(--color-text-muted)" }}>{matter.ref} · Opened {matter.opened} · {matter.forum}</div>
+            <div style={{ fontSize: 12.5, color: "var(--color-text-muted)" }}>{matter.reference} · Opened {fmtDate(matter.opened_at)}{matter.forum ? ` · ${matter.forum}` : ""}{matter.practice_area?.name ? ` · ${matter.practice_area.name}` : ""}</div>
           </div>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <Button variant="outline" onClick={() => act.openQuote(matter.lawyerId)}>Fee quotation</Button>
-            <Button variant="outline" onClick={() => act.showToast("Matter closed.")}>Close matter</Button>
-          </div>
+          {side === "client" && !["closed", "archived"].includes(matter.stage) && (
+            <Button variant="outline" onClick={() => window.confirm("Close this matter? Your advocate will be notified.") && close.mutate()}>Close matter</Button>
+          )}
         </div>
         <div style={{ marginTop: 10 }}>
-          <ProgressBar pct={(matter.stage / STAGES.length) * 100} />
-          <div style={{ fontSize: 12, color: "var(--color-text-muted)", marginTop: 4 }}>{STAGES[matter.stage - 1]} · Next: {matter.nextAction}</div>
+          <ProgressBar pct={stageProgress(matter.stage)} />
+          <div style={{ fontSize: 12, color: "var(--color-text-muted)", marginTop: 4 }}>{STAGE_LABEL[matter.stage]}{matter.next_action ? ` · Next: ${matter.next_action}` : ""}</div>
         </div>
       </div>
 
       <Card style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          <AvatarTile initials={matter.lawyerInitials} />
+          <AvatarTile initials={initials(counterpart)} />
           <div>
-            <div style={{ fontWeight: 700 }}>{matter.lawyer}</div>
-            <div style={{ fontSize: 12, color: "var(--color-text-muted)" }}>Engaged {matter.engagedOn || "pending"}</div>
+            <div style={{ fontWeight: 700 }}>{counterpart}</div>
+            <div style={{ fontSize: 12, color: "var(--color-text-muted)" }}>{matter.engaged_at ? `Engaged ${fmtDate(matter.engaged_at)}` : "Engagement pending"}</div>
           </div>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <Button variant="outline" onClick={() => act.go("messages")}>Secure message</Button>
-          <Button variant="outline" onClick={act.addMember}>Add team/family member</Button>
-        </div>
+        <Button variant="outline" onClick={() => go("messages", thread?.id || "")}>Secure message</Button>
       </Card>
 
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        {TABS.map((t) => <Pill key={t} active={state.matterTab === t} onClick={() => act.setMatterTab(t)}>{t}</Pill>)}
-      </div>
+      {side === "advocate" && <AdvocateControls key={matter.updated_at} data={data} matterId={id} />}
 
-      {state.matterTab === "Timeline" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {matter.timeline.map((ev, i) => (
-            <div key={i} style={{ display: "flex", gap: 12 }}>
-              <div style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--color-navy)", marginTop: 6, flex: "none" }} />
-              <div>
-                <div style={{ fontWeight: 600, fontSize: 13.5 }}>{ev.title}</div>
-                <div style={{ fontSize: 12, color: "var(--color-text-muted)" }}>{ev.body}</div>
-                <div style={{ fontSize: 11, color: "var(--color-label)" }}>{ev.when} · {ev.who}</div>
-              </div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>{tabs.map((t) => <Pill key={t} active={tab === t} onClick={() => setTab(t)}>{t}</Pill>)}</div>
+
+      {tab === "Timeline" && <Timeline data={data} />}
+      {tab === "Tasks & hearings" && <TasksAndHearings data={data} matterId={id} />}
+      {tab === "Documents" && <MatterDocuments data={data} matterId={id} />}
+      {tab === "Fees" && <Fees data={data} matterId={id} />}
+      {tab === "Access" && <Access data={data} matterId={id} />}
+    </div>
+  );
+}
+
+export function Matters() {
+  const { user, activeAccount } = useAuth();
+  const { param, go, actAsClient } = useUI();
+  const matters = useGet("/matters");
+  const advocateMode = user?.role === "advocate" && !actAsClient;
+
+  const mine = (matters.data || []).filter((m) => (advocateMode ? m.mySide === "advocate" : m.mySide === "client" && m.account_id === activeAccount?.id));
+  const selected = mine.find((m) => m.id === param) || mine[0];
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <PageHeader title={advocateMode ? "Matters" : "My matters"} />
+      <QueryBoundary query={matters} isEmpty={() => mine.length === 0} empty={<EmptyState title="No matters yet" body={advocateMode ? "Matters appear here when you accept a client request or open one after a consultation." : "Once an advocate accepts your request or you confirm an engagement, your matter appears here."} />}>
+        {() => (
+          <>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {mine.map((m) => <Pill key={m.id} active={selected?.id === m.id} onClick={() => go("matters", m.id)}>{m.title}</Pill>)}
             </div>
-          ))}
-        </div>
-      )}
-
-      {state.matterTab === "Tasks & hearings" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {tasks.map((t) => (
-            <Card key={t.id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <input type="checkbox" checked={!!state.tasksDone[t.id] || t.done} onChange={() => act.toggleTask(t.id)} />
-              <div style={{ flex: 1, textDecoration: (state.tasksDone[t.id] || t.done) ? "line-through" : "none" }}>
-                <div style={{ fontSize: 13.5 }}>{t.label}</div>
-                <div style={{ fontSize: 11.5, color: "var(--color-text-muted)" }}>Due {t.due} · {t.owner}</div>
-              </div>
-            </Card>
-          ))}
-          {matter.stage >= 4 && (
-            <Callout tone="warning" title="Hearing listed">{matter.forum} · Hall 4 · Next hearing in 2 weeks</Callout>
-          )}
-        </div>
-      )}
-
-      {state.matterTab === "Documents" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {matter.docs.map((d, i) => (
-            <Card key={i} style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap" }}>
-              <div>
-                <div style={{ fontWeight: 600, fontSize: 13.5 }}>{d.name}</div>
-                <div style={{ fontSize: 11.5, color: "var(--color-text-muted)" }}>{d.meta}</div>
-              </div>
-              <Badge tone={d.tag.includes("Shared") ? "success" : "neutral"}>{d.tag}</Badge>
-            </Card>
-          ))}
-          <Button variant="outline" onClick={() => act.go("documents")} style={{ alignSelf: "flex-start" }}>Upload to this matter</Button>
-        </div>
-      )}
-
-      {state.matterTab === "Fees" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {matter.fees.map((f, i) => (
-            <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "8px 0", borderBottom: "1px solid var(--color-border)" }}>
-              <span>{f.label} <Badge tone={f.gov ? "warning" : "neutral"}>{f.gov ? "government" : "professional"}</Badge></span>
-              <span>₹{f.amount}</span>
-            </div>
-          ))}
-          <Callout tone="warning">Payable now: ₹{totalDue} <Button style={{ marginLeft: 10 }} onClick={() => act.openPay(`₹${totalDue}`)}>Pay invoice</Button></Callout>
-          <div style={{ fontSize: 11.5, color: "var(--color-label)" }}>Court fees, professional fees and the platform fee are always itemized separately, never a single opaque total.</div>
-        </div>
-      )}
-
-      {state.matterTab === "Access" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {[
-            { id: "a1", name: matter.lawyer, role: "Engaged advocate" },
-            { id: "a2", name: "Finance Head", role: "Fees only" },
-            { id: "a3", name: "Ops Viewer", role: "Viewer" },
-          ].map((a) => {
-            const on = state.access[a.id] !== undefined ? state.access[a.id] : true;
-            return (
-              <Card key={a.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <div>
-                  <div style={{ fontWeight: 600, fontSize: 13.5 }}>{a.name}</div>
-                  <div style={{ fontSize: 11.5, color: "var(--color-text-muted)" }}>{a.role}</div>
-                </div>
-                <Button variant="outline" onClick={() => act.toggleAccess(a.id, !on)}>{on ? "Revoke" : "Grant"}</Button>
-              </Card>
-            );
-          })}
-        </div>
-      )}
+            {selected && <MatterDetail key={selected.id} id={selected.id} />}
+          </>
+        )}
+      </QueryBoundary>
     </div>
   );
 }

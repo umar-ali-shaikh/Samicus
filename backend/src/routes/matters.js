@@ -4,6 +4,7 @@ import { getSupabase } from "../config/db.js";
 import { requireAuth } from "../middleware/auth.js";
 import { HttpError, advocateForUser, assertAccountMember, loadMatterForUser, memberAccountIds, requireSide } from "../services/access.js";
 import { PLATFORM_FEE, GST_RATE } from "../services/matching.js";
+import { paymentsEnabled as paymentsEnabledFlag } from "../services/razorpay.js";
 
 const router = Router();
 
@@ -44,6 +45,26 @@ router.get("/matters", requireAuth, async (req, res) => {
     for (const m of r.data) rows.set(m.id, { ...m, mySide: advocate && m.advocate_id === advocate.id ? "advocate" : "client" });
   }
   res.json([...rows.values()].sort((a, b) => new Date(b.opened_at) - new Date(a.opened_at)));
+});
+
+// Open to-dos for the signed-in user across all their matters (client tasks for clients,
+// advocate tasks for the engaged advocate).
+router.get("/tasks/mine", requireAuth, async (req, res) => {
+  const supabase = getSupabase();
+  const [accountIds, advocate] = await Promise.all([memberAccountIds(req.user.id), advocateForUser(req.user.id)]);
+  const out = [];
+  const fetchFor = async (column, value, ownerType) => {
+    const { data: ms, error } = await supabase.from("matters").select("id, title, reference").in(column, value).not("stage", "in", "(closed,archived)");
+    if (error) throw error;
+    if (ms.length === 0) return;
+    const { data: tasks, error: tasksError } = await supabase.from("tasks").select("*").in("matter_id", ms.map((m) => m.id)).eq("owner_type", ownerType).is("completed_at", null);
+    if (tasksError) throw tasksError;
+    for (const t of tasks) out.push({ ...t, matter: ms.find((m) => m.id === t.matter_id) });
+  };
+  if (accountIds.length) await fetchFor("account_id", accountIds, "client");
+  if (advocate) await fetchFor("advocate_id", [advocate.id], "advocate");
+  out.sort((a, b) => (a.due_at || "9999").localeCompare(b.due_at || "9999"));
+  res.json(out);
 });
 
 async function loadMatterContext(user, matterId) {
@@ -224,7 +245,7 @@ router.post("/matters/:id/access", requireAuth, async (req, res) => {
   await assertAccountMember(req.user.id, ctx.matter.account_id, ["owner", "admin"]);
   const input = parse(accessSchema, req.body);
 
-  const { data: person, error: personError } = await supabase.from("users").select("id, full_name").ilike("email", input.email).maybeSingle();
+  const { data: person, error: personError } = await supabase.from("users").select("id, full_name").eq("email", input.email.toLowerCase()).maybeSingle();
   if (personError) throw personError;
   if (!person) throw new HttpError(404, "No Samicus user has that email yet. Ask them to sign up first.");
 
@@ -353,6 +374,27 @@ router.post("/matters/:id/invoices", requireAuth, async (req, res) => {
     .insert(lines.map((l, position) => ({ invoice_id: invoice.id, position, label: l.label, amount: l.amount, category: l.category, tax_rate: l.tax_rate })));
   if (lineError) throw lineError;
   res.status(201).json({ ...invoice, gst });
+});
+
+// With online payments switched off, the advocate records that the client settled directly.
+router.post("/matters/:id/invoices/:iid/settle-offline", requireAuth, async (req, res) => {
+  const supabase = getSupabase();
+  const ctx = await loadMatterForUser(req.user, req.params.id);
+  requireSide(ctx, "advocate", "Only the engaged advocate can record a payment.");
+  if (paymentsEnabledFlag()) throw new HttpError(409, "Online payments are enabled — the client pays through the app.");
+  const { data, error } = await supabase
+    .from("invoices")
+    .update({ status: "paid" })
+    .eq("id", req.params.iid)
+    .eq("matter_id", ctx.matter.id)
+    .neq("status", "paid")
+    .select()
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) throw new HttpError(404, "Invoice not found or already paid.");
+  const { error: auditError } = await supabase.from("audit_logs").insert({ actor_id: req.user.id, actor_role: "advocate", action: "invoice_settled_offline", subject_type: "Invoice", subject_id: data.id });
+  if (auditError) throw auditError;
+  res.json(data);
 });
 
 router.get("/accounts/:id/legal-spend", requireAuth, async (req, res) => {

@@ -10,9 +10,8 @@ const router = Router();
 const ADVOCATE_JOIN_SELECT =
   "*, advocate_practice_areas(practice_area_id), advocate_jurisdictions(state, forum), advocate_languages(language), advocate_consultation_modes(mode)";
 
-// matching.js is pure/DB-agnostic — it just expects plain objects shaped the way the
-// old Mongoose documents were (camelCase, flat arrays). These two mappers are the only
-// adapter needed; matching.js itself is unchanged.
+// matching.js is pure/DB-agnostic — it expects plain camelCase objects with flat arrays.
+// These two mappers adapt the Postgres rows to that shape.
 function toMatchingAdvocate(row) {
   return {
     ...row,
@@ -249,22 +248,24 @@ router.post("/urgent-requests", requireAuth, async (req, res) => {
   res.json({ intake: updatedIntake, status: "advocate_reviewing", candidate });
 });
 
-// Poll target for the urgent flow: has the advocate accepted yet?
+// Poll target for the instant / urgent flow: has an advocate accepted yet?
 router.get("/intake-requests/:id", requireAuth, async (req, res) => {
+  const supabase = getSupabase();
   const intake = await loadOwnIntake(req.user, req.params.id);
-  const { data: matter, error } = await getSupabase().from("matters").select("id, reference, stage").eq("account_id", intake.account_id).order("created_at", { ascending: false }).limit(1).maybeSingle();
+  const [{ data: consultation, error }, { data: matter, error: matterError }] = await Promise.all([
+    supabase.from("consultations").select("id, mode, scheduled_start, state, fee_total, paid_at, advocate:advocates(id, user:users(full_name))").eq("intake_id", intake.id).order("created_at", { ascending: false }).limit(1).maybeSingle(),
+    supabase.from("matters").select("id, reference, stage").eq("account_id", intake.account_id).gte("created_at", intake.created_at).order("created_at", { ascending: true }).limit(1).maybeSingle(),
+  ]);
   if (error) throw error;
-  res.json({ intake, matter: intake.status === "matched" ? matter : null });
+  if (matterError) throw matterError;
+  res.json({ intake, consultation, matter: intake.status === "matched" ? matter : null });
 });
 
-router.post("/urgent-requests/:id/callback", requireAuth, async (req, res) => {
+// The client withdraws a request that is still waiting for an advocate.
+router.post("/intake-requests/:id/cancel", requireAuth, async (req, res) => {
   const intake = await loadOwnIntake(req.user, req.params.id);
-  const { data, error } = await getSupabase()
-    .from("intake_requests")
-    .update({ status: "callback_scheduled" })
-    .eq("id", intake.id)
-    .select()
-    .single();
+  if (!["searching", "advocate_reviewing", "none_available"].includes(intake.status)) throw new HttpError(409, "This request can no longer be cancelled.");
+  const { data, error } = await getSupabase().from("intake_requests").update({ status: "declined" }).eq("id", intake.id).select().single();
   if (error) throw error;
   res.json(data);
 });

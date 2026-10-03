@@ -6,6 +6,7 @@ alter table users add column if not exists auth_id uuid unique references auth.u
 alter table users add column if not exists avatar_url text;
 alter table users add column if not exists last_login_at timestamptz;
 alter table users alter column phone drop not null;
+update users set email = lower(email) where email is not null and email <> lower(email);
 create unique index if not exists users_email_lower_key on users (lower(email)) where email is not null;
 
 -- Ingested legal sources beyond the original curated list (Indian Kanoon tribunals etc.).

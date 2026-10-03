@@ -1,27 +1,41 @@
-import { useEffect, useRef, useState } from "react";
-import { useAppState } from "../state/AppState";
+import { useState } from "react";
+import { useAuth } from "../auth/AuthProvider";
+import { useUI } from "../state/UIState";
+import { useGet, useMut } from "../api/hooks";
+import { api } from "../lib/api";
 import { ModalShell } from "../components/Modal";
-import { Button, Callout, ProgressBar, AvatarTile } from "../components/ui";
+import { Button, Callout, QueryBoundary } from "../components/ui";
+import { LiveConsult } from "../components/LiveConsult";
 
-const CATEGORIES = ["Police / detention", "Arrest / search", "Domestic violence", "Accident", "Airport / immigration", "Court deadline", "Urgent business injunction", "Other"];
+// Each urgent category maps to a practice area by name (the practice-area catalogue is seeded).
+const CATEGORIES = [
+  ["Police / detention", "Criminal defence"], ["Arrest / search", "Criminal defence"], ["Domestic violence", "Family"],
+  ["Accident", "Motor accident & insurance"], ["Airport / immigration", "Immigration"], ["Court deadline", "Litigation & notices"],
+  ["Urgent business injunction", "Contract & commercial recovery"], ["Other", "General advisory"],
+];
 
 export function UrgentModal() {
-  const { act } = useAppState();
+  const { activeAccount } = useAuth();
+  const { closeModal } = useUI();
+  const areas = useGet("/specialisations", undefined, { staleTime: 600000 });
   const [phase, setPhase] = useState("danger");
   const [category, setCategory] = useState("");
-  const timers = useRef([]);
+  const [consent, setConsent] = useState(false);
+  const [live, setLive] = useState(null);
 
-  useEffect(() => () => timers.current.forEach(clearTimeout), []);
+  const start = useMut(async () => {
+    const areaName = CATEGORIES.find(([c]) => c === category)?.[1];
+    const area = (areas.data || []).find((a) => a.name === areaName) || (areas.data || []).find((a) => a.name === "General advisory");
+    if (!area) throw new Error("Practice areas aren't set up yet.");
+    const res = await api.post("/urgent-requests", { accountId: activeAccount?.id, routedPracticeAreaId: area.id, description: `Urgent: ${category}`, urgency: "today", mode: "phone", language: "en" });
+    if (res.status !== "none_available") await api.post(`/intake-requests/${res.intake.id}/consent`);
+    return res;
+  }, { onSuccess: (res) => { if (res.status === "none_available") setPhase("none"); else { setLive({ intakeId: res.intake.id, startedAt: Date.now() }); setPhase("live"); } } });
 
-  function startMatch(cat) {
-    setCategory(cat);
-    setPhase("matching1");
-    timers.current.push(setTimeout(() => setPhase("matching2"), 2000));
-    timers.current.push(setTimeout(() => setPhase(Math.random() > 0.15 ? "matched" : "none"), 4200));
-  }
+  const title = { danger: "Is anyone in immediate danger?", category: "What's happening?", live: "Finding an advocate", none: "No advocate immediately available" }[phase];
 
   return (
-    <ModalShell kicker="Urgent help" title={{ danger: "Is anyone in immediate danger?", category: "What's happening?", matching1: "Finding an advocate", matching2: "Finding an advocate", matched: "Advocate matched", none: "No advocate immediately available" }[phase]} onClose={act.closeModal} width={520}>
+    <ModalShell kicker="Urgent help" title={title} onClose={closeModal} width={520}>
       {phase === "danger" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <Callout tone="danger">If anyone is in immediate physical danger, call emergency services now.</Callout>
@@ -31,35 +45,34 @@ export function UrgentModal() {
         </div>
       )}
       {phase === "category" && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10 }}>
-          {CATEGORIES.map((c) => <button key={c} onClick={() => startMatch(c)} style={{ padding: 14, borderRadius: 10, border: "1px solid var(--color-border)", background: "#fff", cursor: "pointer", textAlign: "left", fontSize: 13 }}>{c}</button>)}
-        </div>
+        <QueryBoundary query={areas}>
+          {() => (
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10 }}>
+                {CATEGORIES.map(([c]) => (
+                  <button key={c} onClick={() => setCategory(c)} style={{ padding: 14, borderRadius: 10, border: `1.5px solid ${category === c ? "var(--color-navy)" : "var(--color-border)"}`, background: category === c ? "#F1EFE6" : "#fff", cursor: "pointer", textAlign: "left", fontSize: 13 }}>{c}</button>
+                ))}
+              </div>
+              <label style={{ display: "flex", gap: 8, fontSize: 12.5, alignItems: "flex-start" }}>
+                <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} style={{ marginTop: 3 }} />
+                I consent to sharing this category with an available advocate after their conflict check clears.
+              </label>
+              <Button variant="danger" onClick={() => start.mutate()} disabled={!category || !consent || start.isPending}>{start.isPending ? "Searching…" : "Find an advocate now"}</Button>
+            </div>
+          )}
+        </QueryBoundary>
       )}
-      {(phase === "matching1" || phase === "matching2") && (
+      {phase === "live" && live && (
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <div style={{ fontSize: 13 }}>{phase === "matching1" ? "Searching now…" : "Advocate reviewing your request (running conflict check)…"}</div>
-          <ProgressBar pct={phase === "matching1" ? 30 : 68} tone="coral" />
-          <div style={{ fontSize: 12, color: "var(--color-text-muted)" }}>Category: {category} · Response target under 4 minutes</div>
+          <LiveConsult intakeId={live.intakeId} startedAt={live.startedAt} tone="light" onCancelled={closeModal} onGone={() => setPhase("category")} />
           <Callout tone="neutral" title="While you wait">You may remain silent beyond identifying yourself. Ask for a copy of any document you're asked to sign. Note the time, place and names of anyone present.</Callout>
-        </div>
-      )}
-      {phase === "matched" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-            <AvatarTile initials="AK" />
-            <div><div style={{ fontWeight: 700 }}>Adv. Aparna Kulkarni</div><div style={{ fontSize: 12, color: "var(--color-text-muted)" }}>Criminal defence · Mumbai</div></div>
-          </div>
-          <Callout tone="success">Conflict check clear. Matched on urgent category and availability.</Callout>
-          <div style={{ fontWeight: 700 }}>₹3,540 incl. fees & GST</div>
-          <Button variant="danger" onClick={() => { act.closeModal(); act.talkNowWith("aparna"); act.showToast("Connected. Recording is off by default."); }}>Start secure call now</Button>
         </div>
       )}
       {phase === "none" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <Callout tone="warning">No advocate is immediately available for this category.</Callout>
-          <Button onClick={() => { act.closeModal(); act.showToast("Duty advocate callback scheduled — approximately 9 minutes."); }}>Connect duty advocate · ~9 min</Button>
+          <Callout tone="warning">No advocate who accepts urgent requests is available for this category right now.</Callout>
+          <div style={{ fontSize: 13 }}>Free legal aid: National Legal Services Authority helpline <strong>15100</strong> (or your State Legal Services Authority). In danger, call <strong>112</strong>.</div>
           <Button variant="outline" onClick={() => setPhase("category")}>Search again</Button>
-          <div style={{ fontSize: 12, color: "var(--color-text-muted)" }}>Free legal aid: State Legal Services Authority helpline · 15100</div>
         </div>
       )}
     </ModalShell>

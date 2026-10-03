@@ -1,50 +1,47 @@
-import { useAppState } from "../state/AppState";
-import { Home } from "../screens/Home";
-import { Find } from "../screens/Find";
-import { Services } from "../screens/Services";
-import { Matters } from "../screens/Matters";
-import { Documents } from "../screens/Documents";
-import { Messages } from "../screens/Messages";
-import { Profile } from "../screens/Profile";
-import { TalkNow } from "../screens/TalkNow";
-import { Draft } from "../screens/Draft";
-import { Review } from "../screens/Review";
-import { Pack } from "../screens/Pack";
-import { Learn } from "../screens/Learn";
-import { Research } from "../screens/Research";
-import { CaseLaw } from "../screens/CaseLaw";
-import { LegalAssistant } from "../screens/LegalAssistant";
-import { LawyerDashboard } from "../screens/LawyerDashboard";
-import { AdminQueue } from "../screens/AdminQueue";
-import { CommandCentre } from "../screens/CommandCentre";
+import { lazy, Suspense } from "react";
+import { useUI } from "../state/UIState";
+import { Loading } from "../components/ui";
+import { FOUNDER_TABS } from "./navConfig";
+const Home = lazy(() => import("../screens/Home").then((m) => ({ default: m.Home })));
+const Find = lazy(() => import("../screens/Find").then((m) => ({ default: m.Find })));
+const Services = lazy(() => import("../screens/Services").then((m) => ({ default: m.Services })));
+const Matters = lazy(() => import("../screens/Matters").then((m) => ({ default: m.Matters })));
+const Consultations = lazy(() => import("../screens/Consultations").then((m) => ({ default: m.Consultations })));
+const Documents = lazy(() => import("../screens/Documents").then((m) => ({ default: m.Documents })));
+const Messages = lazy(() => import("../screens/Messages").then((m) => ({ default: m.Messages })));
+const Profile = lazy(() => import("../screens/Profile").then((m) => ({ default: m.Profile })));
+const TalkNow = lazy(() => import("../screens/TalkNow").then((m) => ({ default: m.TalkNow })));
+const Draft = lazy(() => import("../screens/Draft").then((m) => ({ default: m.Draft })));
+const Review = lazy(() => import("../screens/Review").then((m) => ({ default: m.Review })));
+const Pack = lazy(() => import("../screens/Pack").then((m) => ({ default: m.Pack })));
+const Learn = lazy(() => import("../screens/Learn").then((m) => ({ default: m.Learn })));
+const Research = lazy(() => import("../screens/Research").then((m) => ({ default: m.Research })));
+const CaseLaw = lazy(() => import("../screens/CaseLaw").then((m) => ({ default: m.CaseLaw })));
+const LegalAssistant = lazy(() => import("../screens/LegalAssistant").then((m) => ({ default: m.LegalAssistant })));
+const LawyerDashboard = lazy(() => import("../screens/LawyerDashboard").then((m) => ({ default: m.LawyerDashboard })));
+const DraftReviews = lazy(() => import("../screens/DraftReviews").then((m) => ({ default: m.DraftReviews })));
+const AdminQueue = lazy(() => import("../screens/AdminQueue").then((m) => ({ default: m.AdminQueue })));
+const Moderation = lazy(() => import("../screens/Moderation").then((m) => ({ default: m.Moderation })));
+const ServiceOrders = lazy(() => import("../screens/ServiceOrders").then((m) => ({ default: m.ServiceOrders })));
+const Catalogue = lazy(() => import("../screens/Catalogue").then((m) => ({ default: m.Catalogue })));
+const ComplaintsDesk = lazy(() => import("../screens/ComplaintsDesk").then((m) => ({ default: m.ComplaintsDesk })));
+const CommandCentre = lazy(() => import("../screens/CommandCentre").then((m) => ({ default: m.CommandCentre })));
 
-const FOUNDER_TABS = new Set(["founder", "fdemand", "fservices", "ffunnel", "frevenue", "fcorp", "fadv", "fai", "fcomplaints"]);
+const SHARED = { find: Find, matters: Matters, consultations: Consultations, documents: Documents, messages: Messages, profile: Profile, learn: Learn, legalassistant: LegalAssistant, caselaw: CaseLaw, services: Services };
 
-const CLIENT_SCREENS = {
-  home: Home, find: Find, talknow: TalkNow, research: Research, legalassistant: LegalAssistant, caselaw: CaseLaw, draft: Draft, review: Review,
-  pack: Pack, services: Services, matters: Matters, documents: Documents, messages: Messages,
-  learn: Learn, profile: Profile,
+const BY_VIEW = {
+  client: { ...SHARED, home: Home, talknow: TalkNow, research: Research, draft: Draft, review: Review, pack: Pack },
+  lawyer: { ...SHARED, lawyer: LawyerDashboard, draftreviews: DraftReviews },
+  admin: { find: Find, profile: Profile, admin: AdminQueue, moderation: Moderation, orders: ServiceOrders, catalogue: Catalogue, complaints: ComplaintsDesk },
+  founder: { profile: Profile },
 };
 
-export function TabRouter() {
-  const { state } = useAppState();
-
-  if (state.view === "founder" || FOUNDER_TABS.has(state.tab)) {
-    return <CommandCentre tab={FOUNDER_TABS.has(state.tab) ? state.tab : "founder"} />;
-  }
-  if (state.view === "lawyer") {
-    if (state.tab === "matters") return <Matters />;
-    if (state.tab === "messages") return <Messages />;
-    if (state.tab === "documents") return <Documents />;
-    if (state.tab === "profile") return <Profile />;
-    return <LawyerDashboard />;
-  }
-  if (state.view === "admin") {
-    if (state.tab === "find") return <Find />;
-    if (state.tab === "services") return <Services />;
-    return <AdminQueue />;
-  }
-
-  const Screen = CLIENT_SCREENS[state.tab] || Home;
-  return <Screen />;
+export function TabRouter({ view }) {
+  const { tab } = useUI();
+  const Screen = view === "founder" && FOUNDER_TABS.has(tab) ? null : BY_VIEW[view][tab];
+  return (
+    <Suspense fallback={<Loading />}>
+      {view === "founder" && FOUNDER_TABS.has(tab) ? <CommandCentre tab={tab} /> : Screen ? <Screen /> : null}
+    </Suspense>
+  );
 }

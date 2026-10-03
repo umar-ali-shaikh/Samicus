@@ -42,7 +42,7 @@ async function loadPayable(user, kind, id) {
     return { accountId: data.account_id, amount: fee + gov + platform + Math.round((fee + platform) * 0.18) };
   }
   if (kind === "draft_review") {
-    const { data, error } = await supabase.from("draft_reviews").select("id, fee, paid_at, draft:document_drafts(account_id)").eq("id", id).maybeSingle();
+    const { data, error } = await supabase.from("draft_reviews").select("id, fee, paid_at, draft:document_drafts!draft_id(account_id)").eq("id", id).maybeSingle();
     if (error) throw error;
     if (!data) throw new HttpError(404, "Review not found.");
     await assertAccountMember(user.id, data.draft.account_id).catch(() => { throw new HttpError(404, "Review not found."); });

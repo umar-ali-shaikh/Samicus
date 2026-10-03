@@ -1,74 +1,85 @@
 # Samicus
 
-A legal-services platform for Indian law — client intake, lawyer matching, case law research, contract drafting/review, and an AI legal assistant grounded in Indian Kanoon sources.
+A legal-services platform for Indian law — find a verified advocate, book or talk to one now, research Indian
+law with cited answers, draft and review contracts, and track matters from intake to resolution.
 
-## Stack
+**Nothing in the app is demo data.** Advocates, matters, messages, documents and analytics all come from real
+people using it; the only seeded rows are reference catalogues (practice areas, the situation picker and the
+document templates with their clause library).
 
-- **Client** (`frontend/`): React + Vite
-- **Server** (`backend/`): Node/Express + MongoDB (Mongoose)
-- npm workspaces monorepo (`frontend`, `backend`)
+## Stack — chosen to be budget-friendly
 
-## Prerequisites
+| Concern | Choice | Notes |
+|---|---|---|
+| Sign-in | **Supabase Auth** — Google OAuth 2.0 and email/password, **email verification required** | Free; Google accounts arrive pre-verified |
+| Relational data + files | **Supabase** Postgres + private Storage bucket | Row-level security denies the public key everything; only the API touches data |
+| Vector search (RAG) | **Qdrant** (Cloud free tier or self-hosted) | 768-d, int8-quantised, payload on disk |
+| Embeddings | **Google Gemini** `gemini-embedding-001` | Free tier |
+| LLM | **OpenRouter** (free-tier models by default) | Query understanding, grounded answers, contract review |
+| Legal sources | **Indian Kanoon** API | Paid per call — the knowledge base avoids repeat calls |
+| Payments | **Razorpay** (optional) | Pay-per-transaction; the UI says so honestly when it is off |
+| Video | **Jitsi Meet** | No account needed |
+| App | React 19 + Vite (`frontend/`), Node 20+ / Express 5 (`backend/`), npm workspaces | One process serves both |
 
-- Node.js 18+
-- npm 9+
-- A MongoDB URI (or leave unset — the server auto-starts an in-memory MongoDB for local dev)
+MongoDB is intentionally not used — see [docs/RAG.md](docs/RAG.md).
+
+## What's in it
+
+* **Accounts & trust** — Google/email sign-in with verified email; personal, family and business accounts with
+  members; advocate onboarding with admin verification of Bar Council enrolment before anyone is listed.
+* **Find & book** — verified-advocate directory, neutral ranking (never paid), real availability slots with
+  no double-booking, a 10-step booking wizard, instant "Talk now" and urgent flows with a real conflict check
+  and consent before facts are shared.
+* **Consultations** — Jitsi rooms that open 15 minutes before the start, notes, ratings, convert-to-matter.
+* **Matters** — timeline, tasks, hearings, fee proposals the client must accept, itemised invoices
+  (professional / government / platform fee separate), access grants, secure per-matter messaging.
+* **Documents** — private storage, signed download links, share only with advocates you work with.
+* **AI legal assistant + research library (RAG)** — passage-level retrieval from Qdrant, live Indian Kanoon
+  search only when the knowledge base can't answer; every answer cited. See [docs/RAG.md](docs/RAG.md).
+* **Drafting & contract review** — templates with clause library, live preview, DOCX/PDF download, advocate
+  review; contract review compares each clause with a balanced baseline via retrieval.
+* **Back office** — verification queue, moderation, service orders, catalogue/guides/rulesets, complaints, and a
+  founder Command Centre whose every figure is computed from live data.
 
 ## Setup
 
-```bash
-npm install
-```
-
-Copy `backend/.env.example` to `backend/.env` and fill in real values (see [Environment variables](#environment-variables)).
-
-## Running locally
-
-```bash
-npm run dev        # client only, http://localhost:5173
-npm run dev:full   # server (:4000) + client (:5173) together
-npm run seed        # seed the database
-```
-
-The client expects the server at `http://localhost:4000` and the server expects the client's origin to match `CLIENT_ORIGIN` in `backend/.env` (CORS). If either dev server picks a different port because the default is already in use, update the other side to match.
-
-## Deploying (single service)
-
-Frontend and backend ship as **one process on one port** — the Express server serves the built React app as static files and the API from the same origin, so there's nothing to deploy separately and no CORS to configure in production.
+See **[docs/SETUP.md](docs/SETUP.md)** for Supabase, Google OAuth, Qdrant and deployment. Short version:
 
 ```bash
 npm install
-npm run build   # builds frontend/dist
-npm run start   # serves frontend/dist + the API, both on PORT (default 4000)
+cp backend/.env.example backend/.env     # SUPABASE_*, QDRANT_*, GEMINI_API_KEY, OPENROUTER_API_KEY, IK_API_TOKEN …
+cp frontend/.env.example frontend/.env   # VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY
+# run backend/src/db/schema.sql once in the Supabase SQL editor
+npm run dev:full                         # API :4000 + web :5173
 ```
 
-Point your host's build command at `npm install && npm run build` and its start command at `npm run start`, with `backend/.env` variables (see below) set in the platform's environment config. The client's API calls automatically switch to same-origin `/api` in production builds (`import.meta.env.DEV` is false) — no `VITE_API_BASE_URL` needed unless you deliberately split the frontend onto a different host from the API.
-
-## Environment variables
-
-Set in `backend/.env` (never commit this file — it's git-ignored):
-
-| Variable | Purpose |
-|---|---|
-| `MONGODB_URI` | MongoDB connection string. If unset, an in-memory MongoDB is used automatically. |
-| `PORT` | Server port (default `4000`). |
-| `JWT_SECRET` | Secret for signing auth JWTs. |
-| `DEV_OTP` | Fixed OTP accepted for every phone number in dev (mocked SMS). |
-| `CLIENT_ORIGIN` | Allowed CORS origin for the client dev server. |
-| `IK_API_TOKEN` | Indian Kanoon API token — powers case law search and the AI Legal Assistant. Costs money per call. |
-| `OPENROUTER_API_KEY` | OpenRouter API key — powers LLM calls (query understanding + answer generation). |
-| `OPENROUTER_MODEL` | OpenRouter model slug. Defaults to a free-tier model; check [openrouter.ai/models](https://openrouter.ai/models) if it stops working (free slugs get retired). |
-| `GEMINI_API_KEY` | Optional. Google Gemini API key ([aistudio.google.com/apikey](https://aistudio.google.com/apikey), free, no credit card) — powers semantic embedding re-ranking of AI Legal Assistant evidence. Unset = falls back to a local, free TF-IDF ranker automatically. |
-| `GEMINI_EMBEDDING_MODEL` | Optional. Gemini embedding model slug, only used if `GEMINI_API_KEY` is set. Defaults to `gemini-embedding-001`. |
+```bash
+npm run build && npm run start           # single-process production run (PORT, default 4000)
+npm test -w backend                      # API + RAG tests
+npm run e2e -w frontend                  # browser tests, see frontend/e2e/README.md
+```
 
 ## Project structure
 
 ```
-frontend/   React app (screens, components, API client)
-backend/    Express API (routes, controllers, models, services)
+frontend/   React app — auth/, screens/, modals/, api/ (react-query hooks), lib/ (api + supabase clients)
+backend/
+  src/routes/            HTTP handlers (every route authorises; ids from the client are never trusted)
+  src/services/          access.js (authorization helpers), slots, matching, drafting, contract review, analytics
+  src/services/rag/      qdrant.js, chunk.js, ingest.js, retrieve.js, clauses.js
+  src/db/                schema.sql (fresh install) + migrations/ (upgrades, incl. RLS lock-down)
+  src/test/              in-memory Supabase stand-in used by the route + RAG tests
+docs/       SETUP.md, RAG.md, legal-assistant-spec.md
 ```
 
-Server services of note:
-- `services/indianKanoon.js` — Indian Kanoon API client (search, doc fetch, fragments), cached.
-- `services/openRouter.js` — shared OpenRouter chat-completions client.
-- `services/legalAssistant.js` — the RAG pipeline behind the AI Legal Assistant (query understanding → Indian Kanoon retrieval → grounded, cited answer generation).
+## Honest limits
+
+* **Payments** need a Razorpay account; without keys bookings are held and settled directly with the advocate.
+* **Uploaded files are not virus-scanned** (marked `pending`, never "clean"); contract review reads text PDFs,
+  DOCX and TXT only — there is no OCR.
+* **e-Stamping** is not integrated (the drafting flow says so).
+* **No email/SMS notifications** yet — updates are in-app (messages poll every few seconds).
+* The **document templates, clause rationale notes and any pack-compliance rulesets are legal content**:
+  have a qualified advocate review them before launch.
+* Review **Indian Kanoon's API terms** for the persistent passage index the RAG pipeline builds; set
+  `QDRANT_URL` empty to turn it off.

@@ -45,7 +45,7 @@ router.get("/doc-templates/:id", requireAuth, async (req, res) => {
   const { data: template, error } = await supabase.from("doc_templates").select("*").eq("id", req.params.id).maybeSingle();
   if (error) throw error;
   if (!template) throw new HttpError(404, "Not found");
-  const { data: clauses, error: clausesError } = await supabase.from("clause_library").select("*, clause_conflicts(conflicts_with_id)").eq("template_id", template.id);
+  const { data: clauses, error: clausesError } = await supabase.from("clause_library").select("*, clause_conflicts!clause_id(conflicts_with_id)").eq("template_id", template.id);
   if (clausesError) throw clausesError;
   res.json({ template, clauses });
 });
@@ -81,6 +81,10 @@ router.get("/drafts", requireAuth, async (req, res) => {
   res.json(data);
 });
 
+router.get("/drafts/:id", requireAuth, async (req, res) => {
+  res.json(await loadOwnDraft(req.user, req.params.id));
+});
+
 const patchSchema = z.object({
   fieldValues: z.record(z.string(), z.string().max(2000)).optional(),
   selectedClauseIds: z.array(z.string().uuid()).max(40).optional(),
@@ -98,7 +102,7 @@ router.patch("/drafts/:id", requireAuth, async (req, res) => {
   if (selectedClauseIds) {
     const { data: clauseRows, error: clausesError } = await supabase
       .from("clause_library")
-      .select("*, clause_conflicts(conflicts_with_id)")
+      .select("*, clause_conflicts!clause_id(conflicts_with_id)")
       .eq("template_id", draft.template_id)
       .in("id", selectedClauseIds);
     if (clausesError) throw clausesError;
@@ -125,7 +129,7 @@ async function assemble(draftId) {
   if (draft.selected_clause_ids?.length) {
     const { data: clauseRows, error: clausesError } = await supabase
       .from("clause_library")
-      .select("*, clause_conflicts(conflicts_with_id)")
+      .select("*, clause_conflicts!clause_id(conflicts_with_id)")
       .in("id", draft.selected_clause_ids);
     if (clausesError) throw clausesError;
     selectedClauses = clauseRows.map(toClauseShape);
@@ -195,7 +199,7 @@ router.get("/advocate/draft-reviews", requireAuth, requireRole("advocate"), asyn
   if (!advocate) return res.json([]);
   const { data, error } = await getSupabase()
     .from("draft_reviews")
-    .select("id, status, fee, submitted_at, draft:document_drafts(id, template:doc_templates(name))")
+    .select("id, status, fee, submitted_at, draft:document_drafts!draft_id(id, template:doc_templates(name))")
     .eq("advocate_id", advocate.id)
     .order("submitted_at", { ascending: false });
   if (error) throw error;

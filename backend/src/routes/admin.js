@@ -3,6 +3,7 @@ import { getSupabase } from "../config/db.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { getCounts } from "../utils/callCounter.js";
 import { HttpError } from "../services/access.js";
+import { complaints as complaintsReport } from "../services/analytics/index.js";
 
 const router = Router();
 router.use("/admin", requireAuth, requireRole("admin", "founder"));
@@ -18,6 +19,11 @@ async function count(table, apply = (q) => q) {
   if (error) throw error;
   return n || 0;
 }
+
+// Complaint triage is shared by trust & safety (admin) and the founder.
+router.get("/admin/complaints", async (req, res) => {
+  res.json(await complaintsReport());
+});
 
 router.get("/admin/stats", async (req, res) => {
   const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString();

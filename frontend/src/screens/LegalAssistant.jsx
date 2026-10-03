@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { askLegalAssistant, getLegalAssistantSession } from "../api/legalAssistantClient";
+import { useAuth } from "../auth/AuthProvider";
+import { useUI } from "../state/UIState";
 import { Card, Button, Badge, Callout, EmptyState } from "../components/ui";
 
 // Conversational AI Legal Assistant ("Vidhira") — distinct from the Case law search
@@ -362,38 +364,46 @@ function AnswerCard({ turn, onAsk }) {
         </div>
       )}
 
+      {result.retrieval && (
+        <div style={{ fontSize: 11, color: "var(--color-label)", marginTop: 10 }}>
+          {result.retrieval.mode === "knowledge_base"
+            ? `Evidence: ${result.retrieval.passages} passage${result.retrieval.passages === 1 ? "" : "s"} from the indexed knowledge base${result.retrieval.servedFromKnowledgeBase ? " (no live search needed)" : " (plus a live Indian Kanoon search)"}.`
+            : "Evidence: live Indian Kanoon search."}
+        </div>
+      )}
+
       <Callout tone="neutral" style={{ marginTop: 14 }}>{disclaimer}</Callout>
     </Card>
   );
 }
 
-// Persists across a refresh (localStorage), not across devices/browsers — good enough
-// for "don't lose my conversation on reload" without needing a login.
-const SESSION_STORAGE_KEY = "legalAssistant.sessionId";
+// Persists across a refresh (localStorage), scoped per signed-in user so two people sharing a
+// browser never see each other's conversation.
+const sessionKey = (userId) => `legalAssistant.sessionId.${userId}`;
 
-function getOrCreateSessionId() {
-  if (typeof window === "undefined") return null;
-  let id;
+function getOrCreateSessionId(userId, { fresh = false } = {}) {
   try {
-    id = window.localStorage.getItem(SESSION_STORAGE_KEY);
+    let id = fresh ? null : window.localStorage.getItem(sessionKey(userId));
     if (!id) {
       id = crypto.randomUUID();
-      window.localStorage.setItem(SESSION_STORAGE_KEY, id);
+      window.localStorage.setItem(sessionKey(userId), id);
     }
+    return id;
   } catch {
-    return null; // localStorage unavailable (private mode, etc.) — chat still works, just doesn't persist
+    return crypto.randomUUID(); // localStorage unavailable (private mode) — chat works, just doesn't persist across reloads
   }
-  return id;
 }
 
 export function LegalAssistant() {
+  const { user } = useAuth();
+  const { takeHandoff } = useUI();
   const [input, setInput] = useState("");
   const [turns, setTurns] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const nextTurnId = useRef(0);
   const sessionIdRef = useRef(null);
-  if (sessionIdRef.current === null) sessionIdRef.current = getOrCreateSessionId();
+  if (sessionIdRef.current === null) sessionIdRef.current = getOrCreateSessionId(user.id);
 
   useEffect(() => {
     const sessionId = sessionIdRef.current;
@@ -409,8 +419,17 @@ export function LegalAssistant() {
         );
       })
       .catch(() => {}); // best-effort rehydrate — a failed fetch just starts a fresh-looking session
+    // A question typed into the header's "Ask Samicus" box arrives here as a one-shot hand-off.
+    const handoff = takeHandoff("legalassistant");
+    if (handoff?.question) ask(handoff.question);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  function newConversation() {
+    sessionIdRef.current = getOrCreateSessionId(user.id, { fresh: true });
+    setTurns([]);
+    setError("");
+  }
 
   async function ask(question) {
     const q = question.trim();
@@ -440,7 +459,10 @@ export function LegalAssistant() {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
       <div>
-        <div style={{ fontFamily: "var(--font-serif)", fontSize: 22 }}>Vidhira</div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <div style={{ fontFamily: "var(--font-serif)", fontSize: 22 }}>Vidhira — AI Legal Assistant</div>
+          {turns.length > 0 && <Button variant="outline" onClick={newConversation}>New conversation</Button>}
+        </div>
         <div style={{ fontSize: 12.5, color: "var(--color-text-muted)" }}>
           Ask a question about Indian law in your own words — English, Hindi, Marathi, Urdu, or a mix (Roman-script Hinglish/Marathlish
           works too). Answers are grounded in real Indian Kanoon sources with citations.
@@ -497,7 +519,7 @@ export function LegalAssistant() {
             {turn.result ? (
               <AnswerCard turn={turn} onAsk={ask} />
             ) : (
-              <Card style={{ fontSize: 13, color: "var(--color-text-muted)" }}>Researching Indian Kanoon…</Card>
+              <Card style={{ fontSize: 13, color: "var(--color-text-muted)" }}>Researching sources…</Card>
             )}
           </div>
         ))}

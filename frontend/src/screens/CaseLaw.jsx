@@ -2,9 +2,6 @@ import { useState } from "react";
 import { searchCaseLaw, getCase, getAiAnswer } from "../api/caseLawClient";
 import { Card, Button, Badge, Callout, EmptyState } from "../components/ui";
 
-// This screen is the one place in the client that makes a real network call — everything
-// else in this app is static/mock data by design (see frontend/src/data/mockData.js).
-
 const COURTS = [
   { value: "", label: "Any court" },
   { value: "supremecourt", label: "Supreme Court" },

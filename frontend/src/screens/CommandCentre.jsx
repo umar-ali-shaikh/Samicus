@@ -1,308 +1,191 @@
-import { useState } from "react";
-import { useAppState } from "../state/AppState";
-import {
-  SECTIONS, BRIEFING, ASK, KPI_GROUPS, DEMAND_DAILY, DEMAND_CHARTS, SERVICE_ROWS,
-  FUNNEL_STAGES, REV_KPIS, REV_MONTHLY, CORP, ADV_ROWS, AI_KPIS, KNOWLEDGE_GAPS, CMP_KPIS, COMPLAINTS,
-} from "../data/founderData";
-import { Card, Badge, Button, Callout, Pill } from "../components/ui";
+import { useGet } from "../api/hooks";
+import { Card, Badge, Callout, QueryBoundary, EmptyState } from "../components/ui";
+import { ComplaintList } from "./ComplaintsDesk";
+import { inr, fmtDate } from "../lib/format";
 
-const BAND_TONE = { healthy: "success", watch: "warning", at_risk: "danger" };
-const STATUS_TONE = { open: "warning", escalated: "danger", resolved: "success" };
-const SEVERITY_COLOR = { low: "#8A8578", medium: "#B8863B", high: "#B23A22" };
-const PRIORITY_TONE = { index_first: "danger", high: "warning", medium: "neutral" };
+const SECTIONS = {
+  founder: ["Business Command Centre", "Every figure is aggregated from live data. Matter contents and privileged messages are never exposed here."],
+  fdemand: ["Demand", "Where requests come from, when they arrive, and which services carry them."],
+  fservices: ["Service performance", "Each service measured the same way: started, completed, abandoned, and what it earns."],
+  ffunnel: ["User funnel", "From registration through to repeat payers."],
+  frevenue: ["Revenue", "Gross transaction value and what the platform keeps."],
+  fcorp: ["Corporate accounts", "Usage and spend for every business account."],
+  fadv: ["Advocate performance", "Internal quality and responsiveness. Never a ranking, never shown to clients."],
+  fai: ["AI performance", "How often the assistant answered, how often it said it lacked sources, and what it could not answer."],
+  fcomplaints: ["Complaints", "Every complaint with its root cause and corrective action."],
+};
 
-function Header({ tab }) {
-  const [title, sub] = SECTIONS[tab];
-  const { act } = useAppState();
+const th = { textAlign: "left", padding: 8, border: "1px solid #EDE5D8", fontSize: 12 };
+const td = { padding: 8, border: "1px solid #EDE5D8", fontFamily: "var(--font-mono)", fontSize: 12.5 };
+
+function Metric({ m }) {
+  const v = m.value === null || m.value === undefined ? "—" : m.money ? inr(m.value) : `${typeof m.value === "number" ? m.value.toLocaleString("en-IN") : m.value}${m.suffix || ""}`;
   return (
-    <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 14, alignItems: "flex-end" }}>
-      <div>
-        <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--color-label)" }}>Founder access · aggregated business data</div>
-        <div style={{ fontFamily: "var(--font-serif)", fontSize: 26 }}>{title}</div>
-        <div style={{ fontSize: 12.5, color: "var(--color-text-muted)" }}>{sub}</div>
-      </div>
-      <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
-        {["Export to Excel", "Export to PDF", "Build management deck"].map((l) => (
-          <button key={l} onClick={() => act.showToast(`${l} — generated.`)} style={{ background: "#fff", border: "1px solid var(--color-border)", borderRadius: 9, padding: "8px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{l}</button>
-        ))}
-      </div>
-    </div>
+    <Card>
+      <div style={{ fontFamily: "var(--font-serif)", fontSize: 19, color: m.invert && Number(m.value) > 0 ? "#B23A22" : "inherit" }}>{v}</div>
+      <div style={{ fontSize: 10.5, color: "var(--color-text-muted)" }}>{m.label}{m.note ? ` · ${m.note}` : ""}</div>
+    </Card>
   );
 }
 
-function FounderOverview() {
-  const { act } = useAppState();
-  const [question, setQuestion] = useState("");
-  const [answer, setAnswer] = useState(null);
+function Bars({ rows, color = "#4B3F86" }) {
+  const max = Math.max(...rows.map((r) => r[1]), 1);
+  return rows.map(([label, v]) => (
+    <div key={label} style={{ marginBottom: 8 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11.5 }}><span>{label}</span><span>{v}</span></div>
+      <div style={{ height: 6, background: "#F1EFE6", borderRadius: 999 }}><div style={{ height: "100%", width: `${(v / max) * 100}%`, background: color, borderRadius: 999 }} /></div>
+    </div>
+  ));
+}
 
-  function ask(q) {
-    const qTokens = q.toLowerCase().split(/\s+/).filter((t) => t.length > 3);
-    let best = null, bestScore = 0;
-    for (const item of ASK) {
-      const itemTokens = item.q.toLowerCase().split(/\s+/).filter((t) => t.length > 3);
-      const overlap = qTokens.filter((t) => itemTokens.includes(t)).length;
-      if (overlap > bestScore) { bestScore = overlap; best = item; }
-    }
-    setAnswer(bestScore > 0 ? { ok: true, ...best } : { ok: false });
-  }
-
+function Overview({ p }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-      <Card style={{ background: "var(--color-navy)", color: "#fff" }}>
-        <div style={{ fontSize: 13, lineHeight: 1.6 }}>{BRIEFING}</div>
-        <div style={{ marginTop: 14, display: "flex", gap: 8, flexWrap: "wrap" }}>
-          {ASK.map((a) => <button key={a.q} onClick={() => { setQuestion(a.q); ask(a.q); }} style={{ padding: "6px 12px", borderRadius: 999, border: "1px solid #2A3854", background: "#182338", color: "#F6F1E8", fontSize: 11.5, cursor: "pointer" }}>{a.q}</button>)}
-        </div>
-        <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
-          <input value={question} onChange={(e) => setQuestion(e.target.value)} onKeyDown={(e) => e.key === "Enter" && ask(question)} placeholder="Ask the data…" style={{ flex: "1 1 160px", minWidth: 0, padding: 10, borderRadius: 9, border: "1px solid #2A3854", background: "#18233A", color: "#fff" }} />
-          <Button onClick={() => ask(question)}>Ask</Button>
-        </div>
-        {answer && (
-          <Callout tone={answer.ok ? "success" : "warning"} style={{ marginTop: 10 }}>
-            {answer.ok ? answer.a : "This dashboard holds no figure for that. Rather than estimate, it says nothing."}
-          </Callout>
-        )}
-      </Card>
-
-      {KPI_GROUPS.map((g) => (
+      <Card style={{ background: "var(--color-navy)", color: "#fff" }}><div style={{ fontSize: 13, lineHeight: 1.6 }}>{p.briefing}</div></Card>
+      {p.groups.map((g) => (
         <div key={g.group}>
           <div style={{ fontWeight: 700, marginBottom: 8 }}>{g.group}</div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10 }}>
-            {g.metrics.map((m) => (
-              <Card key={m.label}>
-                <div style={{ fontFamily: "var(--font-serif)", fontSize: 19, color: m.invert ? "#B23A22" : "inherit" }}>{m.value}</div>
-                <div style={{ fontSize: 10.5, color: "var(--color-text-muted)" }}>{m.label}</div>
-              </Card>
-            ))}
-          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10 }}>{g.metrics.map((m) => <Metric key={m.label} m={m} />)}</div>
         </div>
       ))}
-
-      <Callout tone="info" title="Confidential matter contents">
-        Privileged content is never exposed in analytics. Requesting access to a matter requires a stated reason and is always audit-logged, including denied attempts.
-        <div style={{ marginTop: 8 }}>
-          <Button variant="outline" onClick={() => { const reason = window.prompt("Reason for accessing this matter:"); act.showToast(reason ? "Access recorded and audit-logged." : "Empty reason — access denied and logged."); }}>Request access to a matter</Button>
-        </div>
-      </Callout>
     </div>
   );
 }
 
-function FounderDemand() {
-  const max = Math.max(...DEMAND_DAILY, 1);
+function Demand({ p }) {
+  const max = Math.max(...p.daily, 1);
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <Card>
         <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 10 }}>Daily requests — last 30 days</div>
-        <div style={{ display: "flex", alignItems: "flex-end", gap: 3, height: 140 }}>
-          {DEMAND_DAILY.map((v, i) => <div key={i} title={String(v)} style={{ flex: 1, height: `${(v / max) * 100}%`, background: "#4B3F86", borderRadius: 2 }} />)}
-        </div>
+        <div style={{ display: "flex", alignItems: "flex-end", gap: 3, height: 140 }}>{p.daily.map((v, i) => <div key={i} title={`${p.dailyLabels[i]}: ${v}`} style={{ flex: 1, height: `${Math.max((v / max) * 100, v ? 3 : 0)}%`, background: "#4B3F86", borderRadius: 2 }} />)}</div>
       </Card>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 14 }}>
-        {DEMAND_CHARTS.map((c) => {
-          const cmax = Math.max(...c.rows.map((r) => r[1]));
-          return (
-            <Card key={c.title}>
-              <div style={{ fontWeight: 700, fontSize: 12.5, marginBottom: 10 }}>{c.title}</div>
-              {c.rows.map(([label, v]) => (
-                <div key={label} style={{ marginBottom: 8 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11.5 }}><span>{label}</span><span>{v}</span></div>
-                  <div style={{ height: 6, background: "#F1EFE6", borderRadius: 999 }}><div style={{ height: "100%", width: `${(v / cmax) * 100}%`, background: "#4B3F86", borderRadius: 999 }} /></div>
-                </div>
-              ))}
-            </Card>
-          );
-        })}
+        {p.charts.map((c) => <Card key={c.title}><div style={{ fontWeight: 700, fontSize: 12.5, marginBottom: 10 }}>{c.title}</div>{c.rows.length ? <Bars rows={c.rows} /> : <div style={{ fontSize: 12, color: "var(--color-text-muted)" }}>No data yet.</div>}</Card>)}
       </div>
     </div>
   );
 }
 
-function FounderServices() {
+function Services({ p }) {
   return (
     <div style={{ overflowX: "auto" }}>
-      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, fontFamily: "var(--font-mono)" }}>
-        <thead><tr style={{ background: "#F1EFE6" }}>{["Service", "Enquiries", "Started", "Completed", "Abandoned", "Conversion", "Revenue", "ASP", "Avg time", "CSAT"].map((c) => <th key={c} style={{ textAlign: "left", padding: 8, border: "1px solid #EDE5D8" }}>{c}</th>)}</tr></thead>
-        <tbody>
-          {SERVICE_ROWS.map((r) => (
-            <tr key={r.service}>
-              <td style={{ padding: 8, border: "1px solid #EDE5D8", fontFamily: "var(--font-sans)" }}>{r.service}</td>
-              <td style={{ padding: 8, border: "1px solid #EDE5D8" }}>{r.enquiries}</td>
-              <td style={{ padding: 8, border: "1px solid #EDE5D8" }}>{r.started}</td>
-              <td style={{ padding: 8, border: "1px solid #EDE5D8" }}>{r.completed}</td>
-              <td style={{ padding: 8, border: "1px solid #EDE5D8" }}>{r.abandoned}</td>
-              <td style={{ padding: 8, border: "1px solid #EDE5D8" }}>{r.conv}%</td>
-              <td style={{ padding: 8, border: "1px solid #EDE5D8" }}>{r.revenue ? `₹${r.revenue.toLocaleString()}` : "—"}</td>
-              <td style={{ padding: 8, border: "1px solid #EDE5D8" }}>{r.asp ? `₹${r.asp}` : "—"}</td>
-              <td style={{ padding: 8, border: "1px solid #EDE5D8" }}>{r.time}</td>
-              <td style={{ padding: 8, border: "1px solid #EDE5D8" }}>{r.csat}</td>
-            </tr>
-          ))}
-        </tbody>
+      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        <thead><tr style={{ background: "#F1EFE6" }}>{["Service", "Enquiries", "Started", "Completed", "Abandoned", "Conversion", "Revenue", "ASP", "CSAT"].map((c) => <th key={c} style={th}>{c}</th>)}</tr></thead>
+        <tbody>{p.rows.map((r) => (
+          <tr key={r.service}>
+            <td style={{ ...td, fontFamily: "var(--font-sans)" }}>{r.service}</td><td style={td}>{r.enquiries}</td><td style={td}>{r.started}</td><td style={td}>{r.completed}</td><td style={td}>{r.abandoned}</td>
+            <td style={td}>{r.conversion === null ? "—" : `${r.conversion}%`}</td><td style={td}>{r.revenue ? inr(r.revenue) : "—"}</td><td style={td}>{r.asp ? inr(r.asp) : "—"}</td><td style={td}>{r.csat ?? "—"}</td>
+          </tr>
+        ))}</tbody>
       </table>
-      <div style={{ fontSize: 11, color: "var(--color-text-muted)", marginTop: 8 }}>"Abandoned" = selected but unpaid after 7 days. "Avg time" = payment to delivery, excluding client waits.</div>
+      <div style={{ fontSize: 11, color: "var(--color-text-muted)", marginTop: 8 }}>Abandoned = cancelled consultations, drafts never issued, or orders unpaid after 7 days. Revenue is gross fees from paid items.</div>
     </div>
   );
 }
 
-function FounderFunnel() {
-  const [selected, setSelected] = useState(0);
-  const max = FUNNEL_STAGES[0].count;
-  const active = FUNNEL_STAGES[selected];
+function Funnel({ p }) {
+  const max = Math.max(p.stages[0]?.count || 0, 1);
   return (
-    <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
-      <div style={{ flex: 1, minWidth: 300, display: "flex", flexDirection: "column", gap: 8 }}>
-        {FUNNEL_STAGES.map((s, i) => (
-          <button key={s.stage} onClick={() => setSelected(i)} style={{ textAlign: "left", padding: 12, borderRadius: 10, border: `1px solid ${selected === i ? "#4B3F86" : "var(--color-border)"}`, background: "#fff", cursor: "pointer" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, fontWeight: 600 }}><span>{s.stage}</span><span>{s.count.toLocaleString()}</span></div>
-            <div style={{ height: 8, background: "#F1EFE6", borderRadius: 999, marginTop: 6 }}><div style={{ height: "100%", width: `${(s.count / max) * 100}%`, background: "#4B3F86", borderRadius: 999 }} /></div>
-          </button>
-        ))}
-      </div>
-      <div style={{ flex: "1 1 280px", minWidth: 0 }}>
-        <Card>
-          <div style={{ fontWeight: 700, marginBottom: 8 }}>{active.stage}</div>
-          {active.reasons.length ? active.reasons.map((r, i) => (
-            <div key={i} style={{ marginBottom: 10 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, fontWeight: 600 }}><span>{r.reason}</span><span>{r.share}%</span></div>
-              <div style={{ fontSize: 11.5, color: "var(--color-text-muted)" }}>{r.evidence}</div>
-            </div>
-          )) : <div style={{ fontSize: 12.5, color: "var(--color-text-muted)" }}>No drop-off breakdown recorded for this stage.</div>}
+    <div style={{ display: "flex", flexDirection: "column", gap: 10, maxWidth: 640 }}>
+      {p.stages.map((s, i) => (
+        <Card key={s.stage}>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, fontWeight: 600 }}><span>{s.stage}</span><span>{s.count.toLocaleString("en-IN")}{i > 0 && p.stages[i - 1].count ? ` · ${Math.round((s.count / p.stages[i - 1].count) * 100)}% of previous` : ""}</span></div>
+          <div style={{ height: 8, background: "#F1EFE6", borderRadius: 999, marginTop: 6 }}><div style={{ height: "100%", width: `${(s.count / max) * 100}%`, background: "#4B3F86", borderRadius: 999 }} /></div>
         </Card>
-      </div>
+      ))}
+      <div style={{ fontSize: 12, color: "var(--color-text-muted)" }}>{p.delivered} consultations/orders delivered. {p.note}</div>
     </div>
   );
 }
 
-function FounderRevenue() {
-  const max = Math.max(...REV_MONTHLY);
+function Revenue({ p }) {
+  const max = Math.max(...p.monthly.map((m) => m.gmv), 1);
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10 }}>
-        {REV_KPIS.map(([l, v]) => <Card key={l}><div style={{ fontFamily: "var(--font-serif)", fontSize: 18 }}>{v}</div><div style={{ fontSize: 10.5, color: "var(--color-text-muted)" }}>{l}</div></Card>)}
-      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10 }}>{p.kpis.map((k) => <Metric key={k.label} m={k} />)}</div>
       <Card>
-        <div style={{ fontWeight: 700, marginBottom: 10, fontSize: 12.5 }}>Monthly platform revenue (₹ lakh)</div>
-        <div style={{ display: "flex", gap: 10, alignItems: "flex-end", height: 120 }}>
-          {REV_MONTHLY.map((v, i) => <div key={i} style={{ flex: 1, textAlign: "center" }}><div style={{ height: `${(v / max) * 100}px`, background: "#4B3F86", borderRadius: 4 }} /><div style={{ fontSize: 10, marginTop: 4 }}>{v}</div></div>)}
-        </div>
+        <div style={{ fontWeight: 700, marginBottom: 10, fontSize: 12.5 }}>Gross transaction value by month (₹)</div>
+        <div style={{ display: "flex", gap: 10, alignItems: "flex-end", height: 130 }}>{p.monthly.map((m) => <div key={m.month} style={{ flex: 1, textAlign: "center" }}><div style={{ height: `${(m.gmv / max) * 100}px`, minHeight: m.gmv ? 3 : 0, background: "#4B3F86", borderRadius: 4 }} /><div style={{ fontSize: 10, marginTop: 4 }}>{m.month.slice(2)}<br />{m.gmv ? inr(m.gmv) : "—"}</div></div>)}</div>
       </Card>
+      {p.byKind.length > 0 && <Card><div style={{ fontWeight: 700, fontSize: 12.5, marginBottom: 10 }}>By type</div><Bars rows={p.byKind.map((k) => [k.kind.replace("_", " "), k.amount])} /></Card>}
     </div>
   );
 }
 
-function FounderCorporate() {
-  const [openId, setOpenId] = useState(null);
+function Corporate({ p }) {
+  if (!p.accounts.length) return <EmptyState title="No business accounts yet" body="Business accounts created from Profile appear here." />;
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      {CORP.map((a) => (
-        <Card key={a.name} style={{ cursor: "pointer" }} onClick={() => setOpenId(openId === a.name ? null : a.name)}>
-          <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
-            <div><div style={{ fontWeight: 700 }}>{a.name}</div><div style={{ fontSize: 12, color: "var(--color-text-muted)" }}>{a.plan} · {a.seats} seats · renews {a.renewal}</div></div>
-            <Badge tone={BAND_TONE[a.band]}>{a.band.replace("_", " ").toUpperCase()} · {a.score}</Badge>
+      {p.accounts.map((a) => (
+        <Card key={a.name}>
+          <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}><div><div style={{ fontWeight: 700 }}>{a.name.replace(/\s*\([0-9a-f]{6}\)$/, "")}</div><div style={{ fontSize: 12, color: "var(--color-text-muted)" }}>{a.plan || "No plan"} · {a.seats}/{a.seatLimit} seats · last activity {a.lastActivity ? fmtDate(a.lastActivity) : "—"}</div></div></div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 8, marginTop: 10, fontSize: 12 }}>
+            {[["Open matters", a.openMatters], ["Total matters", a.totalMatters], ["Legal spend", inr(a.legalSpend)], ["Outstanding", inr(a.outstanding)]].map(([k, v]) => <div key={k} style={{ background: "#FBF8F2", borderRadius: 8, padding: 8 }}><div style={{ fontWeight: 700 }}>{v}</div><div style={{ color: "var(--color-text-muted)" }}>{k}</div></div>)}
           </div>
-          {openId === a.name && (
-            <>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 8, marginTop: 12, fontSize: 12 }}>
-                {Object.entries(a.metrics).map(([k, v]) => <div key={k} style={{ background: "#FBF8F2", borderRadius: 8, padding: 8 }}><div style={{ fontWeight: 700 }}>{v}</div><div style={{ color: "var(--color-text-muted)" }}>{k}</div></div>)}
-              </div>
-              <div style={{ fontSize: 12.5, marginTop: 10, color: "var(--color-text-muted)" }}>{a.risk}</div>
-            </>
-          )}
         </Card>
       ))}
     </div>
   );
 }
 
-function FounderAdvocates() {
+function Advocates({ p }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <Callout tone="info">Internal only. None of these figures are shown to clients or to the advocates themselves.</Callout>
-      <div style={{ overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
-          <thead><tr style={{ background: "#F1EFE6" }}>{["Advocate", "Status", "Received", "Accepted", "Declined", "Response", "Completed", "Converted", "Fees billed", "CSAT"].map((c) => <th key={c} style={{ textAlign: "left", padding: 8, border: "1px solid #EDE5D8" }}>{c}</th>)}</tr></thead>
-          <tbody>
-            {ADV_ROWS.map((r) => (
-              <tr key={r.name} style={{ color: r.csat < 4.3 ? "#B23A22" : "inherit" }}>
-                <td style={{ padding: 8, border: "1px solid #EDE5D8" }}>{r.name}</td>
-                <td style={{ padding: 8, border: "1px solid #EDE5D8" }}>{r.status}</td>
-                <td style={{ padding: 8, border: "1px solid #EDE5D8", fontFamily: "var(--font-mono)" }}>{r.received}</td>
-                <td style={{ padding: 8, border: "1px solid #EDE5D8", fontFamily: "var(--font-mono)" }}>{r.accepted}</td>
-                <td style={{ padding: 8, border: "1px solid #EDE5D8", fontFamily: "var(--font-mono)" }}>{r.declined}</td>
-                <td style={{ padding: 8, border: "1px solid #EDE5D8", fontFamily: "var(--font-mono)" }}>{r.response}</td>
-                <td style={{ padding: 8, border: "1px solid #EDE5D8", fontFamily: "var(--font-mono)" }}>{r.completed}</td>
-                <td style={{ padding: 8, border: "1px solid #EDE5D8", fontFamily: "var(--font-mono)" }}>{r.converted}</td>
-                <td style={{ padding: 8, border: "1px solid #EDE5D8", fontFamily: "var(--font-mono)" }}>{r.fees}</td>
-                <td style={{ padding: 8, border: "1px solid #EDE5D8", fontFamily: "var(--font-mono)" }}>{r.csat}</td>
+      {p.rows.length === 0 ? <EmptyState title="No verified advocates yet" body="Figures appear once advocates are verified and receive requests." /> : (
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead><tr style={{ background: "#F1EFE6" }}>{["Advocate", "Status", "Received", "Accepted", "Declined", "Completed", "Converted", "Fees billed", "CSAT"].map((c) => <th key={c} style={th}>{c}</th>)}</tr></thead>
+            <tbody>{p.rows.map((r) => (
+              <tr key={r.name} style={{ color: r.csat !== null && r.csat < 4.3 ? "#B23A22" : "inherit" }}>
+                <td style={{ ...td, fontFamily: "var(--font-sans)" }}>{r.name}</td><td style={td}>{r.status}</td><td style={td}>{r.received}</td><td style={td}>{r.accepted}</td><td style={td}>{r.declined}</td><td style={td}>{r.completed}</td><td style={td}>{r.converted}</td><td style={td}>{inr(r.feesBilled)}</td><td style={td}>{r.csat === null ? "—" : `${r.csat} (${r.ratings})`}</td>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            ))}</tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
 
-function FounderAi() {
+function Ai({ p }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10 }}>
-        {AI_KPIS.map(([l, v]) => <Card key={l}><div style={{ fontFamily: "var(--font-serif)", fontSize: 17 }}>{v}</div><div style={{ fontSize: 10.5, color: "var(--color-text-muted)" }}>{l}</div></Card>)}
-      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10 }}>{p.kpis.map((k) => <Metric key={k.label} m={k} />)}</div>
+      {p.knowledgeBase && !p.knowledgeBase.enabled && <Callout tone="warning">The knowledge base is not configured (QDRANT_URL / GEMINI_API_KEY).</Callout>}
       <div>
-        <div style={{ fontWeight: 700, marginBottom: 8 }}>Legal knowledge gap report</div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {KNOWLEDGE_GAPS.map((g) => (
-            <Card key={g.topic} style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
-              <div><div style={{ fontWeight: 600 }}>{g.topic} · {g.asked} asked</div><div style={{ fontSize: 11.5, color: "var(--color-text-muted)" }}>Missing: {g.missing} · Source: {g.source}</div></div>
-              <Badge tone={PRIORITY_TONE[g.priority]}>{g.priority.replace("_", " ").toUpperCase()}</Badge>
-            </Card>
-          ))}
-        </div>
+        <div style={{ fontWeight: 700, marginBottom: 8 }}>Legal knowledge gaps</div>
+        {p.gaps.length === 0 ? <div style={{ fontSize: 12.5, color: "var(--color-text-muted)" }}>No unanswered topics in the last 90 days.</div> : p.gaps.map((g) => (
+          <Card key={g.topic} style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
+            <div><div style={{ fontWeight: 600 }}>{g.topic} · {g.asked} asked</div><div style={{ fontSize: 11.5, color: "var(--color-text-muted)" }}>e.g. “{g.example}”</div></div>
+            <Badge tone={g.asked >= 5 ? "danger" : g.asked >= 2 ? "warning" : "neutral"}>{g.asked >= 5 ? "INDEX FIRST" : g.asked >= 2 ? "HIGH" : "MEDIUM"}</Badge>
+          </Card>
+        ))}
       </div>
-    </div>
-  );
-}
-
-function FounderComplaints() {
-  const [filter, setFilter] = useState("All");
-  const filtered = COMPLAINTS.filter((c) => filter === "All" || (filter === "High severity" ? c.severity === "high" : c.status === filter.toLowerCase()));
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10 }}>
-        {CMP_KPIS.map(([l, v]) => <Card key={l}><div style={{ fontFamily: "var(--font-serif)", fontSize: 17 }}>{v}</div><div style={{ fontSize: 10.5, color: "var(--color-text-muted)" }}>{l}</div></Card>)}
-      </div>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>{["All", "Open", "Escalated", "Resolved", "High severity"].map((f) => <Pill key={f} active={filter === f} onClick={() => setFilter(f)}>{f}</Pill>)}</div>
-      {filtered.map((c) => (
-        <Card key={c.ref} style={{ borderLeft: `4px solid ${SEVERITY_COLOR[c.severity]}` }}>
-          <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
-            <div><div style={{ fontWeight: 700 }}>{c.title}</div><div style={{ fontSize: 11.5, color: "var(--color-text-muted)" }}>{c.ref} · {c.category}</div></div>
-            <Badge tone={STATUS_TONE[c.status]}>{c.status}</Badge>
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 6, fontSize: 12, marginTop: 10 }}>
-            <div><strong>Service:</strong> {c.service}</div><div><strong>Owner:</strong> {c.owner}</div>
-            <div><strong>Root cause:</strong> {c.cause}</div><div><strong>Corrective action:</strong> {c.action}</div>
-          </div>
-        </Card>
-      ))}
     </div>
   );
 }
 
 export function CommandCentre({ tab }) {
+  const data = useGet(`/admin/analytics/${tab}`, undefined, { refetchInterval: 60000 });
+  const [title, sub] = SECTIONS[tab];
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-      <Header tab={tab} />
-      {tab === "founder" && <FounderOverview />}
-      {tab === "fdemand" && <FounderDemand />}
-      {tab === "fservices" && <FounderServices />}
-      {tab === "ffunnel" && <FounderFunnel />}
-      {tab === "frevenue" && <FounderRevenue />}
-      {tab === "fcorp" && <FounderCorporate />}
-      {tab === "fadv" && <FounderAdvocates />}
-      {tab === "fai" && <FounderAi />}
-      {tab === "fcomplaints" && <FounderComplaints />}
+      <div>
+        <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--color-label)" }}>Founder access · aggregated business data</div>
+        <div style={{ fontFamily: "var(--font-serif)", fontSize: 26 }}>{title}</div>
+        <div style={{ fontSize: 12.5, color: "var(--color-text-muted)" }}>{sub}</div>
+        {data.data && <div style={{ fontSize: 11, color: "var(--color-label)", marginTop: 4 }}>Computed live · {new Date(data.data.refreshedAt).toLocaleTimeString("en-IN")}</div>}
+      </div>
+      {tab === "fcomplaints" ? <ComplaintList embedded /> : (
+        <QueryBoundary query={data}>
+          {(d) => {
+            const p = d.payload;
+            return { founder: <Overview p={p} />, fdemand: <Demand p={p} />, fservices: <Services p={p} />, ffunnel: <Funnel p={p} />, frevenue: <Revenue p={p} />, fcorp: <Corporate p={p} />, fadv: <Advocates p={p} />, fai: <Ai p={p} /> }[tab];
+          }}
+        </QueryBoundary>
+      )}
     </div>
   );
 }

@@ -242,3 +242,38 @@ export function EmptyState({ title, body }) {
     </div>
   );
 }
+
+export function Spinner({ size = 18 }) {
+  return (
+    <span
+      role="status"
+      aria-label="Loading"
+      style={{ display: "inline-block", width: size, height: size, border: "2px solid var(--color-border)", borderTopColor: "var(--color-navy)", borderRadius: "50%", animation: "samicus-spin .7s linear infinite" }}
+    />
+  );
+}
+
+export function Loading({ label = "Loading…" }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: 24, color: "var(--color-text-muted)", fontSize: 13 }}>
+      <Spinner /> {label}
+    </div>
+  );
+}
+
+export function ErrorNote({ error, onRetry }) {
+  return (
+    <Callout tone="danger" title="Something went wrong">
+      {error?.message || "Please try again."}
+      {onRetry && <> <button onClick={onRetry} style={{ background: "none", border: "none", color: "#8E2C18", fontWeight: 700, cursor: "pointer", textDecoration: "underline" }}>Retry</button></>}
+    </Callout>
+  );
+}
+
+/** Renders loading / error / empty states for a react-query result, else the children. */
+export function QueryBoundary({ query, empty, isEmpty, children }) {
+  if (query.isPending) return <Loading />;
+  if (query.isError) return <ErrorNote error={query.error} onRetry={() => query.refetch()} />;
+  if (isEmpty ? isEmpty(query.data) : Array.isArray(query.data) && query.data.length === 0) return empty || null;
+  return typeof children === "function" ? children(query.data) : children;
+}

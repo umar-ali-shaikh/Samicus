@@ -31,12 +31,18 @@ async function createPersonalAccount(supabase, user) {
     .insert({ type: "individual", display_name: `${user.full_name} (${user.id.slice(0, 6)})` })
     .select()
     .single();
+  if (isUniqueViolation(error)) return; // a concurrent request already created it
   if (error) throw error;
   const { error: memberError } = await supabase
     .from("account_members")
     .insert({ account_id: account.id, user_id: user.id, role: "owner", accepted_at: new Date().toISOString() });
   if (memberError) throw memberError;
 }
+
+// Two concurrent first requests (e.g. two tabs, or the client's session bootstrap racing its first
+// call) must not create two people or two personal accounts: unique constraints decide the winner
+// and the loser just reads the winner's rows.
+const isUniqueViolation = (err) => err?.code === "23505";
 
 /**
  * @param {import("@supabase/supabase-js").User} authUser verified, email-confirmed Supabase user
@@ -55,7 +61,8 @@ export async function provisionUser(authUser) {
   // Same person signing in with Google after signing up by email (or an invited member
   // who had no login yet): link the existing row instead of creating a duplicate.
   if (!user && email) {
-    ({ data: user, error } = await supabase.from("users").select("*").ilike("email", email).maybeSingle());
+    // Exact match on the lower-cased address: LIKE-style matching would treat "_" in an email as a wildcard.
+    ({ data: user, error } = await supabase.from("users").select("*").eq("email", email).maybeSingle());
     if (error) throw error;
     if (user && user.auth_id && user.auth_id !== authUser.id) user = null;
   }
@@ -74,6 +81,11 @@ export async function provisionUser(authUser) {
       })
       .select()
       .single());
+    if (isUniqueViolation(error)) {
+      ({ data: user, error } = await supabase.from("users").select("*").eq("auth_id", authUser.id).single());
+      if (error) throw error;
+      return user;
+    }
     if (error) throw error;
     await createPersonalAccount(supabase, user);
     return user;

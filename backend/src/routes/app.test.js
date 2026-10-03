@@ -7,16 +7,19 @@ import { createFakeSupabase } from "../test/fakeSupabase.js";
 const ALICE = { id: "auth-alice", email: "alice@example.com", email_confirmed_at: "2026-01-01T00:00:00Z", user_metadata: { full_name: "Alice Rao", picture: "https://x/a.png" }, app_metadata: { provider: "google" } };
 const BOB = { id: "auth-bob", email: "bob@example.com", email_confirmed_at: "2026-01-01T00:00:00Z", user_metadata: {}, app_metadata: { provider: "email" } };
 const CAROL = { id: "auth-carol", email: "carol@example.com", email_confirmed_at: null, user_metadata: {}, app_metadata: { provider: "email" } };
+const DAN = { id: "auth-dan", email: "dan_the@example.com", email_confirmed_at: "2026-01-01T00:00:00Z", user_metadata: { full_name: "Dan" }, app_metadata: { provider: "email" } };
 const OPS = { id: "auth-ops", email: "ops@samicus.in", email_confirmed_at: "2026-01-01T00:00:00Z", user_metadata: { name: "Ops" }, app_metadata: { provider: "google" } };
 
 const PA = "11111111-1111-4111-8111-111111111111";
 const ADV = "22222222-2222-4222-8222-222222222222";
 
 const fake = createFakeSupabase({
-  defaults: { consultations: { state: "scheduled" }, documents: {} },
-  authUsers: { "tok-alice": ALICE, "tok-bob": BOB, "tok-carol": CAROL, "tok-ops": OPS },
+  defaults: { consultations: { state: "scheduled" }, verification_cases: { decision: "pending" } },
+  authUsers: { "tok-alice": ALICE, "tok-bob": BOB, "tok-carol": CAROL, "tok-ops": OPS, "tok-dan": DAN },
   embeds: { "account_members.account": (row, db) => db.accounts.find((a) => a.id === row.account_id) },
   unique: {
+    users: [{ cols: ["auth_id"] }],
+    accounts: [{ cols: ["display_name"] }],
     consultations: [{ cols: ["advocate_id", "scheduled_start"], when: (r) => ["scheduled", "reminder_sent", "in_progress"].includes(r.state ?? "scheduled") }],
   },
   tables: {
@@ -215,4 +218,59 @@ test("unknown API paths return JSON 404 and server errors never leak internals",
   const res = await call("GET", "/does-not-exist");
   assert.equal(res.status, 404);
   assert.equal(res.body.error, "Not found");
+});
+
+test("concurrent first requests create exactly one user and one personal account", async () => {
+  const results = await Promise.all(Array.from({ length: 6 }, () => call("GET", "/me", { token: "tok-dan" })));
+  assert.ok(results.every((r) => r.status === 200), `all succeed, got ${results.map((r) => r.status)}`);
+  assert.equal(fake.db.users.filter((u) => u.auth_id === "auth-dan").length, 1);
+  const dan = fake.db.users.find((u) => u.auth_id === "auth-dan");
+  assert.equal(fake.db.account_members.filter((m) => m.user_id === dan.id).length, 1);
+});
+
+test("an email is matched exactly, never as a LIKE pattern ('_' is not a wildcard)", async () => {
+  fake.db.users.push({ id: "u-victim", email: "danxthe@example.com", full_name: "Victim", auth_id: null, role: "client" });
+  await call("GET", "/me", { token: "tok-dan" }); // dan_the@example.com must NOT link to danxthe@example.com
+  assert.equal(fake.db.users.find((u) => u.id === "u-victim").auth_id, null);
+});
+
+test("advocate onboarding: apply → hidden until verified → PATCH keeps untouched fields", async () => {
+  const body = {
+    barCouncil: "Bar Council of Maharashtra & Goa", enrolmentNumber: "MAH/1234/2015", practiceAreaIds: [PA], city: "Pune",
+    languages: ["en", "hi"], consultationModes: ["video"], subSpecialisations: ["Bail"], keywords: ["criminal"],
+    jurisdictions: [{ state: "Maharashtra", forum: "Sessions Court" }], scheduledFee: 3000,
+  };
+  assert.equal((await call("POST", "/advocate/apply", { token: "tok-bob", body: { ...body, practiceAreaIds: [] } })).status, 400);
+  const applied = await call("POST", "/advocate/apply", { token: "tok-bob", body });
+  assert.equal(applied.status, 201);
+  assert.equal(applied.body.verification_status, "submitted");
+  assert.equal((await call("POST", "/advocate/apply", { token: "tok-bob", body })).status, 409, "cannot apply twice");
+
+  const bob = fake.db.users.find((u) => u.email === "bob@example.com");
+  assert.equal(bob.role, "advocate");
+  assert.equal(fake.db.verification_cases.length, 1);
+
+  // Not listed, and cannot go live, until an admin verifies.
+  assert.equal((await call("GET", "/advocates")).body.some((a) => a.id === applied.body.id), false);
+  const live = await call("PATCH", "/advocate/availability", { token: "tok-bob", body: { availabilityState: "available" } });
+  assert.equal(live.status, 403);
+
+  // PATCH with a single field must not wipe the arrays it wasn't given (Zod 4 .partial() applies defaults).
+  const patch = await call("PATCH", "/advocate/profile", { token: "tok-bob", body: { scheduledFee: 4000 } });
+  assert.equal(patch.status, 200);
+  const row = fake.db.advocates.find((a) => a.id === applied.body.id);
+  assert.equal(row.scheduled_fee, 4000);
+  assert.deepEqual(row.sub_specialisations, ["Bail"]);
+  assert.deepEqual(row.keywords, ["criminal"]);
+  assert.equal(fake.db.advocate_languages.filter((l) => l.advocate_id === row.id).length, 2);
+  assert.equal(fake.db.advocate_jurisdictions.filter((j) => j.advocate_id === row.id).length, 1);
+
+  // Admin approval flips the gate.
+  const caseId = fake.db.verification_cases[0].id;
+  assert.equal((await call("POST", `/admin/verification-cases/${caseId}/decide`, { token: "tok-alice", body: { decision: "approved" } })).status, 403);
+  const decided = await call("POST", `/admin/verification-cases/${caseId}/decide`, { token: "tok-ops", body: { decision: "approved" } });
+  assert.equal(decided.status, 200);
+  assert.equal(fake.db.advocates.find((a) => a.id === row.id).verification_status, "verified");
+  assert.equal((await call("POST", `/admin/verification-cases/${caseId}/decide`, { token: "tok-ops", body: { decision: "approved" } })).status, 409, "decided once");
+  assert.equal((await call("PATCH", "/advocate/availability", { token: "tok-bob", body: { availabilityState: "available" } })).status, 200);
 });

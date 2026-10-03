@@ -51,13 +51,15 @@ export function createApp() {
         directives: {
           "script-src": ["'self'", "https://checkout.razorpay.com"],
           "frame-src": ["'self'", "https://api.razorpay.com", "https://meet.jit.si"],
-          "connect-src": ["'self'", "https://*.supabase.co", "wss://*.supabase.co", "https://lumberjack.razorpay.com"],
+          "connect-src": ["'self'", "https://*.supabase.co", "wss://*.supabase.co", "https://api.razorpay.com", "https://lumberjack.razorpay.com"],
           "img-src": ["'self'", "data:", "https://*.googleusercontent.com", "https://*.supabase.co"],
           "style-src": ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
           "font-src": ["'self'", "https://fonts.gstatic.com", "data:"],
         },
       },
       crossOriginEmbedderPolicy: false,
+      // Razorpay's checkout opens bank pages in popups that need window.opener.
+      crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },
     })
   );
 

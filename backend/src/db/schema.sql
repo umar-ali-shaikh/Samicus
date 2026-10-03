@@ -1,13 +1,12 @@
--- Supabase/Postgres schema (ported from the original Mongoose models, since removed).
--- Conversion rules (see docs/MIGRATION plan): uuid PKs; ObjectId refs -> uuid FKs;
--- arrays of scalars used as query filters -> junction tables; arrays of embedded
--- subdocs with their own identity/refs that get populated -> child tables with a
--- `position` column to preserve order; everything else embedded/Mixed -> jsonb
--- (never queried into by the DB today, so jsonb is a direct, lossless port).
--- No ON DELETE behavior is added beyond the two account_members FKs (a pure
--- membership/junction row, the uncontroversial default) — everything else stays
--- plain `references` (no action), matching Mongo's lack of enforced referential
--- integrity rather than inventing a new cascade strategy.
+-- Samicus database schema (Supabase / Postgres). Run once in the Supabase SQL editor on a fresh project;
+-- existing databases upgrade with the files in db/migrations/ instead.
+-- Conventions: uuid primary keys; scalar arrays used as query filters live in junction tables;
+-- ordered child records carry a `position` column; everything else is jsonb. Foreign keys use
+-- the default (no cascade) except account_members and the auth link on users — deleting history
+-- is a deliberate, explicit act (see /privacy/delete, which anonymises instead).
+--
+-- Security: the last section enables row-level security with NO policies, so Supabase's public
+-- "anon" key cannot read or write anything. Only the API server (service-role key) touches data.
 
 create extension if not exists pgcrypto;
 
@@ -262,8 +261,7 @@ create table matters (
 create index matters_account_id_idx on matters(account_id);
 create index matters_advocate_id_idx on matters(advocate_id);
 create trigger matters_set_updated_at before update on matters for each row execute function set_updated_at();
--- Matter.STAGES (Mongoose static) is now just an ordered constant in application code,
--- not a DB concept — keep ["intake","lawyer_matched","consultation","engagement_confirmed","action_in_progress","resolution"].
+-- Matter stages are an ordered constant in application code (not a DB concept): ["intake","lawyer_matched","consultation","engagement_confirmed","action_in_progress","resolution"].
 
 create table tasks (
   id uuid primary key default gen_random_uuid(),
@@ -300,7 +298,7 @@ create table timeline_events (
   title text not null,
   body text,
   actor_type text not null check (actor_type in ('user', 'advocate', 'system', 'platform')),
-  actor_id uuid, -- polymorphic (matches actor_type) — no FK, same as Mongo
+  actor_id uuid, -- polymorphic (matches actor_type) — no FK
   occurred_at timestamptz not null default now(),
   created_at timestamptz not null default now()
   -- append-only: no updated_at, matching {timestamps:{createdAt:true, updatedAt:false}}
@@ -310,7 +308,7 @@ create index timeline_events_matter_id_idx on timeline_events(matter_id);
 create table matter_access_grants (
   id uuid primary key default gen_random_uuid(),
   matter_id uuid not null references matters(id),
-  subject_id uuid not null, -- polymorphic (user or advocate) — no FK, same as Mongo
+  subject_id uuid not null, -- polymorphic (user or advocate) — no FK
   subject_type text not null check (subject_type in ('user', 'advocate')),
   subject_name text,
   subject_role text,
@@ -388,14 +386,14 @@ create trigger message_threads_set_updated_at before update on message_threads f
 
 create table thread_participants (
   thread_id uuid not null references message_threads(id),
-  participant_id uuid not null, -- polymorphic (user or advocate) — no FK, same as Mongo
+  participant_id uuid not null, -- polymorphic (user or advocate) — no FK
   primary key (thread_id, participant_id)
 );
 
 create table messages (
   id uuid primary key default gen_random_uuid(),
   thread_id uuid not null references message_threads(id),
-  sender_id uuid not null, -- polymorphic — no FK, same as Mongo
+  sender_id uuid not null, -- polymorphic — no FK
   body text not null,
   attachments uuid[] not null default '{}', -- Document ids; never joined in app code today
   sent_at timestamptz not null default now(),
@@ -416,7 +414,7 @@ create table documents (
   storage_key text,
   encryption_key_id text not null default 'dev-key-1',
   uploaded_by uuid not null references users(id),
-  shared_with uuid[] not null default '{}', -- Advocate ids; membership checked in app code, same as Mongo
+  shared_with uuid[] not null default '{}', -- Advocate ids; membership checked in app code
   virus_scan_status text not null default 'clean' check (virus_scan_status in ('pending', 'clean', 'infected')),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -628,7 +626,7 @@ create unique index consultations_advocate_slot_key on consultations(advocate_id
   where state in ('scheduled', 'reminder_sent', 'in_progress'); -- no double-booking
 create trigger consultations_set_updated_at before update on consultations for each row execute function set_updated_at();
 
--- ===================== corpus / research (RAG-adjacent, Mongo-backed today) =====================
+-- ===================== corpus / research (RAG: text + metadata live here, vectors live in Qdrant) =====================
 
 create table corpus_documents (
   id uuid primary key default gen_random_uuid(),
@@ -684,8 +682,7 @@ create table research_queries (
 create index research_queries_account_id_idx on research_queries(account_id);
 create trigger research_queries_set_updated_at before update on research_queries for each row execute function set_updated_at();
 
--- Replaces Mongo's two index-correlated parallel arrays (retrievedChunkIds[] + scores[])
--- with a proper child table — a direct improvement, trivial since the table is new anyway.
+-- One row per retrieved chunk, with its score and rank.
 create table research_query_chunks (
   id uuid primary key default gen_random_uuid(),
   query_id uuid not null references research_queries(id),
@@ -742,7 +739,7 @@ create index legal_assistant_turns_session_id_idx on legal_assistant_turns(sessi
 
 create table public_questions (
   id uuid primary key default gen_random_uuid(),
-  author_account_id uuid not null references accounts(id), -- app layer must mimic Mongoose's select:false (never SELECT this column back to end users)
+  author_account_id uuid not null references accounts(id), -- never SELECT this column back to end users (anonymous Q&A)
   body text not null,
   practice_area text,
   city text,
@@ -857,11 +854,11 @@ create trigger ruleset_diffs_set_updated_at before update on ruleset_diffs for e
 
 create table audit_logs (
   id uuid primary key default gen_random_uuid(),
-  actor_id uuid not null, -- polymorphic — no FK, same as Mongo
+  actor_id uuid not null, -- polymorphic — no FK
   actor_role text,
   action text not null,
   subject_type text,
-  subject_id uuid, -- polymorphic — no FK, same as Mongo
+  subject_id uuid, -- polymorphic — no FK
   reason text,
   outcome text not null default 'recorded' check (outcome in ('recorded', 'denied')),
   ip text,
@@ -937,7 +934,7 @@ create table complaints (
   corrective_action text,
   refund_amount numeric,
   linked_record_type text check (linked_record_type in ('matter', 'consultation', 'pack_scan', 'research_query', 'payment')),
-  linked_record_id uuid, -- polymorphic (matches linked_record_type) — no FK, same as Mongo
+  linked_record_id uuid, -- polymorphic (matches linked_record_type) — no FK
   raised_by uuid references users(id),
   description text,
   created_at timestamptz not null default now(),
@@ -956,7 +953,7 @@ create table admin_access_grants (
 );
 create trigger admin_access_grants_set_updated_at before update on admin_access_grants for each row execute function set_updated_at();
 
--- Replacement for the two Mongo aggregation pipelines ($unwind+$group, $group):
+-- Aggregations used by the API:
 
 -- askLearn.js's "/specialisations": count of verified advocates per practice area.
 create or replace function advocate_counts_by_practice_area()
@@ -1067,6 +1064,14 @@ end $$;
 revoke all on all tables in schema public from anon, authenticated;
 revoke all on all sequences in schema public from anon, authenticated;
 revoke execute on all functions in schema public from anon, authenticated, public;
+
+-- The API's service-role connection keeps full access (explicit, so it never depends on defaults).
+grant all on all tables in schema public to service_role;
+grant all on all sequences in schema public to service_role;
+grant execute on all functions in schema public to service_role;
+alter default privileges in schema public grant all on tables to service_role;
+alter default privileges in schema public grant all on sequences to service_role;
+alter default privileges in schema public grant execute on functions to service_role;
 
 alter default privileges in schema public revoke all on tables from anon, authenticated;
 alter default privileges in schema public revoke all on sequences from anon, authenticated;

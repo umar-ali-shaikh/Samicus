@@ -1,5 +1,10 @@
 # AI Legal Assistant — As-Built Spec & Roadmap
 
+> **Update:** retrieval now runs through a Qdrant-backed knowledge base first (passage-level RAG),
+> falling back to the live Indian Kanoon search as described below. See [RAG.md](RAG.md) for
+> the current architecture; sections 2–3 describe the live-search path, which is still used when
+> the knowledge base cannot answer confidently or is not configured.
+
 This replaces an earlier draft spec that assumed a fresh, standalone `legal-bot/` project
 (separate repo, MongoDB-backed API cache, `cheerio` for HTML stripping, an `openai`-package
 OpenRouter client, a `generate()` LLM facade switched by `LLM_PROVIDER`). That's not what
@@ -23,7 +28,7 @@ separate project:
 | HTML sanitizer | [backend/src/utils/sanitizeHtml.js](../backend/src/utils/sanitizeHtml.js) |
 | Chat UI | [frontend/src/screens/LegalAssistant.jsx](../frontend/src/screens/LegalAssistant.jsx) |
 | API client | [frontend/src/api/legalAssistantClient.js](../frontend/src/api/legalAssistantClient.js) |
-| Chat history persistence | [backend/src/models/LegalAssistantSession.js](../backend/src/models/LegalAssistantSession.js) |
+| Chat history persistence | `legal_assistant_sessions` / `legal_assistant_turns` tables ([schema.sql](../backend/src/db/schema.sql)), written by [routes/legalAssistant.js](../backend/src/routes/legalAssistant.js) |
 | Relevance re-ranking orchestration (Gemini embeddings if configured, else local TF-IDF) | [backend/src/services/relevanceRanking.js](../backend/src/services/relevanceRanking.js) |
 | Gemini embeddings client (optional) | [backend/src/services/gemini.js](../backend/src/services/gemini.js) |
 | Local TF-IDF fallback ranker | [backend/src/utils/tfidf.js](../backend/src/utils/tfidf.js), [backend/src/utils/cosine.js](../backend/src/utils/cosine.js) |
@@ -101,9 +106,8 @@ cached once for both.
 - **Caching**: an in-process `Map` with TTL + in-flight de-dupe
   ([utils/cache.js](../backend/src/utils/cache.js)), reused independently by the IK client, the
   query-understanding step, and the whole-answer cache in `legalAssistant.js`. **Not** a
-  MongoDB `apiCache` collection — the codebase already has full Mongoose/MongoDB (30+ models)
-  but deliberately didn't route this through it, since nothing here needs to survive a restart
-  and the app runs as one process.
+  persistent cache — nothing here needs to survive a restart and the app runs as one process.
+  (Persistence of *sources* is the job of the Qdrant knowledge base; see [RAG.md](RAG.md).)
 - **LLM access**: raw `fetch` to OpenRouter's `chat/completions`
   ([openRouter.js](../backend/src/services/openRouter.js)) — no `openai` npm package. On a 429
   it doesn't just retry once; it **chains through a list of fallback free models** from
@@ -116,22 +120,22 @@ cached once for both.
   Law screen renders it via `dangerouslySetInnerHTML` (so it must be safe HTML), while
   `legalAssistant.js` additionally regex-strips it to plain text before building the LLM
   context. One sanitizer, two downstream uses — no need for a second HTML library.
-- **Chat history is persisted** via `LegalAssistantSession` (Mongoose), keyed by a
-  client-generated `sessionId` stored in `localStorage`. `LegalAssistant.jsx` still keeps
+- **Chat history is persisted** in Supabase Postgres, keyed by a client-generated `sessionId`
+  (stored in `localStorage` per signed-in user) and owned by the signed-in user. `LegalAssistant.jsx` still keeps
   `turns` in local React state as the render source of truth — it just rehydrates that state
   from `GET /legal-assistant/session/:sessionId` on mount instead of always starting empty.
 - **Answer shape is validated**, not just typed: `zod`'s `AnswerSchema.safeParse()` gates what
   counts as `outcome: "answered"` vs `"unparsed"`, on top of the existing
   `extractJson()` (strict `JSON.parse` → brace-slice fallback) recovery.
-- **Testing**: Node's built-in `node --test` + `mongodb-memory-server`, matching the rest of
-  the server (`indianKanoon.test.js`, `legalQueryUnderstanding.test.js`, `cache.test.js`,
+- **Testing**: Node's built-in `node --test` (with an in-memory Supabase stand-in for route and
+  RAG tests, see `backend/src/test/fakeSupabase.js`), matching the rest of the server (`indianKanoon.test.js`, `legalQueryUnderstanding.test.js`, `cache.test.js`,
   `indianKanoonFilters.test.js`, `callCounter.test.js` all follow this pattern) — not
   Jest/Vitest. No route-level (supertest-style) tests exist anywhere in the server — the new
   rate limiter/session endpoints were verified with ad hoc boot scripts during development, not
   a checked-in test suite; that's a gap of its own if it matters later.
-- **Route is unauthenticated**, matching the sibling `indianKanoon.js` route — still no real
-  auth boundary — but is now rate-limited (`express-rate-limit`, 20/15min per IP) since every
-  hit spends real money and there was previously no cap at all.
+- **Route requires a signed-in, email-verified user** (Supabase Auth) and is rate-limited per
+  user (`express-rate-limit`, 20/15min) since every hit spends real money. The case-law routes
+  sit behind the same gate.
 
 ## 4. Gaps worth closing (recommended new tech, scoped)
 
@@ -173,7 +177,7 @@ a production incident (irrelevant Acts cited as sources for an FIR question) tra
 5. **Cache is single-process, in-memory** — still open, still not urgent. Fine today (the app
    deliberately runs as one process per the README), but a known constraint: if this ever
    scales to multiple instances, cache hits (and the cost savings they represent) stop being
-   shared. If it becomes one, back `utils/cache.js` with a Mongo collection behind the same
+   shared. If it becomes one, back `utils/cache.js` with a shared store (Redis/Postgres) behind the same
    `getOrSet()` interface so callers don't change.
 
 6. **No cost/usage observability** — ✅ **done.** `backend/src/utils/callCounter.js` is a tiny
@@ -246,7 +250,7 @@ CLAUDE_MODEL=claude-sonnet-5
   behind Render's proxy collapses onto one IP, either breaking the per-IP limit entirely or
   making express-rate-limit throw on the X-Forwarded-For mismatch it detects.
 - The chat-history write in `POST /legal-assistant/ask` is deliberately best-effort
-  (fire-and-forget `.catch(...)`, not `await`ed into the response path) — a Mongo hiccup must
+  (fire-and-forget `.catch(...)`, not `await`ed into the response path) — a database hiccup must
   never cost the user an answer they already paid IK/OpenRouter money for.
 - zod's `AnswerSchema` failure and `extractJson()` failure both route into the same
   `"unparsed"` outcome — don't split them into different client-visible states without a

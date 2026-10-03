@@ -9,10 +9,8 @@ import "dotenv/config";
 import { pathToFileURL } from "url";
 import { getSupabase } from "../config/db.js";
 
-// Generic findOneAndUpdate-with-upsert equivalent: select by `match`, then update-or-
-// insert. Doesn't depend on a DB-level unique constraint on `match`'s columns (several
-// of the original Mongo upsert keys, e.g. matter title, aren't actually unique) — this
-// mirrors Mongoose's findOneAndUpdate(filter, ..., {upsert:true}) semantics directly.
+// Upsert by `match`: select, then update-or-insert. Doesn't depend on a DB-level unique
+// constraint on `match`'s columns.
 async function upsertOne(table, match, values) {
   const supabase = getSupabase();
   let query = supabase.from(table).select("*");
@@ -34,7 +32,7 @@ async function upsertOne(table, match, values) {
   return data;
 }
 
-// Mongo's deleteMany({matchColumn: matchValue}) + insertMany([...]) idempotent-replace pattern.
+// Idempotent replace: delete every child row for the parent, then insert the new set.
 async function replaceChildren(table, matchColumn, matchValue, rows) {
   const supabase = getSupabase();
   const { error: deleteError } = await supabase.from(table).delete().eq(matchColumn, matchValue);

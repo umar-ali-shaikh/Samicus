@@ -31,7 +31,6 @@ router.post("/research/retrieve", requireAuth, async (req, res) => {
     .single();
   if (error) throw error;
 
-  // Replaces Mongo's two index-correlated parallel arrays (retrievedChunkIds[] + scores[]).
   if (scored.length > 0) {
     const { error: chunksError } = await supabase
       .from("research_query_chunks")
@@ -116,7 +115,7 @@ router.get("/corpus/chunks/:id", requireAuth, async (req, res) => {
 
 router.get("/corpus/status", requireAuth, async (req, res) => {
   const supabase = getSupabase();
-  // Replaces CorpusDocument.aggregate([{$group: ...}]) — see corpus_document_counts_by_source() in schema.sql.
+  // See corpus_document_counts_by_source() in schema.sql.
   const { data: bySource, error } = await supabase.rpc("corpus_document_counts_by_source");
   if (error) throw error;
   const { count: chunkCount, error: countError } = await supabase.from("corpus_chunks").select("*", { count: "exact", head: true });

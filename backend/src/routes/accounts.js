@@ -64,7 +64,7 @@ router.post("/accounts/:id/members", requireAuth, requireAccountAccess("owner", 
 
   // Invitee may not have signed in yet: create a login-less placeholder row. It is linked
   // to their Supabase identity (matched by verified email) the first time they sign in.
-  let { data: user, error } = await supabase.from("users").select("*").ilike("email", email).maybeSingle();
+  let { data: user, error } = await supabase.from("users").select("*").eq("email", email).maybeSingle();
   if (error) throw error;
   if (!user) {
     ({ data: user, error } = await supabase
