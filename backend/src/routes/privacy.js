@@ -1,4 +1,4 @@
-import { Router } from "express";
+﻿import { Router } from "express";
 import { getSupabase } from "../config/db.js";
 import { requireAuth } from "../middleware/auth.js";
 import { HttpError, advocateForUser, memberAccountIds } from "../services/access.js";
@@ -25,7 +25,7 @@ router.post("/privacy/export", requireAuth, async (req, res) => {
   ]);
   for (const r of [memberships, intakes, consultations, matters, documents, questions, complaints, orders, assistant]) if (r.error) throw r.error;
 
-  res.setHeader("Content-Disposition", 'attachment; filename="samicus-my-data.json"');
+  res.setHeader("Content-Disposition", 'attachment; filename="vidhira-my-data.json"');
   res.json({
     exportedAt: new Date().toISOString(),
     user: req.user,

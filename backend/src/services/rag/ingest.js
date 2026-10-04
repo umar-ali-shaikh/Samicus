@@ -4,7 +4,7 @@
 import crypto from "crypto";
 import { getSupabase } from "../../config/db.js";
 import { embedMany, isGeminiConfigured } from "../gemini.js";
-import { chunkParagraphs, htmlToParagraphs, mapDocSource } from "./chunk.js";
+import { chunkParagraphs, htmlToParagraphs, mapDocSource, textToParagraphs } from "./chunk.js";
 import { deletePoints, ensureCollection, isQdrantConfigured, legalCollection, matchFilter, upsertPoints } from "./qdrant.js";
 
 export function ragEnabled() {
@@ -107,6 +107,72 @@ export async function ingestIndianKanoonDoc({ tid, title, docsource, html }, { m
         paragraph_class: c.paraClass,
         para_number: c.paraNumber,
         deep_link: c.paraNumber ? `${doc.canonical_url}#p_${c.paraNumber}` : doc.canonical_url,
+        token_count: Math.round(c.text.length / 4),
+      }))
+    );
+    if (chunkError) throw chunkError;
+
+    await embedAndStore(chunks, doc);
+    return { documentId: doc.id, chunks: chunks.length, skipped: false };
+  })().finally(() => inFlight.delete(key));
+  inFlight.set(key, job);
+  return job;
+}
+
+/**
+ * Indexes one trusted-domain web page found via Tavily (Stage 4 of the legal assistant
+ * pipeline). Mirrors ingestIndianKanoonDoc's shape/dedupe behavior; the only differences
+ * are the source ('web'), the dedupe key (a hash of the URL, Tavily has no stable doc id),
+ * and plain-text paragraph splitting instead of Indian Kanoon's HTML.
+ * Returns { documentId, chunks, skipped }.
+ */
+export async function ingestWebDoc({ url, title, text }, { maxChunks = 40 } = {}) {
+  if (!url || !text?.trim()) return { documentId: null, chunks: 0, skipped: true };
+  const key = `web:${crypto.createHash("sha256").update(url).digest("hex").slice(0, 32)}`;
+  if (inFlight.has(key)) return inFlight.get(key);
+  const job = (async () => {
+    const supabase = getSupabase();
+    const { data: existing, error } = await supabase.from("corpus_documents").select("id").eq("external_id", key).maybeSingle();
+    if (error) throw error;
+
+    const paragraphs = textToParagraphs(text);
+    const chunks = chunkParagraphs(paragraphs, { maxChunks }).map((c) => ({ ...c, id: crypto.randomUUID() }));
+    if (chunks.length === 0) return { documentId: existing?.id || null, chunks: 0, skipped: true };
+
+    let doc = existing;
+    if (existing) {
+      const { count, error: countError } = await supabase.from("corpus_chunks").select("*", { count: "exact", head: true }).eq("document_id", existing.id).is("embedded_at", null);
+      if (countError) throw countError;
+      const { count: total, error: totalError } = await supabase.from("corpus_chunks").select("*", { count: "exact", head: true }).eq("document_id", existing.id);
+      if (totalError) throw totalError;
+      if (total > 0 && count === 0) return { documentId: existing.id, chunks: total, skipped: true };
+      await ensureCollection(legalCollection(), PAYLOAD_INDEXES);
+      await deletePoints(legalCollection(), matchFilter("document_id", existing.id));
+      const { error: delError } = await supabase.from("corpus_chunks").delete().eq("document_id", existing.id);
+      if (delError) throw delError;
+      ({ data: doc } = await supabase.from("corpus_documents").select("*").eq("id", existing.id).single());
+    } else {
+      const { data: inserted, error: insertError } = await supabase
+        .from("corpus_documents")
+        .insert({ external_id: key, source: "web", citation: title || url, title: title || url, canonical_url: url })
+        .select()
+        .single();
+      if (insertError) {
+        if (insertError.code === "23505") return { documentId: null, chunks: 0, skipped: true };
+        throw insertError;
+      }
+      doc = inserted;
+    }
+
+    const { error: chunkError } = await supabase.from("corpus_chunks").insert(
+      chunks.map((c) => ({
+        id: c.id,
+        document_id: doc.id,
+        ordinal: c.ordinal,
+        text: c.text,
+        paragraph_class: c.paraClass,
+        para_number: c.paraNumber,
+        deep_link: doc.canonical_url,
         token_count: Math.round(c.text.length / 4),
       }))
     );

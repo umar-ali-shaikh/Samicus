@@ -1,12 +1,12 @@
-# RAG architecture (Qdrant + Gemini + Supabase)
+﻿# RAG architecture (Qdrant + Gemini + Supabase)
 
-Samicus answers legal questions from **retrieved passages**, never from model memory. Three stores
+Vidhira answers legal questions from **retrieved passages**, never from model memory. Three stores
 share the work, chosen for cost (all have a free tier that is enough to launch):
 
 | Store | Holds | Why |
 |---|---|---|
 | **Supabase Postgres** | `corpus_documents` (one row per source document) and `corpus_chunks` (the passage text, paragraph class, deep link) | Source of truth. Citations resolve against it and the vector index can always be rebuilt from it. |
-| **Qdrant** | One vector per chunk (768-d, cosine, int8-quantised, payload on disk) in collection `samicus_legal`; the clause library in `samicus_clauses` | Fast semantic search. The point id **is** the `corpus_chunks.id`. |
+| **Qdrant** | One vector per chunk (768-d, cosine, int8-quantised, payload on disk) in collection `vidhira_legal`; the clause library in `vidhira_clauses` | Fast semantic search. The point id **is** the `corpus_chunks.id`. |
 | **Gemini `gemini-embedding-001`** | Embeddings (`RETRIEVAL_DOCUMENT` for passages, `RETRIEVAL_QUERY` for questions) | Free tier, no card. |
 
 MongoDB is not used: relational data already lives in Postgres, and a document store would add a
@@ -57,7 +57,7 @@ construction. Argument-class passages can be shown but are never cited as law.
 
 ## Contract review
 
-The curated `clause_library` is embedded into `samicus_clauses` (on boot if missing, or
+The curated `clause_library` is embedded into `vidhira_clauses` (on boot if missing, or
 `npm run rag:reindex`). An uploaded contract is text-extracted (PDF text layer / DOCX / TXT — scanned
 documents are refused, there is no OCR), split into clauses, matched to the nearest baseline clause of
 the chosen contract type, and each matched pair is compared by the LLM using only the two clauses and

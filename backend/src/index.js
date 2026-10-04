@@ -1,4 +1,4 @@
-import "dotenv/config";
+﻿import "./config/env.js";
 
 import { createApp } from "./app.js";
 import { getSupabase } from "./config/db.js";
@@ -12,7 +12,7 @@ const PORT = process.env.PORT || 4000;
 function checkEnv() {
   const missing = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"].filter((k) => !process.env[k]);
   if (missing.length) {
-    throw new Error(`Missing required environment variables: ${missing.join(", ")} — see backend/.env.example.`);
+    throw new Error(`Missing required environment variables: ${missing.join(", ")} — see .env.example.`);
   }
   if (process.env.NODE_ENV === "production" && !process.env.CLIENT_ORIGIN) {
     console.warn("CLIENT_ORIGIN is not set — CORS will only allow http://localhost:5173.");
@@ -40,7 +40,7 @@ async function main() {
   }
 
   const app = createApp();
-  app.listen(PORT, () => console.log(`Samicus API listening on :${PORT}`));
+  app.listen(PORT, () => console.log(`Vidhira API listening on :${PORT}`));
 }
 
 main().catch((err) => {

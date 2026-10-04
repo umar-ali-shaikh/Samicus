@@ -1,4 +1,4 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import { useGet, useMut } from "../../api/hooks";
 import { api } from "../../lib/api";
 import { Card, Callout, Button, Badge, Loading } from "../../components/ui";
@@ -57,7 +57,7 @@ export function ApplyAdvocate({ onDone }) {
   return (
     <Card style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       <div style={{ fontFamily: "var(--font-serif)", fontSize: 18 }}>Apply to list as an advocate</div>
-      <Callout tone="neutral">Your profile stays hidden until our trust team verifies your Bar Council enrolment. Applying switches your account to advocate mode; you can still use Samicus as a client.</Callout>
+      <Callout tone="neutral">Your profile stays hidden until our trust team verifies your Bar Council enrolment. Applying switches your account to advocate mode; you can still use Vidhira as a client.</Callout>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 10 }}>
         <TextInput label="Bar Council" value={f.barCouncil} onChange={set("barCouncil")} placeholder="e.g. Bar Council of Karnataka" />
         <TextInput label="Enrolment number" value={f.enrolmentNumber} onChange={set("enrolmentNumber")} placeholder="e.g. KAR/1234/2015" />

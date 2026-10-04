@@ -1,4 +1,4 @@
-import { useGet } from "../api/hooks";
+﻿import { useGet } from "../api/hooks";
 import { useUI } from "../state/UIState";
 import { useAuth } from "../auth/AuthProvider";
 import { ModalShell } from "../components/Modal";
@@ -46,7 +46,7 @@ export function LawyerProfileModal({ advocateId }) {
               </div>
             )}
 
-            <Callout tone="neutral">Enrolment details were checked by Samicus's trust team before this profile was listed.</Callout>
+            <Callout tone="neutral">Enrolment details were checked by Vidhira's trust team before this profile was listed.</Callout>
             {canBook && <Button onClick={() => openModal("booking", { advocateId: a.id })}>Book appointment</Button>}
           </div>
         )}

@@ -5,7 +5,7 @@
 //
 // Idempotent (upserts). Runs automatically on first boot against an empty database and via
 // `npm run seed`.
-import "dotenv/config";
+import "../config/env.js";
 import { pathToFileURL } from "url";
 import { getSupabase } from "../config/db.js";
 
@@ -103,8 +103,8 @@ async function seedDraftingTemplates() {
   );
   await replaceChildren("clause_library", "template_id", rental.id, [
     { template_id: rental.id, title: "Security deposit — 10 months' rent", body_template: "The Tenant shall pay a refundable security deposit of Rs. {{securityDeposit}} adjustable against damages.", rationale_note: "Higher deposits shift risk to the tenant; the ordinary Bengaluru market position is 2-3 months for residential.", disposition: "review_advised", risk_side: "client", favors: "drafter", requires_fields: ["securityDeposit"] },
-    { template_id: rental.id, title: "Lock-in period — 6 months", body_template: "Neither party may terminate this agreement before {{lockInMonths}} months from the start date.", rationale_note: "A lock-in protects the landlord's occupancy planning; balanced practice caps it at 6 months.", disposition: "recommended", risk_side: "mutual", favors: "balanced" },
-    { template_id: rental.id, title: "Maintenance charges borne by tenant", body_template: "The Tenant shall bear monthly maintenance/society charges in addition to rent.", rationale_note: "Common in Bengaluru apartment leases; shifts a routine cost to the tenant.", disposition: "optional", risk_side: "client", favors: "drafter" },
+    { template_id: rental.id, title: "Lock-in period — 6 months", body_template: "Neither party may terminate this agreement before {{lockInMonths}} months from the start date.", rationale_note: "A lock-in protects the landlord's occupancy planning; balanced practice caps it at 6 months.", disposition: "recommended", risk_side: "mutual", favors: "balanced", requires_fields: [] },
+    { template_id: rental.id, title: "Maintenance charges borne by tenant", body_template: "The Tenant shall bear monthly maintenance/society charges in addition to rent.", rationale_note: "Common in Bengaluru apartment leases; shifts a routine cost to the tenant.", disposition: "optional", risk_side: "client", favors: "drafter", requires_fields: [] },
   ]);
 
   const employment = await upsertOne(
@@ -129,8 +129,8 @@ async function seedDraftingTemplates() {
   );
   await replaceChildren("clause_library", "template_id", employment.id, [
     { template_id: employment.id, title: "Post-resignation non-compete (12 months)", body_template: "The Employee shall not join a competing business for 12 months after resignation within {{restrictedTerritory}}.", rationale_note: "Section 27, Indian Contract Act 1872 renders post-employment restraints void in India — this clause is not enforceable as drafted and is included only where the employer insists.", disposition: "review_advised", risk_side: "client", favors: "drafter", requires_fields: ["restrictedTerritory"] },
-    { template_id: employment.id, title: "Confidentiality — indefinite", body_template: "The Employee shall keep confidential information secret indefinitely, including after termination.", rationale_note: "Confidentiality obligations (as opposed to non-competes) are enforceable indefinitely and are standard.", disposition: "recommended", risk_side: "mutual", favors: "balanced" },
-    { template_id: employment.id, title: "Non-solicitation of clients (12 months)", body_template: "The Employee shall not solicit the Employer's clients for 12 months after termination.", rationale_note: "Narrower than a non-compete and more likely to be enforced as a reasonable restraint on trade secrets/goodwill.", disposition: "recommended", risk_side: "mutual", favors: "balanced" },
+    { template_id: employment.id, title: "Confidentiality — indefinite", body_template: "The Employee shall keep confidential information secret indefinitely, including after termination.", rationale_note: "Confidentiality obligations (as opposed to non-competes) are enforceable indefinitely and are standard.", disposition: "recommended", risk_side: "mutual", favors: "balanced", requires_fields: [] },
+    { template_id: employment.id, title: "Non-solicitation of clients (12 months)", body_template: "The Employee shall not solicit the Employer's clients for 12 months after termination.", rationale_note: "Narrower than a non-compete and more likely to be enforced as a reasonable restraint on trade secrets/goodwill.", disposition: "recommended", risk_side: "mutual", favors: "balanced", requires_fields: [] },
   ]);
 
   const nda = await upsertOne(
@@ -152,8 +152,8 @@ async function seedDraftingTemplates() {
     }
   );
   await replaceChildren("clause_library", "template_id", nda.id, [
-    { template_id: nda.id, title: "Term — 3 years", body_template: "Confidentiality obligations survive for {{termYears}} years from disclosure.", rationale_note: "3 years is the common market position for commercial (non-trade-secret) NDAs.", disposition: "recommended", risk_side: "mutual", favors: "balanced" },
-    { template_id: nda.id, title: "Unilateral carve-out for Party A", body_template: "Party A's obligations under this agreement are waived where disclosure is made to its affiliates.", rationale_note: "Favors Party A by narrowing only their obligations, not Party B's — a deviation from the mutual baseline.", disposition: "review_advised", risk_side: "counterparty", favors: "drafter" },
+    { template_id: nda.id, title: "Term — 3 years", body_template: "Confidentiality obligations survive for {{termYears}} years from disclosure.", rationale_note: "3 years is the common market position for commercial (non-trade-secret) NDAs.", disposition: "recommended", risk_side: "mutual", favors: "balanced", requires_fields: [] },
+    { template_id: nda.id, title: "Unilateral carve-out for Party A", body_template: "Party A's obligations under this agreement are waived where disclosure is made to its affiliates.", rationale_note: "Favors Party A by narrowing only their obligations, not Party B's — a deviation from the mutual baseline.", disposition: "review_advised", risk_side: "counterparty", favors: "drafter", requires_fields: [] },
   ]);
 
   const notice = await upsertOne(
@@ -175,7 +175,7 @@ async function seedDraftingTemplates() {
     }
   );
   await replaceChildren("clause_library", "template_id", notice.id, [
-    { template_id: notice.id, title: "Reservation of rights", body_template: "This notice is issued without prejudice to any other right or remedy available to our client under law.", rationale_note: "Standard boilerplate protecting the sender's other legal options.", disposition: "recommended", risk_side: "mutual", favors: "balanced" },
+    { template_id: notice.id, title: "Reservation of rights", body_template: "This notice is issued without prejudice to any other right or remedy available to our client under law.", rationale_note: "Standard boilerplate protecting the sender's other legal options.", disposition: "recommended", risk_side: "mutual", favors: "balanced", requires_fields: [] },
   ]);
 
   return { rental, employment, nda, notice };

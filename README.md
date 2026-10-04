@@ -1,4 +1,4 @@
-# Samicus
+﻿# Vidhira
 
 A legal-services platform for Indian law — find a verified advocate, book or talk to one now, research Indian
 law with cited answers, draft and review contracts, and track matters from intake to resolution.
@@ -47,8 +47,7 @@ See **[docs/SETUP.md](docs/SETUP.md)** for Supabase, Google OAuth, Qdrant and de
 
 ```bash
 npm install
-cp backend/.env.example backend/.env     # SUPABASE_*, QDRANT_*, GEMINI_API_KEY, OPENROUTER_API_KEY, IK_API_TOKEN …
-cp frontend/.env.example frontend/.env   # VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY
+cp .env.example .env   # single shared file: SUPABASE_*, QDRANT_*, GEMINI_API_KEY, OPENROUTER_API_KEY, IK_API_TOKEN, VITE_*
 # run backend/src/db/schema.sql once in the Supabase SQL editor
 npm run dev:full                         # API :4000 + web :5173
 ```

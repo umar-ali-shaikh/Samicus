@@ -1,10 +1,10 @@
-import { Card } from "../components/ui";
+﻿import { Card } from "../components/ui";
 
 export function Brand({ light }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
       <div style={{ width: 34, height: 34, borderRadius: 9, background: "var(--color-gold)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "var(--font-serif)", fontSize: 19, color: "var(--color-navy)", fontWeight: 600 }}>S</div>
-      <span style={{ fontFamily: "var(--font-serif)", fontSize: 21, letterSpacing: "0.06em", color: light ? "#F6F1E8" : "var(--color-navy)" }}>SAMICUS</span>
+      <span style={{ fontFamily: "var(--font-serif)", fontSize: 21, letterSpacing: "0.06em", color: light ? "#F6F1E8" : "var(--color-navy)" }}>VIDHIRA</span>
     </div>
   );
 }
@@ -21,7 +21,7 @@ export function AuthLayout({ title, subtitle, children, footer }) {
           </div>
         </div>
         <div style={{ fontSize: 11, color: "#8A94A8", maxWidth: 420, lineHeight: 1.6 }}>
-          Samicus is a technology platform. It does not practise law and does not guarantee outcomes. In an emergency, call 112.
+          Vidhira is a technology platform. It does not practise law and does not guarantee outcomes. In an emergency, call 112.
         </div>
       </div>
       <div style={{ flex: "1 1 420px", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>

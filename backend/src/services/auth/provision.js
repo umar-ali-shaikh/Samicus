@@ -1,4 +1,4 @@
-// Maps a verified Supabase Auth identity (Google or email/password) to a Samicus
+﻿// Maps a verified Supabase Auth identity (Google or email/password) to a Vidhira
 // `users` row, creating the row plus the user's personal account on first login.
 import { getSupabase } from "../../config/db.js";
 
@@ -21,7 +21,7 @@ export function bootstrapRole(email) {
 
 function displayName(authUser) {
   const meta = authUser.user_metadata || {};
-  return (meta.full_name || meta.name || (authUser.email || "").split("@")[0] || "Samicus user").trim();
+  return (meta.full_name || meta.name || (authUser.email || "").split("@")[0] || "Vidhira user").trim();
 }
 
 async function createPersonalAccount(supabase, user) {

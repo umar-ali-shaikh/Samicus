@@ -1,4 +1,4 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import { useAuth } from "../auth/AuthProvider";
 import { useUI } from "../state/UIState";
 import { useGet, useMut } from "../api/hooks";
@@ -159,7 +159,7 @@ function Privacy() {
   const exportData = useMut(async () => {
     const res = await api.post("/privacy/export");
     const blob = new Blob([JSON.stringify(res, null, 2)], { type: "application/json" });
-    const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(blob), download: "samicus-my-data.json" });
+    const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(blob), download: "vidhira-my-data.json" });
     document.body.appendChild(a); a.click(); a.remove();
   }, { success: "Your data export has been downloaded." });
   const del = useMut(() => api.post("/privacy/delete"), { onSuccess: async () => { showToast("Your account was deleted."); await signOut(); } });
@@ -210,7 +210,7 @@ export function Profile() {
           <li>Match ordering is neutral — never influenced by payment or advertising.</li>
           <li>Documents are stored privately; an advocate sees only what you explicitly share.</li>
           <li>Engagement terms are confirmed in writing (a fee proposal you accept) before work begins.</li>
-          <li>In an emergency, call 112 — Samicus does not replace emergency services.</li>
+          <li>In an emergency, call 112 — Vidhira does not replace emergency services.</li>
         </ul>
       </Callout>
 

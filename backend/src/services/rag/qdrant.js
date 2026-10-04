@@ -1,4 +1,4 @@
-// Thin Qdrant REST client (no SDK dependency). Works with Qdrant Cloud's free tier
+﻿// Thin Qdrant REST client (no SDK dependency). Works with Qdrant Cloud's free tier
 // (1 GB, no card) or a self-hosted container: set QDRANT_URL (+ QDRANT_API_KEY for cloud).
 //
 // Budget design: 768-d Gemini embeddings, int8 scalar quantization (≈4× less RAM) and
@@ -20,11 +20,11 @@ export function isQdrantConfigured() {
 }
 
 export function legalCollection() {
-  return process.env.QDRANT_COLLECTION || "samicus_legal";
+  return process.env.QDRANT_COLLECTION || "vidhira_legal";
 }
 
 export function clauseCollection() {
-  return process.env.QDRANT_CLAUSE_COLLECTION || "samicus_clauses";
+  return process.env.QDRANT_CLAUSE_COLLECTION || "vidhira_clauses";
 }
 
 async function qdrant(method, path, body, { allow404 = false } = {}) {

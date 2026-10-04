@@ -23,6 +23,32 @@ function KnowledgeBaseStats() {
   );
 }
 
+function IndexedLibrary() {
+  const docs = useGet("/corpus/documents", undefined, { staleTime: 60000 });
+  if (docs.isLoading) return <Loading label="Loading the indexed library…" />;
+  if (!docs.data?.length) return <Callout tone="neutral">Nothing indexed yet — ask a question in the AI Legal Assistant to start building the library.</Callout>;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--color-label)" }}>ALREADY INDEXED · {docs.data.length} document{docs.data.length === 1 ? "" : "s"}</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {docs.data.map((d) => (
+          <Card key={d.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontWeight: 700, fontSize: 13.5 }}>{d.title}</div>
+              <div style={{ fontSize: 11.5, color: "var(--color-text-muted)" }}>
+                {(SOURCE_LABEL[d.source] || d.source)}{d.court ? ` · ${d.court}` : ""}{d.citation ? ` · ${d.citation}` : ""}
+              </div>
+            </div>
+            {d.canonical_url && (
+              <a href={d.canonical_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, flex: "none" }}>Open source ↗</a>
+            )}
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function Research() {
   const config = useConfig();
   const [question, setQuestion] = useState("");
@@ -49,7 +75,7 @@ export function Research() {
         <KnowledgeBaseStats />
       </div>
 
-      {disabled && <Callout tone="warning" title="Not enabled on this deployment">The research library needs Qdrant and Gemini embeddings to be configured (see backend/.env.example).</Callout>}
+      {disabled && <Callout tone="warning" title="Not enabled on this deployment">The research library needs Qdrant and Gemini embeddings to be configured (see .env.example).</Callout>}
 
       <Card style={{ background: "var(--color-navy)", display: "flex", flexDirection: "column", gap: 10 }}>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -68,6 +94,8 @@ export function Research() {
 
       {run.isPending && <Loading label="Retrieving passages and discarding anything below the relevance threshold…" />}
       {run.isError && <Callout tone="danger">{run.error.message}</Callout>}
+
+      {!state && !run.isPending && <IndexedLibrary />}
 
       {state && !run.isPending && (
         <div style={{ display: "flex", gap: 18, alignItems: "flex-start", flexWrap: "wrap" }}>

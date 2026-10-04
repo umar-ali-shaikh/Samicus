@@ -1,7 +1,7 @@
-// Authentication is delegated to Supabase Auth (Google OAuth 2.0 and email/password).
+﻿// Authentication is delegated to Supabase Auth (Google OAuth 2.0 and email/password).
 // The browser signs in with supabase-js and sends its access token as a Bearer token;
 // we validate it with Supabase, require a verified email, and load/provision the
-// matching Samicus user.
+// matching Vidhira user.
 import { getSupabase } from "../config/db.js";
 import { provisionUser } from "../services/auth/provision.js";
 

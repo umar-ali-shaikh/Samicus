@@ -1,11 +1,9 @@
-import { useEffect, useState } from "react";
+﻿import { useEffect, useState } from "react";
 import { useAuth } from "../auth/AuthProvider";
 import { useUI } from "../state/UIState";
 import { CLIENT_NAV, LAWYER_NAV, ADMIN_NAV, FOUNDER_NAV, viewFor } from "./navConfig";
 import { TabRouter } from "./TabRouter";
 import { useIsMobile } from "./useIsMobile";
-import { AvatarTile } from "../components/ui";
-import { initials } from "../lib/format";
 import { useGet } from "../api/hooks";
 
 const ROLE_CAPTION = { client: "CLIENT", lawyer: "ADVOCATE", admin: "TRUST & VERIFICATION", founder: "FOUNDER" };
@@ -54,7 +52,7 @@ function NavRail({ nav, view, onNavigate }) {
       {view === "client" && (
         <button onClick={() => { openModal("urgent"); onNavigate?.(); }} style={{ background: "#DB4F35", color: "#fff", border: "none", borderRadius: 9, padding: "10px 12px", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>Urgent help</button>
       )}
-      <div style={{ fontSize: 10, color: "#8A94A8", lineHeight: 1.5 }}>Samicus is a technology platform. It does not practise law and does not guarantee outcomes.</div>
+      <div style={{ fontSize: 10, color: "#8A94A8", lineHeight: 1.5 }}>Vidhira is a technology platform. It does not practise law and does not guarantee outcomes.</div>
     </div>
   );
 }
@@ -87,26 +85,18 @@ export function WebFrame() {
       )}
 
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: isMobile ? "10px 14px" : "12px 20px", borderBottom: "1px solid var(--color-border)", background: "#FDFBF7", gap: 10, flexWrap: "wrap" }}>
-          {isMobile && (
-            <button onClick={() => setNavOpen(true)} aria-label="Open menu" style={{ background: "none", border: "1px solid var(--color-border)", borderRadius: 8, width: 36, height: 36, fontSize: 16, cursor: "pointer", flex: "none" }}>☰</button>
-          )}
-          {view === "client" && accounts.length > 1 ? (
-            <select value={activeAccount?.id || ""} onChange={(e) => setActiveAccountId(e.target.value)} aria-label="Active account" style={{ padding: "8px 10px", borderRadius: 9, border: "1px solid var(--color-border)", fontSize: 12.5, fontWeight: 600, background: "#fff", maxWidth: 280 }}>
-              {accounts.map((a) => <option key={a.id} value={a.id}>{a.display_name.replace(/\s*\([0-9a-f]{6}\)$/, "")} · {a.type}</option>)}
-            </select>
-          ) : <div />}
-          {(view === "client" || view === "lawyer") && (
-            <input
-              placeholder="Ask Samicus a legal question…"
-              onKeyDown={(e) => { if (e.key === "Enter" && e.target.value.trim()) { go("legalassistant", "", { question: e.target.value.trim() }); e.target.value = ""; } }}
-              style={{ flex: 1, minWidth: 120, maxWidth: 360, padding: "9px 14px", borderRadius: 999, border: "1px solid var(--color-border)", fontSize: 12.5 }}
-            />
-          )}
-          {user?.avatar_url
-            ? <img src={user.avatar_url} alt="" referrerPolicy="no-referrer" width={32} height={32} style={{ borderRadius: 11, flex: "none" }} />
-            : <AvatarTile initials={initials(user?.full_name)} size={32} />}
-        </div>
+        {(isMobile || (view === "client" && accounts.length > 1)) && (
+          <div style={{ display: "flex", alignItems: "center", padding: isMobile ? "10px 14px" : "12px 20px", borderBottom: "1px solid var(--color-border)", background: "#FDFBF7", gap: 10, flexWrap: "wrap" }}>
+            {isMobile && (
+              <button onClick={() => setNavOpen(true)} aria-label="Open menu" style={{ background: "none", border: "1px solid var(--color-border)", borderRadius: 8, width: 36, height: 36, fontSize: 16, cursor: "pointer", flex: "none" }}>☰</button>
+            )}
+            {view === "client" && accounts.length > 1 && (
+              <select value={activeAccount?.id || ""} onChange={(e) => setActiveAccountId(e.target.value)} aria-label="Active account" style={{ padding: "8px 10px", borderRadius: 9, border: "1px solid var(--color-border)", fontSize: 12.5, fontWeight: 600, background: "#fff", maxWidth: 280 }}>
+                {accounts.map((a) => <option key={a.id} value={a.id}>{a.display_name.replace(/\s*\([0-9a-f]{6}\)$/, "")} · {a.type}</option>)}
+              </select>
+            )}
+          </div>
+        )}
         <div style={{ flex: 1, padding: isMobile ? 14 : 22, overflowY: "auto" }}>
           <TabRouter view={view} />
         </div>

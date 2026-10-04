@@ -1,4 +1,4 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import { useGet, useMut } from "../api/hooks";
 import { api } from "../lib/api";
 import { Card, Badge, Button, Callout, QueryBoundary, EmptyState, Loading } from "../components/ui";
@@ -53,7 +53,7 @@ export function DraftReviews() {
   if (openId) return <ReviewDetail id={openId} onClose={() => setOpenId(null)} />;
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <PageHeader title="Draft reviews" subtitle="Clients ask you to review a document they drafted on Samicus. Return comments within the stated turnaround." />
+      <PageHeader title="Draft reviews" subtitle="Clients ask you to review a document they drafted on Vidhira. Return comments within the stated turnaround." />
       <QueryBoundary query={reviews} empty={<EmptyState title="No review requests" body="Paid draft-review requests from clients appear here." />}>
         {(list) => list.map((r) => (
           <Card key={r.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, cursor: "pointer" }} onClick={() => setOpenId(r.id)}>

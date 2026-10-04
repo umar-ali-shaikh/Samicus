@@ -1,4 +1,4 @@
-import { Router } from "express";
+﻿import { Router } from "express";
 import { z } from "zod";
 import { getSupabase } from "../config/db.js";
 import { requireAuth } from "../middleware/auth.js";
@@ -247,7 +247,7 @@ router.post("/matters/:id/access", requireAuth, async (req, res) => {
 
   const { data: person, error: personError } = await supabase.from("users").select("id, full_name").eq("email", input.email.toLowerCase()).maybeSingle();
   if (personError) throw personError;
-  if (!person) throw new HttpError(404, "No Samicus user has that email yet. Ask them to sign up first.");
+  if (!person) throw new HttpError(404, "No Vidhira user has that email yet. Ask them to sign up first.");
 
   const { data: grant, error } = await supabase
     .from("matter_access_grants")

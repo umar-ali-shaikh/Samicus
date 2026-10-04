@@ -1,4 +1,4 @@
-// Renders an assembled draft to DOCX or PDF on the fly (nothing is stored server-side).
+﻿// Renders an assembled draft to DOCX or PDF on the fly (nothing is stored server-side).
 import { Document, HeadingLevel, Packer, Paragraph, TextRun } from "docx";
 import PDFDocument from "pdfkit";
 
@@ -6,7 +6,7 @@ const DRAFT_BANNER = "DRAFT — not executed. A standard draft, not legal advice
 
 export async function renderDocx({ title, blocks }) {
   const doc = new Document({
-    creator: "Samicus",
+    creator: "Vidhira",
     title,
     sections: [
       {
@@ -26,7 +26,7 @@ export async function renderDocx({ title, blocks }) {
 
 export function renderPdf({ title, blocks }) {
   return new Promise((resolve, reject) => {
-    const pdf = new PDFDocument({ margin: 56, info: { Title: title, Producer: "Samicus" } });
+    const pdf = new PDFDocument({ margin: 56, info: { Title: title, Producer: "Vidhira" } });
     const chunks = [];
     pdf.on("data", (c) => chunks.push(c));
     pdf.on("end", () => resolve(Buffer.concat(chunks)));

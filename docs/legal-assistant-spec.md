@@ -1,4 +1,4 @@
-# AI Legal Assistant — As-Built Spec & Roadmap
+﻿# AI Legal Assistant — As-Built Spec & Roadmap
 
 > **Update:** retrieval now runs through a Qdrant-backed knowledge base first (passage-level RAG),
 > falling back to the live Indian Kanoon search as described below. See [RAG.md](RAG.md) for
@@ -8,7 +8,7 @@
 This replaces an earlier draft spec that assumed a fresh, standalone `legal-bot/` project
 (separate repo, MongoDB-backed API cache, `cheerio` for HTML stripping, an `openai`-package
 OpenRouter client, a `generate()` LLM facade switched by `LLM_PROVIDER`). That's not what
-exists. The AI Legal Assistant is already a shipped feature of **Samicus** (this repo), with
+exists. The AI Legal Assistant is already a shipped feature of **Vidhira** (this repo), with
 its own — more capable — RAG pipeline. This doc describes what's actually built, then lists
 concrete, scoped gaps worth closing next.
 

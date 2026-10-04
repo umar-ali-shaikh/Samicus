@@ -59,6 +59,20 @@ export function htmlToParagraphs(html, { fallbackClass = "reasoning" } = {}) {
   return out;
 }
 
+/**
+ * Plain-text counterpart to htmlToParagraphs, for sources with no markup (e.g. Tavily's
+ * extracted page text) — splits on blank lines, falling back to single newlines.
+ * @param {string} text
+ * @param {{ fallbackClass?: string }} [opts]
+ * @returns {{ text: string, paraClass: string, paraNumber: string|null }[]}
+ */
+export function textToParagraphs(text, { fallbackClass = "provision" } = {}) {
+  const normalized = decodeEntities(String(text || "")).trim();
+  const blocks = normalized.split(/\n\s*\n+/).filter((b) => b.trim().length >= 3);
+  const lines = blocks.length > 0 ? blocks : normalized.split(/\n+/).filter((l) => l.trim().length >= 3);
+  return lines.map((l) => ({ text: l.trim(), paraClass: fallbackClass, paraNumber: null }));
+}
+
 function splitLong(text, max) {
   if (text.length <= max) return [text];
   const sentences = text.match(/[^.!?।]+[.!?।]+["')\]]*\s*|[^.!?।]+$/g) || [text];

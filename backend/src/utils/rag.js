@@ -1,7 +1,7 @@
 // CLI for the vector knowledge base:
 //   npm run rag:reindex   embed any chunk that has no vector yet, then the clause library
 //   npm run rag:status    show Qdrant / Postgres counts
-import "dotenv/config";
+import "../config/env.js";
 import { getSupabase } from "../config/db.js";
 import { reindexPending, ragEnabled } from "../services/rag/ingest.js";
 import { indexClauseLibrary } from "../services/rag/clauses.js";

@@ -1,4 +1,4 @@
--- Samicus database schema (Supabase / Postgres). Run once in the Supabase SQL editor on a fresh project;
+﻿-- Vidhira database schema (Supabase / Postgres). Run once in the Supabase SQL editor on a fresh project;
 -- existing databases upgrade with the files in db/migrations/ instead.
 -- Conventions: uuid primary keys; scalar arrays used as query filters live in junction tables;
 -- ordered child records carry a `position` column; everything else is jsonb. Foreign keys use
@@ -630,7 +630,7 @@ create trigger consultations_set_updated_at before update on consultations for e
 
 create table corpus_documents (
   id uuid primary key default gen_random_uuid(),
-  source text not null check (source in ('bare_act', 'supreme_court', 'high_court', 'rules', 'ccpa', 'asci', 'tribunal', 'other')),
+  source text not null check (source in ('bare_act', 'supreme_court', 'high_court', 'rules', 'ccpa', 'asci', 'tribunal', 'other', 'web')),
   citation text not null,
   title text not null,
   court text,

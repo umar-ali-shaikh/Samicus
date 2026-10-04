@@ -1,4 +1,4 @@
-# Setup guide
+﻿# Setup guide
 
 Everything below uses free tiers. You need three things: a **Supabase** project (database, auth,
 file storage), a **Qdrant** cluster (vector search) and a **Google Cloud** OAuth client (Google sign-in).
@@ -8,8 +8,8 @@ file storage), a **Qdrant** cluster (vector search) and a **Google Cloud** OAuth
 1. Create a project at <https://supabase.com>. Note **Project URL**, the **anon (public) key** and the
    **service_role key** (Project Settings → API). The service-role key is server-only.
 2. SQL editor → paste and run `backend/src/db/schema.sql` once (fresh project).
-   *Upgrading an older Samicus database?* Run `backend/src/db/migrations/001_supabase_auth.sql`, then
-   `002_security.sql`.
+   *Upgrading an older Vidhira database?* Run `backend/src/db/migrations/001_supabase_auth.sql`, then
+   `002_security.sql`, then `003_web_source.sql` (adds the 'web' source for the Tavily fallback below).
    The schema ends by enabling row-level security with no policies: the public anon key can read
    nothing, so every request must go through the API.
 3. **Authentication → Providers**
@@ -50,15 +50,26 @@ enabled and the assistant falls back to live Indian Kanoon search.
 | `GEMINI_API_KEY` | <https://aistudio.google.com/apikey> (free) | embeddings (RAG) |
 | `OPENROUTER_API_KEY` | <https://openrouter.ai> | assistant answers, contract review |
 | `IK_API_TOKEN` | <https://api.indiankanoon.org> (paid per call) | live case-law search / assistant |
+| `TAVILY_API_KEY` | <https://tavily.com> (free tier) | web-search fallback, see below (optional) |
 | `RAZORPAY_KEY_ID/SECRET/WEBHOOK_SECRET` | <https://razorpay.com> | online payments (optional) |
+
+### AI Legal Assistant evidence pipeline
+
+`answerLegalQuestion` (`backend/src/services/legalAssistant.js`) tries sources in order, stopping
+as soon as it has enough: the knowledge base (Qdrant) first, then a live Indian Kanoon search if
+that's thin, then Tavily — restricted to a trusted government/legal-aid domain allowlist — if
+Indian Kanoon alone still doesn't cover practical details (procedure, helplines, forms, time
+limits). Whatever Indian Kanoon or Tavily turned up gets written back into the knowledge base in
+the background after the answer is sent, so the same question is cheaper and faster next time.
+Every stage degrades gracefully — a missing `TAVILY_API_KEY`, or any stage failing outright, just
+skips to the next one rather than breaking the answer.
 
 ## 5. Configure and run
 
 ```bash
 npm install
-cp backend/.env.example backend/.env     # fill in the values above
-cp frontend/.env.example frontend/.env   # VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY
-npm run dev:full                         # API :4000 + web :5173
+cp .env.example .env   # single file at the repo root, shared by backend/ and frontend/ — fill in the values above
+npm run dev:full       # API :4000 + web :5173
 ```
 
 First boot seeds only the **reference catalogues** (practice areas, the situation picker and the
@@ -70,7 +81,7 @@ analytics all come from real people using the app.
 * Everyone starts as a **client**. A user can **apply as an advocate** from Profile; they stay hidden
   until an admin verifies their Bar Council enrolment.
 * **Admins and the founder** are set by email allow-list — `ADMIN_EMAILS` / `FOUNDER_EMAILS` in
-  `backend/.env` — and only for an address Supabase has verified. Roles are never settable from the client.
+  the root `.env` — and only for an address Supabase has verified. Roles are never settable from the client.
 
 ### Admin checklist after launch
 

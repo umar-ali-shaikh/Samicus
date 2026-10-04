@@ -1,5 +1,5 @@
-{
-  "name": "samicus-backend",
+﻿{
+  "name": "vidhira-backend",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -28,7 +28,7 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
-    "nodemon": "^3.1.4"
+    "nodemon": "^3.1.14"
   },
-  "description": "Samicus API \u2014 Express + Supabase (Postgres, Auth, Storage) + Qdrant"
+  "description": "Vidhira API — Express + Supabase (Postgres, Auth, Storage) + Qdrant"
 }

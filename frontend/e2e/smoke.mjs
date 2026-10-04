@@ -1,4 +1,4 @@
-// UI smoke test: renders every screen for every role in a real Chromium against a stubbed
+﻿// UI smoke test: renders every screen for every role in a real Chromium against a stubbed
 // API + stubbed Supabase session, and fails on any uncaught error, console error or missing
 // content. Run (after `npm run build`): node frontend/e2e/smoke.mjs
 //   needs: playwright (npm i -D playwright, or a global install) + a Chromium binary.
@@ -65,7 +65,7 @@ for (const [role, tabs] of Object.entries(SCREENS)) {
     // Pack compliance is only offered on business accounts, so switch the active account for it.
     const accountFor = tab === "pack" ? IDS.bizAccount : IDS.account;
     await page.goto(`${base}/?blank`);
-    await page.evaluate((id) => localStorage.setItem("samicus.account", id), accountFor);
+    await page.evaluate((id) => localStorage.setItem("vidhira.account", id), accountFor);
     await page.goto(`${base}/?tab=${encodeURIComponent(tab)}#${tab}`); // new query string → full navigation
     const key = tab.split("/")[0];
     const expected = EXPECT[key];

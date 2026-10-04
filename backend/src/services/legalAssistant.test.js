@@ -310,6 +310,131 @@ test("answerLegalQuestion() re-ranks general candidates by relevance, not just I
   assert.equal(result.sources[0].tid, 302);
 });
 
+// ---- Stage 3/4/6 tests: Indian Kanoon + Tavily fallbacks ------------------------------
+// QDRANT_URL/GEMINI_API_KEY are never set in this file, so ragEnabled() is false and
+// stage 2 always returns zero passages — the same observable shape as a genuine "RAG
+// miss" for every test in this file, without needing a Qdrant/Supabase double here.
+// (The "RAG hit skips everything" and "learn step dedupes" cases genuinely need a live
+// knowledge base, so they live in rag/rag.test.js, which already has that harness.)
+
+// Pass key: null to explicitly simulate TAVILY_API_KEY being unset (not configured).
+function withTavilyKey(t, key = "test-tavily-key") {
+  const prev = process.env.TAVILY_API_KEY;
+  if (key === null) delete process.env.TAVILY_API_KEY;
+  else process.env.TAVILY_API_KEY = key;
+  t.after(() => { if (prev === undefined) delete process.env.TAVILY_API_KEY; else process.env.TAVILY_API_KEY = prev; });
+}
+
+function tavilyResponse(results) {
+  return jsonResponse(200, { results });
+}
+
+test("answerLegalQuestion() skips Tavily when Indian Kanoon alone already gives enough evidence", async (t) => {
+  withTavilyKey(t);
+  const DOC_A = { tid: 701, title: "Rent Control Act, 1999", headline: "landlord security deposit refund", docsource: "Central Government Act", docsize: 2 };
+  const DOC_B = { tid: 702, title: "Tenant v Landlord", headline: "security deposit refund dispute", docsource: "Delhi High Court", docsize: 3 };
+  let orCalls = 0;
+  let tavilyCalled = false;
+  t.mock.method(globalThis, "fetch", async (url) => {
+    const u = String(url);
+    if (u.startsWith("https://openrouter.ai")) {
+      orCalls += 1;
+      return llmMessage(orCalls === 1 ? UNDERSTANDING_JSON : SECTIONS_JSON);
+    }
+    if (u.startsWith("https://api.tavily.com")) {
+      tavilyCalled = true;
+      return tavilyResponse([]);
+    }
+    if (u.includes("/search/")) {
+      const isLawsSearch = decodeURIComponent(u).includes("doctypes:laws");
+      return jsonResponse(200, { found: 1, docs: isLawsSearch ? [DOC_A] : [DOC_B], categories: [] });
+    }
+    if (u.includes("/doc/")) return jsonResponse(200, { doc: "<p>landlord security deposit text</p>", title: "x", citeList: [], citedbyList: [] });
+    throw new Error(`Unexpected fetch to ${u}`);
+  });
+
+  const result = await answerLegalQuestion("Mere landlord ne security deposit return nahi kiya, kya kar sakta hoon?");
+
+  assert.equal(result.outcome, "answered");
+  assert.deepEqual(result.evidenceOrigin, { rag: 0, indianKanoon: 2, web: 0 });
+  assert.equal(tavilyCalled, false, "two Indian Kanoon hits already clear MIN_EVIDENCE_TO_SKIP_WEB — Tavily must not run");
+});
+
+test("answerLegalQuestion() falls through to Tavily when Indian Kanoon comes up empty", async (t) => {
+  withTavilyKey(t);
+  let orCalls = 0;
+  let generationPrompt = "";
+  t.mock.method(globalThis, "fetch", async (url, init) => {
+    const u = String(url);
+    if (u.startsWith("https://openrouter.ai")) {
+      orCalls += 1;
+      if (orCalls === 1) return llmMessage(UNDERSTANDING_JSON);
+      generationPrompt = JSON.parse(init.body).messages.at(-1).content;
+      return llmMessage(SECTIONS_JSON);
+    }
+    if (u.startsWith("https://api.tavily.com")) {
+      return tavilyResponse([
+        { title: "Rent disputes — step by step", url: "https://nalsa.gov.in/rent-deposit-guide", content: "A tenant can approach the rent authority to recover a wrongfully withheld deposit.", score: 0.9 },
+      ]);
+    }
+    if (u.includes("/search/")) return jsonResponse(200, { found: 0, docs: [], categories: [] });
+    throw new Error(`Unexpected fetch to ${u}`);
+  });
+
+  const result = await answerLegalQuestion("Mere landlord ne security deposit return nahi kiya, kya kar sakta hoon?");
+
+  assert.equal(result.outcome, "answered");
+  assert.deepEqual(result.evidenceOrigin, { rag: 0, indianKanoon: 0, web: 1 });
+  assert.equal(result.sources[0].url, "https://nalsa.gov.in/rent-deposit-guide");
+  assert.equal(result.sources[0].sourceType, "web");
+  assert.match(generationPrompt, /nalsa\.gov\.in/);
+});
+
+test("answerLegalQuestion() short-circuits to no_evidence when Tavily is not configured and Indian Kanoon is empty", async (t) => {
+  withTavilyKey(t, null); // not configured
+  let orCalls = 0;
+  let tavilyCalled = false;
+  t.mock.method(globalThis, "fetch", async (url) => {
+    const u = String(url);
+    if (u.startsWith("https://openrouter.ai")) {
+      orCalls += 1;
+      return llmMessage(UNDERSTANDING_JSON);
+    }
+    if (u.startsWith("https://api.tavily.com")) {
+      tavilyCalled = true;
+      return tavilyResponse([]);
+    }
+    if (u.includes("/search/")) return jsonResponse(200, { found: 0, docs: [], categories: [] });
+    throw new Error(`Unexpected fetch to ${u}`);
+  });
+
+  const result = await answerLegalQuestion("some obscure query with no hits anywhere");
+
+  assert.equal(result.outcome, "no_evidence");
+  assert.equal(tavilyCalled, false, "TAVILY_API_KEY is unset — the stage must not attempt a call");
+  assert.equal(orCalls, 1, "only query understanding ran, not generation");
+});
+
+test("answerLegalQuestion() degrades gracefully to no_evidence when Tavily itself fails, instead of throwing", async (t) => {
+  withTavilyKey(t);
+  let orCalls = 0;
+  t.mock.method(globalThis, "fetch", async (url) => {
+    const u = String(url);
+    if (u.startsWith("https://openrouter.ai")) {
+      orCalls += 1;
+      return llmMessage(UNDERSTANDING_JSON);
+    }
+    if (u.startsWith("https://api.tavily.com")) return jsonResponse(500, { error: "Tavily is down" });
+    if (u.includes("/search/")) return jsonResponse(200, { found: 0, docs: [], categories: [] });
+    throw new Error(`Unexpected fetch to ${u}`);
+  });
+
+  const result = await answerLegalQuestion("some obscure query with no hits anywhere");
+
+  assert.equal(result.outcome, "no_evidence");
+  assert.equal(orCalls, 1, "a failed Tavily call must not trigger a generation call either");
+});
+
 test("answerLegalQuestion() caches identical question+filters — no repeat fetch calls", async (t) => {
   let calls = 0;
   const dispatcher = routedFetch({ docs: [SAMPLE_DOC] });

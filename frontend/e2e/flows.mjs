@@ -1,4 +1,4 @@
-// Interactive UI flows (auth, booking, urgent, drafting, research, assistant, messaging) in a
+﻿// Interactive UI flows (auth, booking, urgent, drafting, research, assistant, messaging) in a
 // real Chromium against a stubbed API + stubbed Supabase endpoints. Assertions also check the
 // payloads the UI sends, so contract drift between client and server shows up here.
 //   node frontend/e2e/flows.mjs   (after `npm run build` with fake VITE_SUPABASE_* values)
@@ -195,7 +195,7 @@ await flow("urgent help: safety screen → category → waits → advocate accep
     "POST /urgent-requests": { intake: { id: IDS.intake }, status: "advocate_reviewing", candidate: {} },
     [`POST /intake-requests/${IDS.intake}/consent`]: {},
     [`GET /intake-requests/${IDS.intake}`]: () => ({ intake: { id: IDS.intake, status: accepted ? "matched" : "advocate_reviewing" }, consultation: accepted ? { id: IDS.consult, mode: "phone", fee_total: 3500, paid_at: null, advocate: { id: IDS.adv, user: { full_name: "Rohan Iyer" } } } : null, matter: null }),
-    [`POST /consultations/${IDS.consult}/room`]: { roomUrl: "https://meet.jit.si/Samicus-abc", consultation: {} },
+    [`POST /consultations/${IDS.consult}/room`]: { roomUrl: "https://meet.jit.si/Vidhira-abc", consultation: {} },
   } });
   await page.goto(`${base}/#home`);
   await page.getByRole("button", { name: "Get urgent help now" }).click();
@@ -214,7 +214,7 @@ await flow("urgent help: safety screen → category → waits → advocate accep
   await text(page, "Advocate matched", 9000);
   await text(page, "Online payment isn't enabled");
   await page.getByRole("button", { name: "Join call" }).click();
-  await page.waitForSelector('iframe[src="https://meet.jit.si/Samicus-abc"]');
+  await page.waitForSelector('iframe[src="https://meet.jit.si/Vidhira-abc"]');
 });
 
 await flow("talk now: requires consent + situation, then sends an instant request and computes matches", async () => {
@@ -269,11 +269,11 @@ await flow("research library: retrieve → answer → trail shows kept and disca
   assert.deepEqual(calls.filter((c) => c.key === "POST /research/answer").map((c) => Object.keys(c.body)), [["retrievalId"]], "answer step takes a retrieval id, never a bare question");
 });
 
-await flow("AI assistant: header 'Ask Samicus' hand-off asks the question and shows evidence provenance", async () => {
+await flow("AI assistant: header 'Ask Vidhira' hand-off asks the question and shows evidence provenance", async () => {
   const { page, calls } = await newPage();
   await page.goto(`${base}/#home`);
-  await page.getByPlaceholder("Ask Samicus a legal question…").fill("Can my landlord keep my deposit?");
-  await page.getByPlaceholder("Ask Samicus a legal question…").press("Enter");
+  await page.getByPlaceholder("Ask Vidhira a legal question…").fill("Can my landlord keep my deposit?");
+  await page.getByPlaceholder("Ask Vidhira a legal question…").press("Enter");
   await text(page, "Per [1], a tenant may recover a deposit.");
   await text(page, "from the indexed knowledge base");
   const ask = calls.find((c) => c.key === "POST /legal-assistant/ask").body;

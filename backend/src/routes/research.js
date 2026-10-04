@@ -95,6 +95,18 @@ router.post("/research/answer", requireAuth, async (req, res) => {
   res.json({ outcome: result.outcome, answer, segments: result.segments, discardedCount: result.discardedCount });
 });
 
+// Browse list for the Research library's default (no-query) view — so the page never looks
+// empty just because the user hasn't typed a search yet.
+router.get("/corpus/documents", requireAuth, async (req, res) => {
+  const { data, error } = await getSupabase()
+    .from("corpus_documents")
+    .select("id, title, source, citation, court, canonical_url, indexed_at")
+    .order("indexed_at", { ascending: false })
+    .limit(200);
+  if (error) throw error;
+  res.json(data);
+});
+
 router.get("/corpus/documents/:id", requireAuth, async (req, res) => {
   const { data: doc, error } = await getSupabase().from("corpus_documents").select("*").eq("id", req.params.id).maybeSingle();
   if (error) throw error;

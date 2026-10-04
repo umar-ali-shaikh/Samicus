@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+﻿import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase, supabaseConfigured } from "../lib/supabase";
 import { api, ApiError, onAuthFailure } from "../lib/api";
@@ -14,7 +14,7 @@ export function AuthProvider({ children }) {
   const [pendingEmail, setPendingEmail] = useState("");
   const [error, setError] = useState("");
   const [activeAccountId, setActiveAccountIdState] = useState(() => {
-    try { return localStorage.getItem("samicus.account") || null; } catch { return null; }
+    try { return localStorage.getItem("vidhira.account") || null; } catch { return null; }
   });
   const statusRef = useRef(status);
   useEffect(() => { statusRef.current = status; }, [status]);
@@ -22,8 +22,8 @@ export function AuthProvider({ children }) {
   const setActiveAccountId = useCallback((id) => {
     setActiveAccountIdState(id);
     try {
-      if (id) localStorage.setItem("samicus.account", id);
-      else localStorage.removeItem("samicus.account");
+      if (id) localStorage.setItem("vidhira.account", id);
+      else localStorage.removeItem("vidhira.account");
     } catch { /* storage unavailable */ }
     qc.invalidateQueries();
   }, [qc]);

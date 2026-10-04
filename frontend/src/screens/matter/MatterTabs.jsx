@@ -1,4 +1,4 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import { useAuth } from "../../auth/AuthProvider";
 import { useConfig, useMut } from "../../api/hooks";
 import { api } from "../../lib/api";
@@ -256,7 +256,7 @@ export function Access({ data, matterId }) {
       <Card style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         <div style={{ fontWeight: 700, fontSize: 13 }}>Share this matter with someone</div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
-          <TextInput label="Their email (must have a Samicus account)" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+          <TextInput label="Their email (must have a Vidhira account)" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
           <TextInput label="Their role" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} placeholder="e.g. Finance head" />
         </div>
         <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 13 }}>

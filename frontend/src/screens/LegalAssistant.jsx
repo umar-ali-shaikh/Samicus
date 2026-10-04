@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+﻿import { useEffect, useRef, useState } from "react";
 import { askLegalAssistant, getLegalAssistantSession } from "../api/legalAssistantClient";
 import { useAuth } from "../auth/AuthProvider";
 import { useUI } from "../state/UIState";
@@ -61,20 +61,109 @@ const UI_STRINGS = {
     ur: "عملی اگلے اقدامات: اپنی صورتحال کے مطابق مشورے کے لیے کسی مستند بھارتی وکیل سے رابطہ کریں، اور اس معاملے سے متعلق دستاویزات (FIR، نوٹس، معاہدہ وغیرہ) انہیں دکھانے کے لیے تیار رکھیں۔",
   },
   disclaimer: {
-    en: "This is general legal information for education and research purposes, generated only from the Indian Kanoon sources listed below — it is not legal advice from a lawyer, it does not create a lawyer-client relationship, and it cannot guarantee any outcome. For anything serious, urgent, criminal, financial, family, property, or litigation-related, please consult a qualified Indian lawyer.",
-    hi: "यह सामान्य कानूनी जानकारी केवल शिक्षा और अनुसंधान के उद्देश्य से दी गई है, और नीचे सूचीबद्ध Indian Kanoon स्रोतों पर आधारित है — यह किसी वकील की कानूनी सलाह नहीं है, इससे वकील-मुवक्किल संबंध स्थापित नहीं होता, और यह किसी परिणाम की गारंटी नहीं देती। किसी भी गंभीर, तत्काल, आपराधिक, वित्तीय, पारिवारिक, संपत्ति संबंधी, या मुकदमेबाज़ी से जुड़े मामले के लिए कृपया किसी योग्य भारतीय वकील से सलाह लें।",
-    hinglish: "Yeh sirf general legal jaankari hai, sirf education aur research ke maksad se, aur neeche diye gaye Indian Kanoon sources par based hai — yeh kisi vakil ki legal advice nahi hai, isse vakil-client relationship nahi banta, aur yeh kisi outcome ki guarantee nahi deta. Kisi bhi serious, urgent, criminal, financial, family, property, ya litigation se judi baat ke liye kripya ek qualified Indian vakil se salah lein.",
-    mr: "ही केवळ सामान्य कायदेशीर माहिती आहे, शिक्षण आणि संशोधनाच्या उद्देशाने दिली आहे, आणि खाली दिलेल्या Indian Kanoon स्रोतांवर आधारित आहे — ही वकिलाचा कायदेशीर सल्ला नाही, यामुळे वकील-अशील संबंध निर्माण होत नाही, आणि ही कोणत्याही निकालाची हमी देत नाही. कोणत्याही गंभीर, तातडीच्या, फौजदारी, आर्थिक, कौटुंबिक, मालमत्ता किंवा खटल्याशी संबंधित बाबीसाठी कृपया एका पात्र भारतीय वकिलाचा सल्ला घ्या.",
-    marathlish: "Hi keval samanya kaydeshir mahiti aahe, shikshan ani sanshodhanachya uddeshane dili aahe, ani khali dilelya Indian Kanoon strotanvar aadharit aahe — hi vakilacha kaydeshir salla nahi, yamule vakil-ashil sambandh nirman hot nahi, ani hi konatyahi nikalachi hami det nahi. Konatyahi gambhir, tatdichya, faujdari, aarthik, kautumbik, malmatta kinva khatlyashi sambandhit babisathi krupaya ek patra Bharatiya vakilacha salla ghya.",
-    ur: "یہ صرف عمومی قانونی معلومات ہیں، تعلیمی اور تحقیقی مقاصد کے لیے فراہم کی گئی ہیں، اور نیچے دیے گئے Indian Kanoon ذرائع پر مبنی ہیں — یہ کسی وکیل کا قانونی مشورہ نہیں ہے، اس سے وکیل اور موکل کا تعلق قائم نہیں ہوتا، اور یہ کسی نتیجے کی ضمانت نہیں دیتا۔ کسی بھی سنگین، فوری، فوجداری، مالی، خاندانی، جائیداد، یا مقدمہ بازی سے متعلق معاملے کے لیے براہ کرم کسی مستند بھارتی وکیل سے مشورہ کریں۔",
+    en: "This is general legal information to help you understand your situation, generated only from the Indian Kanoon sources listed below — it is not legal advice from a lawyer, it does not create a lawyer-client relationship, and it cannot guarantee any outcome. For anything serious, urgent, criminal, financial, family, property, or litigation-related, please consult a qualified Indian lawyer.",
+    hi: "यह सामान्य कानूनी जानकारी आपकी स्थिति समझने में मदद के लिए दी गई है, और नीचे सूचीबद्ध Indian Kanoon स्रोतों पर आधारित है — यह किसी वकील की कानूनी सलाह नहीं है, इससे वकील-मुवक्किल संबंध स्थापित नहीं होता, और यह किसी परिणाम की गारंटी नहीं देती। किसी भी गंभीर, तत्काल, आपराधिक, वित्तीय, पारिवारिक, संपत्ति संबंधी, या मुकदमेबाज़ी से जुड़े मामले के लिए कृपया किसी योग्य भारतीय वकील से सलाह लें।",
+    hinglish: "Yeh general legal jaankari hai, taaki aap apni situation samajh sakein, aur neeche diye gaye Indian Kanoon sources par based hai — yeh kisi vakil ki legal advice nahi hai, isse vakil-client relationship nahi banta, aur yeh kisi outcome ki guarantee nahi deta. Kisi bhi serious, urgent, criminal, financial, family, property, ya litigation se judi baat ke liye kripya ek qualified Indian vakil se salah lein.",
+    mr: "ही सामान्य कायदेशीर माहिती तुम्हाला तुमची परिस्थिती समजण्यासाठी दिली आहे, आणि खाली दिलेल्या Indian Kanoon स्रोतांवर आधारित आहे — ही वकिलाचा कायदेशीर सल्ला नाही, यामुळे वकील-अशील संबंध निर्माण होत नाही, आणि ही कोणत्याही निकालाची हमी देत नाही. कोणत्याही गंभीर, तातडीच्या, फौजदारी, आर्थिक, कौटुंबिक, मालमत्ता किंवा खटल्याशी संबंधित बाबीसाठी कृपया एका पात्र भारतीय वकिलाचा सल्ला घ्या.",
+    marathlish: "Hi samanya kaydeshir mahiti tumhala tumchi paristhiti samajnyasathi dili aahe, ani khali dilelya Indian Kanoon strotanvar aadharit aahe — hi vakilacha kaydeshir salla nahi, yamule vakil-ashil sambandh nirman hot nahi, ani hi konatyahi nikalachi hami det nahi. Konatyahi gambhir, tatdichya, faujdari, aarthik, kautumbik, malmatta kinva khatlyashi sambandhit babisathi krupaya ek patra Bharatiya vakilacha salla ghya.",
+    ur: "یہ عمومی قانونی معلومات آپ کو اپنی صورتحال سمجھنے میں مدد کے لیے فراہم کی گئی ہیں، اور نیچے دیے گئے Indian Kanoon ذرائع پر مبنی ہیں — یہ کسی وکیل کا قانونی مشورہ نہیں ہے، اس سے وکیل اور موکل کا تعلق قائم نہیں ہوتا، اور یہ کسی نتیجے کی ضمانت نہیں دیتا۔ کسی بھی سنگین، فوری، فوجداری، مالی، خاندانی، جائیداد، یا مقدمہ بازی سے متعلق معاملے کے لیے براہ کرم کسی مستند بھارتی وکیل سے مشورہ کریں۔",
   },
-  emergencyMessage: {
-    en: "This looks like it may be a time-sensitive or urgent situation (for example: an arrest, being in custody, an FIR just filed, an immediate threat, or a court deadline in the next day or two). Please contact a qualified lawyer, a legal aid service, or the relevant authority (police / court) immediately — do not rely only on this tool.",
-    hi: "यह मामला समय-संवेदनशील या तत्काल स्थिति जैसा लग रहा है (उदाहरण के लिए: गिरफ़्तारी, हिरासत में होना, अभी-अभी दर्ज हुई FIR, तत्काल ख़तरा, या अगले एक-दो दिन में अदालत की समय-सीमा)। कृपया तुरंत किसी योग्य वकील, कानूनी सहायता सेवा, या संबंधित प्राधिकरण (पुलिस/अदालत) से संपर्क करें — केवल इस टूल पर निर्भर न रहें।",
-    hinglish: "Yeh mamla samay-sanvedansheel ya turant wali situation jaisa lag raha hai (jaise: giraftari, hiraasat mein hona, abhi-abhi darj hui FIR, turant khatra, ya agle ek-do din mein court ki deadline). Kripya turant kisi qualified vakil, legal aid service, ya sambandhit pradhikaran (police/court) se sampark karein — sirf is tool par bharosa na karein.",
-    mr: "हे प्रकरण वेळेच्या दृष्टीने महत्त्वाचे किंवा तातडीचे वाटत आहे (उदाहरणार्थ: अटक, ताब्यात असणे, नुकतीच दाखल झालेली FIR, तात्काळ धोका, किंवा पुढील एक-दोन दिवसांत न्यायालयाची अंतिम मुदत). कृपया त्वरित एका पात्र वकिलाशी, कायदेशीर मदत सेवेशी, किंवा संबंधित प्राधिकरणाशी (पोलीस/न्यायालय) संपर्क साधा — केवळ या साधनावर अवलंबून राहू नका.",
-    marathlish: "He prakaran vel-samvedansheel kinva tatdiche vatat aahe (udaharanarth: atak, tabyat asane, nukatich dakhal zaleli FIR, tatkal dhoka, kinva pudhil ek-don diwasat nyayalayachi antim mudat). Krupaya tvarit ek patra vakilashi, kaydeshir madad sevesi, kinva sambandhit pradhikaranashi (police/nyayalay) sampark sadha — keval ya sadhanavar avalambun rahu naka.",
-    ur: "یہ معاملہ وقت کی نزاکت والا یا فوری نوعیت کا لگتا ہے (مثال کے طور پر: گرفتاری، حراست میں ہونا، ابھی درج ہونے والی FIR، فوری خطرہ، یا اگلے ایک دو دن میں عدالت کی آخری تاریخ)۔ براہ کرم فوری طور پر کسی مستند وکیل، قانونی امدادی خدمت، یا متعلقہ ادارے (پولیس/عدالت) سے رابطہ کریں — صرف اس ٹول پر بھروسہ نہ کریں۔",
+  // Short, plain-words version of the same warning, shown first/boldest — fixed text,
+  // never LLM-generated, so it costs zero tokens and never gets skipped by the model.
+  aiMistakeNote: {
+    en: "This answer is written by AI. AI can make mistakes. Please also talk to a lawyer or expert about your exact problem.",
+    hi: "यह जवाब AI ने लिखा है। AI से गलती हो सकती है। अपनी असली समस्या के लिए कृपया किसी वकील या विशेषज्ञ से भी ज़रूर बात करें।",
+    hinglish: "Yeh jawab AI ne likha hai. AI se galti ho sakti hai. Apni asli problem ke liye kisi vakeel ya expert se bhi zaroor baat karein.",
+    mr: "हे उत्तर AI ने लिहिले आहे. AI कडून चूक होऊ शकते. तुमच्या खऱ्या अडचणीसाठी कृपया एखाद्या वकिलाशी किंवा तज्ञाशी नक्की बोला.",
+    marathlish: "He uttar AI ne lihile aahe. AI kadun chuk hou shakte. Tumchya kharya adchanisathi krupaya ekhadya vakilashi kinva tadnyashi nakki bola.",
+    ur: "یہ جواب AI نے لکھا ہے۔ AI سے غلطی ہو سکتی ہے۔ اپنے اصل مسئلے کے لیے براہ کرم کسی وکیل یا ماہر سے ضرور بات کریں۔",
+  },
+  // Fixed 4-step script, always in this order (stay calm -> ask the reason in writing ->
+  // tell family -> call a lawyer/free legal aid now) — never generated per-request, same
+  // reliability reasoning as the disclaimer above.
+  emergencyChecklist: {
+    en: [
+      "Stay calm.",
+      "Politely ask for the reason for the arrest or action — ask for it in writing if you can.",
+      "Inform a family member or someone you trust immediately.",
+      "Contact a lawyer or free legal aid (Legal Services Authority) right now — do not rely only on this tool.",
+    ],
+    hi: [
+      "शांत रहें।",
+      "गिरफ़्तारी या कार्रवाई का कारण विनम्रता से पूछें — हो सके तो लिखित में माँगें।",
+      "तुरंत किसी परिवारजन या भरोसेमंद व्यक्ति को सूचित करें।",
+      "अभी किसी वकील या निःशुल्क कानूनी सहायता (Legal Services Authority) से संपर्क करें — केवल इस टूल पर निर्भर न रहें।",
+    ],
+    hinglish: [
+      "Shaant rahein.",
+      "Giraftari ya karrawai ka kaaran vinamrata se poochein — ho sake to likhit mein maangein.",
+      "Turant kisi parivarjan ya bharosemand vyakti ko suchit karein.",
+      "Abhi kisi vakil ya nishulk legal aid (Legal Services Authority) se sampark karein — sirf is tool par bharosa na karein.",
+    ],
+    mr: [
+      "शांत राहा.",
+      "अटक किंवा कारवाईचे कारण नम्रपणे विचारा — शक्य असल्यास लेखी स्वरूपात मागा.",
+      "त्वरित कुटुंबातील एखाद्या व्यक्तीला किंवा विश्वासू व्यक्तीला कळवा.",
+      "आत्ताच एखाद्या वकिलाशी किंवा मोफत कायदेशीर मदतीशी (Legal Services Authority) संपर्क साधा — केवळ या साधनावर अवलंबून राहू नका.",
+    ],
+    marathlish: [
+      "Shant raha.",
+      "Atak kinva karwaiche karan namrapane vichara — shakya asalyas lekhi swarupat maga.",
+      "Tvarit kutumbatil ekhadya vyaktila kinva vishwasu vyaktila kalva.",
+      "Aatach ekhadya vakilashi kinva mofat kaydeshir madatishi (Legal Services Authority) sampark sadha — keval ya sadhanavar avalambun rahu naka.",
+    ],
+    ur: [
+      "پرسکون رہیں۔",
+      "گرفتاری یا کارروائی کی وجہ شائستگی سے پوچھیں — ممکن ہو تو تحریری طور پر مانگیں۔",
+      "فوری طور پر کسی گھر والے یا قابلِ اعتماد شخص کو مطلع کریں۔",
+      "ابھی کسی وکیل یا مفت قانونی امداد (Legal Services Authority) سے رابطہ کریں — صرف اس ٹول پر بھروسہ نہ کریں۔",
+    ],
+  },
+  lawyerSafetyTitle: {
+    en: "Choosing and dealing with a lawyer safely",
+    hi: "वकील चुनते और उनसे व्यवहार करते समय सुरक्षित रहें",
+    hinglish: "Vakeel chunte aur unse deal karte waqt safe rahein",
+    mr: "वकील निवडताना आणि त्यांच्याशी व्यवहार करताना सुरक्षित राहा",
+    marathlish: "Vakil nivadtana ani tyanchyashi vyavhar karatana safe raha",
+    ur: "وکیل چننے اور اس سے معاملہ کرتے وقت محفوظ رہیں",
+  },
+  lawyerSafetyTips: {
+    en: [
+      "Ask for the fee in writing before you pay — what it covers, what's extra, and which court/government charges are separate.",
+      "Always take a receipt for every payment. Don't pay cash without one.",
+      "A genuine lawyer never guarantees a result, and never asks for money to \"settle\" with police or a judge.",
+      "Ask for a copy of every document filed for you, plus the case number and the next hearing date. You can always ask questions or change lawyers.",
+    ],
+    hi: [
+      "भुगतान करने से पहले फीस लिखित में माँगें — इसमें क्या शामिल है, क्या अतिरिक्त है, और अदालत/सरकारी शुल्क अलग से क्या है।",
+      "हर भुगतान की रसीद ज़रूर लें। बिना रसीद के नकद भुगतान न करें।",
+      "असली वकील कभी नतीजे की गारंटी नहीं देता और पुलिस या जज के साथ \"सेटलमेंट\" कराने के नाम पर पैसे नहीं माँगता।",
+      "आपकी ओर से दाखिल हर दस्तावेज़ की कॉपी माँगें, साथ ही केस नंबर और अगली तारीख़। आप सवाल पूछ सकते हैं या वकील बदल भी सकते हैं।",
+    ],
+    hinglish: [
+      "Payment karne se pehle fees likhit mein maangein — isme kya shamil hai, kya extra hai, aur court/government charges alag se kya hain.",
+      "Har payment ki receipt zaroor lein. Bina receipt ke cash payment na karein.",
+      "Asli vakil kabhi result ki guarantee nahi deta aur police ya judge ke saath \"settlement\" karane ke naam par paise nahi maangta.",
+      "Aapki taraf se file ki gayi har document ki copy maangein, saath hi case number aur agli date. Aap sawaal pooch sakte hain ya vakil badal bhi sakte hain.",
+    ],
+    mr: [
+      "पैसे देण्यापूर्वी फी लेखी स्वरूपात मागा — त्यात काय समाविष्ट आहे, काय जास्तीचे आहे, आणि कोर्ट/सरकारी शुल्क वेगळे काय आहे.",
+      "प्रत्येक पेमेंटची पावती नक्की घ्या. पावतीशिवाय रोख पैसे देऊ नका.",
+      "खरा वकील कधीही निकालाची हमी देत नाही आणि पोलीस किंवा न्यायाधीशांशी \"सेटलमेंट\" करण्याच्या नावाखाली पैसे मागत नाही.",
+      "तुमच्या वतीने दाखल केलेल्या प्रत्येक कागदपत्राची प्रत मागा, तसेच केस नंबर आणि पुढील तारीख. तुम्ही प्रश्न विचारू शकता किंवा वकील बदलू शकता.",
+    ],
+    marathlish: [
+      "Paise denyapurvi fee lekhi swarupat maga — tyat kay samavisht aahe, kay jastiche aahe, ani court/sarkari shulk vegle kay aahe.",
+      "Pratyek paymentchi pavti nakki ghya. Pavtishivay rokh paise deu naka.",
+      "Khara vakil kadhihi nikalachi hami det nahi ani police kinva nyayadhishanshi \"settlement\" karanyachya navakhali paise magat nahi.",
+      "Tumchya watine dakhal kelelya pratyek kagadpatrachi prat maga, tasech case number ani pudhil tarikh. Tumhi prashna vicharu shakta kinva vakil badlu shakta.",
+    ],
+    ur: [
+      "ادائیگی کرنے سے پہلے فیس تحریری طور پر مانگیں — اس میں کیا شامل ہے، کیا اضافی ہے، اور عدالتی/سرکاری اخراجات الگ سے کیا ہیں۔",
+      "ہر ادائیگی کی رسید ضرور لیں۔ رسید کے بغیر نقد ادائیگی نہ کریں۔",
+      "اصل وکیل کبھی نتیجے کی ضمانت نہیں دیتا اور پولیس یا جج کے ساتھ \"سیٹلمنٹ\" کرانے کے نام پر پیسے نہیں مانگتا۔",
+      "آپ کی طرف سے داخل کی گئی ہر دستاویز کی کاپی مانگیں، ساتھ ہی کیس نمبر اور اگلی تاریخ۔ آپ سوال پوچھ سکتے ہیں یا وکیل بھی بدل سکتے ہیں۔",
+    ],
   },
   immediateActions: {
     en: "Immediate actions", hi: "तत्काल कदम", hinglish: "Turant uthaye jaane wale kadam", mr: "तातडीची पावले", marathlish: "Tatdichi paavale", ur: "فوری اقدامات",
@@ -137,18 +226,13 @@ function t(strings, script) {
   return strings[script] || strings.en;
 }
 
-function SourceMarkers({ sourceIds }) {
-  if (!sourceIds?.length) return null;
-  return <span style={{ opacity: 0.6, fontSize: 12 }}> {sourceIds.map((id) => `[${id}]`).join(" ")}</span>;
-}
-
 function AnswerCard({ turn, onAsk }) {
   const { result } = turn;
   if (!result) return null;
 
   const script = pickScript(result);
   const dir = script === "ur" ? "rtl" : "ltr";
-  const emergencyMessage = result.emergency?.flag ? t(UI_STRINGS.emergencyMessage, script) : null;
+  const emergencyChecklist = result.emergency?.flag ? t(UI_STRINGS.emergencyChecklist, script) : null;
   const disclaimer = t(UI_STRINGS.disclaimer, script);
   const sections = result.sections || {};
 
@@ -157,22 +241,30 @@ function AnswerCard({ turn, onAsk }) {
       <Card dir={dir}>
         {result.emergency?.flag && (
           <Callout tone="danger" title={t(UI_STRINGS.timeSensitive, script)} style={{ marginBottom: 12 }}>
-            {emergencyMessage}
+            <ol style={{ margin: 0, paddingInlineStart: 18 }}>
+              {emergencyChecklist.map((step, i) => <li key={i}>{step}</li>)}
+            </ol>
           </Callout>
         )}
         <EmptyState title={t(UI_STRINGS.insufficientSources, script)} body={sections.gaps?.[0]} />
-        <Callout tone="neutral" style={{ marginTop: 12 }}>{disclaimer}</Callout>
+        <Callout tone="neutral" style={{ marginTop: 12 }}>
+          <div style={{ fontWeight: 700, marginBottom: 4 }}>{t(UI_STRINGS.aiMistakeNote, script)}</div>
+          {disclaimer}
+        </Callout>
       </Card>
     );
   }
 
   const stepByStep = [...(sections.stepByStep || [])].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  const showLawyerSafety = stepByStep.length > 0 || sections.immediateActions?.length > 0;
 
   return (
     <Card dir={dir}>
       {result.emergency?.flag && (
         <Callout tone="danger" title={t(UI_STRINGS.timeSensitive, script)} style={{ marginBottom: 12 }}>
-          {emergencyMessage}
+          <ol style={{ margin: 0, paddingInlineStart: 18 }}>
+            {emergencyChecklist.map((step, i) => <li key={i}>{step}</li>)}
+          </ol>
         </Callout>
       )}
 
@@ -217,7 +309,6 @@ function AnswerCard({ turn, onAsk }) {
                 <li key={i} style={{ marginBottom: 4 }}>
                   {a.step}
                   {a.why && <div style={{ fontSize: 12, color: "var(--color-text-muted)" }}>{a.why}</div>}
-                  <SourceMarkers sourceIds={a.sourceIds} />
                 </li>
               ))}
             </ol>
@@ -238,7 +329,6 @@ function AnswerCard({ turn, onAsk }) {
                     )}
                     {s.timeLimit && <div>{t(UI_STRINGS.timeLimitLabel, script)}: {s.timeLimit}</div>}
                   </div>
-                  <SourceMarkers sourceIds={s.sourceIds} />
                 </li>
               ))}
             </ol>
@@ -250,10 +340,7 @@ function AnswerCard({ turn, onAsk }) {
             <Badge tone="info">{t(UI_STRINGS.yourRights, script)}</Badge>
             <ul style={{ margin: "6px 0 0", paddingInlineStart: 18, fontSize: 13.5, lineHeight: 1.6 }}>
               {sections.yourRights.map((r, i) => (
-                <li key={i}>
-                  {r.right}
-                  <SourceMarkers sourceIds={r.sourceIds} />
-                </li>
+                <li key={i}>{r.right}</li>
               ))}
             </ul>
           </div>
@@ -266,12 +353,8 @@ function AnswerCard({ turn, onAsk }) {
               {sections.applicableLaws.map((law, i) => (
                 <div key={i} style={{ fontSize: 13.5, lineHeight: 1.6 }}>
                   <strong>{law.act}{law.section ? ` — ${law.section}` : ""}</strong>
-                  {law.sourceUrl ? (
-                    <a href={law.sourceUrl} target="_blank" rel="noopener noreferrer" style={{ color: "inherit", marginInlineStart: 4 }}>
-                      [{law.sourceId}]
-                    </a>
-                  ) : (
-                    <SourceMarkers sourceIds={law.sourceId ? [law.sourceId] : []} />
+                  {law.sourceUrl && (
+                    <a href={law.sourceUrl} target="_blank" rel="noopener noreferrer" style={{ color: "inherit", marginInlineStart: 4 }} title="Open source">↗</a>
                   )}
                   <div>{law.plainMeaning}</div>
                 </div>
@@ -284,19 +367,15 @@ function AnswerCard({ turn, onAsk }) {
           <div>
             <Badge tone="neutral">{t(UI_STRINGS.caseLaw, script)}</Badge>
             <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 6 }}>
-              {sections.caseLaw.map((c, i) => (
+              {sections.caseLaw.slice(0, 3).map((c, i) => (
                 <div key={i} style={{ fontSize: 13.5, lineHeight: 1.6 }}>
                   <strong>
                     {c.caseName}
                     {c.court ? `, ${c.court}` : ""}
                     {c.year ? ` (${c.year})` : ""}
                   </strong>
-                  {c.sourceUrl ? (
-                    <a href={c.sourceUrl} target="_blank" rel="noopener noreferrer" style={{ color: "inherit", marginInlineStart: 4 }}>
-                      [{c.sourceId}]
-                    </a>
-                  ) : (
-                    <SourceMarkers sourceIds={c.sourceId ? [c.sourceId] : []} />
+                  {c.sourceUrl && (
+                    <a href={c.sourceUrl} target="_blank" rel="noopener noreferrer" style={{ color: "inherit", marginInlineStart: 4 }} title="Open source">↗</a>
                   )}
                   <div>{c.whatItMeansForYou}</div>
                 </div>
@@ -314,13 +393,20 @@ function AnswerCard({ turn, onAsk }) {
                   <strong>{h.name}</strong>
                   {h.contact ? ` — ${h.contact}` : ""}
                   {h.whenToUse && <div style={{ fontSize: 12, color: "var(--color-text-muted)" }}>{h.whenToUse}</div>}
-                  <SourceMarkers sourceIds={h.sourceIds} />
                 </li>
               ))}
             </ul>
           </div>
         )}
       </div>
+
+      {showLawyerSafety && (
+        <Callout tone="info" title={t(UI_STRINGS.lawyerSafetyTitle, script)} style={{ marginTop: 14 }}>
+          <ul style={{ margin: 0, paddingInlineStart: 18 }}>
+            {t(UI_STRINGS.lawyerSafetyTips, script).map((tip, i) => <li key={i} style={{ marginBottom: 4 }}>{tip}</li>)}
+          </ul>
+        </Callout>
+      )}
 
       {sections.followUpQuestions?.length > 0 && (
         <div style={{ marginTop: 14 }}>
@@ -350,29 +436,33 @@ function AnswerCard({ turn, onAsk }) {
       {result.sources?.length > 0 && (
         <div style={{ marginTop: 14 }}>
           <div style={{ fontWeight: 700, fontSize: 12, marginBottom: 6 }}>{t(UI_STRINGS.sources, script)}</div>
-          <ol style={{ fontSize: 12, color: "var(--color-text-muted)", paddingInlineStart: 18 }}>
-            {result.sources.map((s, i) => (
-              <li key={s.tid} style={{ marginBottom: 3 }}>
-                [{i + 1}]{" "}
+          <ul style={{ fontSize: 12, color: "var(--color-text-muted)", paddingInlineStart: 18, margin: 0 }}>
+            {result.sources.map((s) => (
+              <li key={s.url || s.tid} style={{ marginBottom: 3 }}>
                 <a href={s.url} target="_blank" rel="noopener noreferrer" style={{ color: "inherit" }}>
                   {s.title}
                 </a>{" "}
                 <span style={{ opacity: 0.7 }}>({s.docsource})</span>
               </li>
             ))}
-          </ol>
+          </ul>
         </div>
       )}
 
-      {result.retrieval && (
+      {result.evidenceOrigin && (
         <div style={{ fontSize: 11, color: "var(--color-label)", marginTop: 10 }}>
-          {result.retrieval.mode === "knowledge_base"
-            ? `Evidence: ${result.retrieval.passages} passage${result.retrieval.passages === 1 ? "" : "s"} from the indexed knowledge base${result.retrieval.servedFromKnowledgeBase ? " (no live search needed)" : " (plus a live Indian Kanoon search)"}.`
-            : "Evidence: live Indian Kanoon search."}
+          Evidence: {[
+            result.evidenceOrigin.rag > 0 && `${result.evidenceOrigin.rag} passage${result.evidenceOrigin.rag === 1 ? "" : "s"} from the indexed knowledge base`,
+            result.evidenceOrigin.indianKanoon > 0 && `${result.evidenceOrigin.indianKanoon} live Indian Kanoon source${result.evidenceOrigin.indianKanoon === 1 ? "" : "s"}`,
+            result.evidenceOrigin.web > 0 && `${result.evidenceOrigin.web} trusted web source${result.evidenceOrigin.web === 1 ? "" : "s"}`,
+          ].filter(Boolean).join(" + ")}.
         </div>
       )}
 
-      <Callout tone="neutral" style={{ marginTop: 14 }}>{disclaimer}</Callout>
+      <Callout tone="neutral" style={{ marginTop: 14 }}>
+        <div style={{ fontWeight: 700, marginBottom: 4 }}>{t(UI_STRINGS.aiMistakeNote, script)}</div>
+        {disclaimer}
+      </Callout>
     </Card>
   );
 }
@@ -396,30 +486,27 @@ function getOrCreateSessionId(userId, { fresh = false } = {}) {
 
 export function LegalAssistant() {
   const { user } = useAuth();
-  const { takeHandoff } = useUI();
+  const { takeHandoff, assistantTurns: turns, setAssistantTurns: setTurns, assistantSessionId, setAssistantSessionId } = useUI();
   const [input, setInput] = useState("");
-  const [turns, setTurns] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const nextTurnId = useRef(0);
-  const sessionIdRef = useRef(null);
-  if (sessionIdRef.current === null) sessionIdRef.current = getOrCreateSessionId(user.id);
+  const sessionIdRef = useRef(assistantSessionId || getOrCreateSessionId(user.id));
 
   useEffect(() => {
     const sessionId = sessionIdRef.current;
-    if (!sessionId) return;
+    if (!assistantSessionId) setAssistantSessionId(sessionId);
+    // The conversation already lives in UIState and survives switching tabs — only fetch
+    // from the server when there's nothing in memory yet (a genuine first load or a
+    // full page refresh), so coming back to this tab never re-fetches over, or flashes
+    // empty before, what's already on screen.
+    if (!sessionId || turns.length > 0) return;
     getLegalAssistantSession(sessionId)
       .then(({ turns: persisted }) => {
         if (!persisted?.length) return;
-        setTurns(
-          persisted.map((t) => {
-            nextTurnId.current += 1;
-            return { id: nextTurnId.current, question: t.question, result: t.result };
-          })
-        );
+        setTurns(persisted.map((t) => ({ id: crypto.randomUUID(), question: t.question, result: t.result })));
       })
       .catch(() => {}); // best-effort rehydrate — a failed fetch just starts a fresh-looking session
-    // A question typed into the header's "Ask Samicus" box arrives here as a one-shot hand-off.
+    // A question typed into the header's "Ask Vidhira" box arrives here as a one-shot hand-off.
     const handoff = takeHandoff("legalassistant");
     if (handoff?.question) ask(handoff.question);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -427,6 +514,7 @@ export function LegalAssistant() {
 
   function newConversation() {
     sessionIdRef.current = getOrCreateSessionId(user.id, { fresh: true });
+    setAssistantSessionId(sessionIdRef.current);
     setTurns([]);
     setError("");
   }
@@ -436,8 +524,7 @@ export function LegalAssistant() {
     if (!q || loading) return;
     setInput("");
     setError("");
-    nextTurnId.current += 1;
-    const turnId = nextTurnId.current;
+    const turnId = crypto.randomUUID();
     setTurns((t) => [...t, { id: turnId, question: q, result: null }]);
     setLoading(true);
     try {

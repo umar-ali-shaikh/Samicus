@@ -47,7 +47,12 @@ export function isGeminiConfigured() {
  * @returns {Promise<number[][]>} one embedding vector per input text, same order
  */
 const MAX_BATCH = 64;
-const MAX_ATTEMPTS = 4;
+// Free-tier embedContent quota is ~100/min and a single 64-text batch already uses most of
+// it, so the second batch in a reindex run reliably hits 429 — Google's RetryInfo asks for
+// ~50s. 6 attempts at a 2s-base exponential backoff accumulate ~62s of waiting, enough to
+// clear the per-minute window instead of giving up inside it.
+const MAX_ATTEMPTS = 6;
+const RETRY_BASE_MS = 2000;
 
 /**
  * Like embedTexts, but splits large inputs into API-sized batches and retries 429/5xx with
@@ -64,7 +69,7 @@ export async function embedMany(texts, taskType) {
       } catch (err) {
         const retryable = err instanceof GeminiApiError && (err.status === 429 || err.status >= 500 || err.status === 0);
         if (!retryable || attempt >= MAX_ATTEMPTS) throw err;
-        await new Promise((r) => setTimeout(r, 800 * 2 ** (attempt - 1)));
+        await new Promise((r) => setTimeout(r, RETRY_BASE_MS * 2 ** (attempt - 1)));
       }
     }
   }
@@ -94,6 +99,7 @@ export async function embedTexts(texts, taskType) {
       method: "POST",
       headers: { "x-goog-api-key": key, "Content-Type": "application/json" },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(20000),
     });
   } catch (networkErr) {
     throw new GeminiApiError(`Network error calling Gemini: ${networkErr.message}`, 0);

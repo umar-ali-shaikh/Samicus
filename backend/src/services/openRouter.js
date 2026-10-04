@@ -50,6 +50,7 @@ async function callModel(model, messages, jsonMode, token) {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(30000), // a hung free-tier model must fail over to the next one, not block the request forever
     });
   } catch (networkErr) {
     throw new OpenRouterApiError(`Network error calling OpenRouter: ${networkErr.message}`, 0);
@@ -86,9 +87,10 @@ export async function chatCompletion(messages, opts = {}) {
       return await callModel(model, messages, opts.jsonMode, token);
     } catch (err) {
       lastErr = err;
-      // Only a rate limit is worth trying the next model for — an auth problem or a
-      // non-429 API error will fail the same way on every model in the chain.
-      if (err.status !== 429) throw err;
+      // Worth trying the next model for a rate limit, or a timeout/network failure (status
+      // 0 — a hung/unreachable free-tier model) — an auth problem or a real non-429 API
+      // error will fail the same way on every model in the chain, so only those stop the chain.
+      if (err.status !== 429 && err.status !== 0) throw err;
     }
   }
   throw lastErr;

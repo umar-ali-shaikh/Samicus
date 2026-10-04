@@ -1,4 +1,4 @@
-import { Router } from "express";
+﻿import { Router } from "express";
 import crypto from "crypto";
 import { z } from "zod";
 import { getSupabase } from "../config/db.js";
@@ -186,7 +186,7 @@ router.post("/consultations/:id/room", requireAuth, async (req, res) => {
     .select()
     .single();
   if (error) throw error;
-  const roomUrl = `${process.env.VIDEO_BASE_URL || "https://meet.jit.si"}/Samicus-${roomToken}`;
+  const roomUrl = `${process.env.VIDEO_BASE_URL || "https://meet.jit.si"}/Vidhira-${roomToken}`;
   res.json({ roomToken, roomUrl: consultation.mode === "phone" ? `${roomUrl}#config.startWithVideoMuted=true` : roomUrl, consultation: updated });
 });
 

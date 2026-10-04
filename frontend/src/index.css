@@ -1,4 +1,4 @@
-* { box-sizing: border-box; }
+﻿* { box-sizing: border-box; }
 
 html, body, #root { height: 100%; }
 
@@ -17,6 +17,6 @@ button, input, select, textarea { font-family: inherit; }
 
 ::selection { background: var(--color-gold); color: var(--color-navy); }
 
-@keyframes samicus-spin { to { transform: rotate(360deg); } }
+@keyframes vidhira-spin { to { transform: rotate(360deg); } }
 button:disabled { cursor: not-allowed; }
 input:focus, select:focus, textarea:focus { outline: 2px solid var(--color-gold); outline-offset: 1px; }

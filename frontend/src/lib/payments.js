@@ -1,4 +1,4 @@
-import { api } from "./api";
+﻿import { api } from "./api";
 
 let scriptPromise;
 function loadCheckout() {
@@ -27,7 +27,7 @@ export async function payFor(kind, id, { user, description }) {
       order_id: intent.orderId,
       amount: intent.amountPaise,
       currency: intent.currency,
-      name: "Samicus",
+      name: "Vidhira",
       description,
       prefill: { name: user?.full_name, email: user?.email },
       theme: { color: "#101A2C" },

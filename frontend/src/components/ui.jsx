@@ -1,4 +1,4 @@
-// Shared, inline-styled UI primitives matching the Samicus/Vidhira/Command Centre design
+﻿// Shared, inline-styled UI primitives matching the Vidhira/Vidhira/Command Centre design
 // language: Newsreader serif headings, Public Sans body, generous radii, cream/navy palette.
 
 export function Card({ children, style, ...rest }) {
@@ -248,7 +248,7 @@ export function Spinner({ size = 18 }) {
     <span
       role="status"
       aria-label="Loading"
-      style={{ display: "inline-block", width: size, height: size, border: "2px solid var(--color-border)", borderTopColor: "var(--color-navy)", borderRadius: "50%", animation: "samicus-spin .7s linear infinite" }}
+      style={{ display: "inline-block", width: size, height: size, border: "2px solid var(--color-border)", borderTopColor: "var(--color-navy)", borderRadius: "50%", animation: "vidhira-spin .7s linear infinite" }}
     />
   );
 }

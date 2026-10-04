@@ -67,6 +67,7 @@ async function postToIndianKanoon(path) {
           Authorization: `Token ${token}`,
           Accept: "application/json",
         },
+        signal: AbortSignal.timeout(20000),
       });
     } catch (networkErr) {
       if (attempt < MAX_RETRIES) {

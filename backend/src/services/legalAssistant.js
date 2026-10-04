@@ -1,14 +1,29 @@
-// Full RAG pipeline for "Vidhira", the conversational AI Legal Assistant:
+// Full RAG pipeline for "Vidhira", the conversational AI Legal Assistant.
 //
-//   question -> understandQuery (Hinglish/English -> search query + emergency flag)
-//            -> Indian Kanoon search (general + doctypes:laws)
-//            -> relevance re-rank of the candidates (Gemini embeddings if configured,
-//               else local TF-IDF — see services/relevanceRanking.js)
-//            -> full document text per top hit (docfragment snippet as a fallback if
-//               the full-document fetch fails or comes back empty)
-//            -> build a numbered evidence context
-//            -> OpenRouter, grounded strictly in that evidence, structured JSON output
-//            -> answer + citations + a fixed (non-LLM-generated) disclaimer/emergency banner
+// Flow (strict order — each stage only runs if the one before it wasn't enough):
+//
+//   question
+//     │
+//     ▼
+//   [1] understand          Hinglish/English -> search query, topic, language, emergency flag
+//     │
+//     ▼
+//   [2] searchRag           Qdrant + corpus_documents/corpus_chunks — confident? skip to [5]
+//     │  (not confident)
+//     ▼
+//   [3] searchIndianKanoon  live search (bare acts + case law), relevance re-ranked
+//     │  (still thin: rag + IK evidence < MIN_EVIDENCE_TO_SKIP_WEB)
+//     ▼
+//   [4] searchTavily        trusted-domain web search — procedure/helplines/forms/time limits
+//     │
+//     ▼
+//   [5] buildEvidence -> generateAnswer   one numbered, origin-labelled evidence list -> OpenRouter,
+//     │                                   grounded strictly in that evidence, structured JSON output
+//     ▼
+//   response to the user (sections + sources + fixed disclaimer/emergency banner)
+//     │
+//     ▼ (fire-and-forget, never blocks the response above)
+//   [6] learnIntoRag        ingest IK/web docs actually used into corpus_documents/corpus_chunks + Qdrant
 //
 // The disclaimer and emergency banner are fixed strings, not LLM output — the model is
 // good at reasoning over evidence, but the safety-critical "this is not legal advice" /
@@ -20,8 +35,9 @@ import { understandQuery } from "./legalQueryUnderstanding.js";
 import { chatCompletion, OpenRouterAuthError, OpenRouterApiError } from "./openRouter.js";
 import { createCache } from "../utils/cache.js";
 import { rankRelevantDocs } from "./relevanceRanking.js";
-import { ragEnabled, ingestIndianKanoonDoc } from "./rag/ingest.js";
+import { ragEnabled, ingestIndianKanoonDoc, ingestWebDoc } from "./rag/ingest.js";
 import { retrievePassages } from "./rag/retrieve.js";
+import { searchTavily as callTavily, isTavilyConfigured } from "./tavily.js";
 
 export { OpenRouterAuthError, OpenRouterApiError };
 export { IndianKanoonAuthError, IndianKanoonApiError } from "./indianKanoon.js";
@@ -41,13 +57,13 @@ const LAWS_TOP_N = 2;
 const cache = createCache();
 
 export const DISCLAIMER =
-  "This is general legal information for education and research purposes, generated only from the Indian Kanoon sources listed below — it is not legal advice from a lawyer, it does not create a lawyer-client relationship, and it cannot guarantee any outcome. For anything serious, urgent, criminal, financial, family, property, or litigation-related, please consult a qualified Indian lawyer.";
+  "This is general legal information to help you understand your situation, generated only from the Indian Kanoon sources listed below — it is not legal advice from a lawyer, it does not create a lawyer-client relationship, and it cannot guarantee any outcome. For anything serious, urgent, criminal, financial, family, property, or litigation-related, please consult a qualified Indian lawyer.";
 
 const EMERGENCY_MESSAGE =
   "This looks like it may be a time-sensitive or urgent situation (for example: an arrest, being in custody, an FIR just filed, an immediate threat, or a court deadline in the next day or two). Please contact a qualified lawyer, a legal aid service, or the relevant authority (police / court) immediately — do not rely only on this tool.";
 
 const INSUFFICIENT_EVIDENCE_NOTE =
-  "The available Indian Kanoon sources found for this question are insufficient to ground a reliable answer. Try rephrasing with more specific legal terms (e.g. the relevant Act/Section, or more concrete facts), or consult a qualified Indian lawyer for guidance specific to your situation.";
+  "The available sources found for this question are insufficient to ground a reliable answer. Try rephrasing with more specific legal terms (e.g. the relevant Act/Section, or more concrete facts), or consult a qualified Indian lawyer for guidance specific to your situation.";
 
 function stripHtml(html) {
   return (html || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
@@ -110,6 +126,7 @@ function docUrl(tid) {
 // DEFAULT_TOP_N documents in a single prompt to free-tier models with limited context
 // windows. ~3000 chars (~750 tokens) per source keeps a 5-source bundle affordable.
 const DOC_TEXT_CHAR_LIMIT = 3000;
+const WEB_TEXT_CHAR_LIMIT = 2000;
 
 // Fetches the full document text per top search hit (grounds the model in the actual
 // statute/judgment, not just a search headline) and falls back to a targeted snippet
@@ -132,20 +149,15 @@ async function fetchEvidenceText(d, distilledQuery) {
   }
 }
 
-async function buildEvidence(distilledQuery, docs) {
+// IK search hits -> evidence items (no `index` yet — buildEvidence assigns that once
+// every origin — rag/indian_kanoon/web — has been merged into one list).
+async function indianKanoonDocsToEvidence(distilledQuery, docs) {
+  if (docs.length === 0) return [];
   const texts = await Promise.all(docs.map((d) => fetchEvidenceText(d, distilledQuery)));
-
-  return docs.map((d, i) => ({
-    index: i + 1,
-    tid: d.tid,
-    title: d.title,
-    docsource: d.docsource,
-    url: docUrl(d.tid),
-    text: texts[i],
-  }));
+  return docs.map((d, i) => ({ tid: d.tid, title: d.title, docsource: d.docsource, url: docUrl(d.tid), text: texts[i], sourceType: "indian_kanoon" }));
 }
 
-// ---- Qdrant knowledge-base (RAG) path -------------------------------------------------
+// ---- Stage 2 constants: Qdrant knowledge-base (RAG) -------------------------------------
 // Passages the knowledge base returns with at least this score are trusted enough to answer
 // from without paying for a live Indian Kanoon search. As the KB grows with usage, more
 // questions are served from it (cheaper and faster).
@@ -170,41 +182,45 @@ function tidFromExternalId(externalId) {
   return m ? Number(m[1]) : null;
 }
 
+// Qdrant passages -> evidence items (no `index` yet — see indianKanoonDocsToEvidence above).
 function passagesToEvidence(passages) {
-  return passages.slice(0, MAX_PASSAGES).map((p, i) => ({
-    index: i + 1,
+  return passages.slice(0, MAX_PASSAGES).map((p) => ({
     tid: tidFromExternalId(p.externalId),
     title: p.title,
     docsource: p.court || p.source,
     url: p.url,
     text: `[${PARA_LABEL[p.paraClass] || p.paraClass}] ${p.text.slice(0, PASSAGE_CHAR_LIMIT)}`,
+    sourceType: "rag",
   }));
 }
 
-// Index the documents the live search surfaced so this and future questions can be answered
-// passage-by-passage from the vector store. Best-effort: indexing problems never fail the answer.
-async function indexSearchHits(docs) {
-  const fresh = docs.slice(0, MAX_NEW_DOCS_PER_QUESTION);
-  const results = await Promise.allSettled(
-    fresh.map(async (d) => {
-      const full = await getDocumentRaw(d.tid);
-      return ingestIndianKanoonDoc({ tid: d.tid, title: d.title, docsource: d.docsource, html: full.doc });
-    })
-  );
-  for (const r of results) if (r.status === "rejected") console.error("RAG ingest failed:", r.reason?.message || r.reason);
+function webResultsToEvidence(results) {
+  return results.map((r) => {
+    let host = "web";
+    try {
+      host = new URL(r.url).hostname.replace(/^www\./, "");
+    } catch {
+      // malformed URL from the web API — keep the generic "web" label rather than throwing
+    }
+    return { tid: null, title: r.title || host, docsource: host, url: r.url, text: r.content.slice(0, WEB_TEXT_CHAR_LIMIT), sourceType: "web" };
+  });
 }
 
 const SYSTEM_PROMPT = `You are "${APP_NAME}", an AI legal-information assistant for India, embedded in a legal-services platform. You are NOT a lawyer, and you must never imply that you are one.
 
-You will be given a user's legal question and a numbered list of evidence excerpts retrieved from Indian Kanoon (real Indian statutes, bare acts, and court judgments). Follow these rules strictly:
+You will be given a user's legal question and a numbered list of evidence excerpts — retrieved from Indian Kanoon (real Indian statutes, bare acts, and court judgments) and, where noted, trusted government/legal-aid web pages. Follow these rules strictly:
 
 1. Ground every substantive claim ONLY in the numbered evidence provided. Never use outside knowledge to state a law, section number, case name, citation, date, or court holding that is not present in the evidence.
 2. Never invent or guess at a law, section, judgment, case name, citation, date, or court decision. If the evidence doesn't contain it, do not mention it.
-3. Every item in applicableLaws, caseLaw, yourRights, immediateActions and stepByStep must carry a sourceId (or sourceIds) that is one of the evidence numbers given to you below (e.g. "1" or "2") — never cite a number that wasn't actually given to you, and never leave a substantive item without one.
+3. Every item in applicableLaws, caseLaw, yourRights, immediateActions and stepByStep that states a law, section, right, citation, or legal consequence must carry a sourceId (or sourceIds) that is one of the evidence numbers given to you below (e.g. "1" or "2") — never cite a number that wasn't actually given to you, and never leave a legal claim without one. The one exception is generic practical safety cautions (see rule 7d) — those don't state a law, so no sourceId is needed for them.
 4. Never guarantee a legal outcome (e.g. never say "you will win" or "the court will rule in your favor"). Describe what the law/precedent says, not what will happen to the user.
 5. Never present an unsupported legal conclusion as settled fact — if the evidence is ambiguous, thin, or only partially on point, say so plainly in "gaps" rather than inventing specificity to fill a gap.
 6. Refuse to help with evading police/legal process, destroying evidence, intimidating witnesses, committing fraud, or any other unlawful act — instead, redirect toward lawful remedies and recommend consulting a lawyer.
 7. Leave an array empty if the evidence doesn't support anything for it. Do not pad an array with speculation just to fill it.
+7a. For anything serious, criminal, or time-bound, never say or imply the user does not need a lawyer. Frame it as "you need a lawyer, and here is how to deal with one safely" rather than downplaying it.
+7b. Never promise or guarantee an outcome, and never frighten the user. Use measured language ("the law generally says", "courts have generally held") — never "you will win" or "this will definitely happen to you".
+7c. Never suggest confronting, threatening, arguing with, or resisting police or other officials. When the situation involves an official, the lawful posture is: stay polite, state the right calmly, ask for the reason/order in writing, and call a lawyer — phrase stepByStep/yourRights this way.
+7d. Where the situation makes it relevant, include well-known, generic safety cautions as stepByStep items even without a citable source — e.g. don't sign a blank or unread document, don't hand over original documents, don't pay unreceipted "settlement" or "fees" in cash, don't delete messages/evidence related to the matter, don't ignore a notice or summons. These are practical cautions, not legal claims, so they do not need a sourceId — but never state a law, section, or legal consequence without one (rule 3 still applies to every legal claim).
 8. Write every field's prose in the user's own language AND SCRIPT (told to you below as "language"), even though the evidence excerpts themselves are in English — translate/paraphrase the substance rather than quoting English evidence text verbatim. Keep case names, section numbers, and citation markers as-is (don't translate proper nouns or numbers). The language value tells you the exact language and script to use, and compliance is STRICT — never mix languages or scripts within a single field or across fields:
    - "hindi" -> write in Hindi, Devanagari script (हिंदी में) ONLY. Not Romanized, not mixed with Latin letters (except case names, section numbers, and untranslatable English legal terms like "FIR").
    - "marathi" -> write in Marathi, Devanagari script (मराठीत) ONLY — Marathi vocabulary/grammar, not Hindi. Not Romanized, not mixed with Latin letters (except case names, section numbers, and untranslatable English legal terms like "FIR").
@@ -214,6 +230,7 @@ You will be given a user's legal question and a numbered list of evidence excerp
    - "english" -> write in English.
    - "unknown" -> default to English.
    Before finalizing each field, re-check every character against this rule — a field is non-compliant if it contains even one Devanagari character while language is "hinglish" or "marathlish", any Romanized sentence while language is "hindi"/"marathi"/"urdu", Hindi vocabulary while language is "marathi"/"marathlish", or any Devanagari/Latin character while language is "urdu".
+8a. Write for someone with little or no formal education and no legal background — e.g. a daily-wage worker, a small shopkeeper, a student, a first-time reader of a legal document. In EVERY field (not just immediateActions/stepByStep): use the simplest everyday words a non-lawyer uses in daily conversation, one idea per sentence, no sentence longer than about 15-20 words, no legal jargon, no complex or formal sentence structure, no passive voice where active voice is simpler. If an unavoidable term appears (FIR, vakil, thana, chalan, section, affidavit, etc.), explain what it means in 3-5 plain words right in the same sentence the first time it appears. Prefer concrete, specific action ("police station jaakar likhit shikayat do") over vague/formal phrasing ("appropriate authorities must be approached"). This applies to applicableLaws.plainMeaning and caseLaw.whatItMeansForYou too — explain what the law/judgment means for THIS person's situation in plain words, not a legal summary.
 
 Output STRICT JSON only (no markdown fences, no commentary before or after), matching exactly this shape:
 {
@@ -232,12 +249,12 @@ Output STRICT JSON only (no markdown fences, no commentary before or after), mat
 Field meanings:
 - summary: 2-3 sentences — what the situation is legally and the bottom line. Null only if the evidence supports nothing at all.
 - immediateActions: the most urgent action(s) first, each with why it matters and its sourceIds. Empty if nothing is urgent.
-- stepByStep: concrete, lawful next steps in order (1, 2, 3...), each with where to go, documents needed, and any time limit, grounded in evidence where possible. Always include "consult a qualified Indian lawyer" as a step for anything serious, urgent, criminal, financial, family, property, or litigation-related.
+- stepByStep: concrete, lawful next steps in order (1, 2, 3...), each with where to go, documents needed, and any time limit, grounded in evidence where possible, plus generic safety cautions per rule 7d where relevant. Always include a step to consult a qualified Indian lawyer for anything serious, urgent, criminal, financial, family, property, or litigation-related — phrase it as needing a lawyer and getting one safely (ask for the fee in writing, take a receipt for every payment, a genuine lawyer never guarantees an outcome or asks for money to pay off police/a judge, ask for a copy of every document filed and the case number/next date), never as optional.
 - yourRights: rights relevant to the situation, per the evidence.
 - applicableLaws: the relevant Act/Section(s) and what they mean in plain words, per the evidence.
-- caseLaw: relevant court judgment(s) in the evidence and what they mean for the user's situation.
-- whereToGetHelp: contacts/services relevant to this situation found in the evidence (e.g. a forum/authority named in a statute) — do not invent phone numbers or organisations not present in the evidence.
-- gaps: what could not be confirmed from the evidence and must be checked with a lawyer. Empty only if the evidence fully covers the question.
+- caseLaw: AT MOST the 2-3 judgments in the evidence most directly on point for the user's exact situation — never list every case that merely appears in the evidence. Pick the ones that best match the facts asked about; drop the rest, even if they're relevant to the general topic.
+- whereToGetHelp: contacts/services relevant to this situation found in the evidence (e.g. a forum/authority named in a statute, or a web result's helpline/portal) — do not invent phone numbers or organisations not present in the evidence.
+- gaps: ONLY facts about the user's own situation that are missing and would change the advice (e.g. "whether a charge sheet has been filed", "whether you are named in the FIR") — these belong here, not in followUpQuestions AND gaps both. Do NOT use gaps to hedge on well-established law that IS in the evidence (a section number, what it covers, a settled principle) — if the evidence states it, say it plainly and confidently in applicableLaws/stepByStep/yourRights instead of disclaiming it here. Do NOT pad gaps with "the evidence doesn't give the full judgment text" or similar meta-commentary about the evidence itself — only missing facts about the user's situation belong here. Keep this to at most 2-3 items. Empty is normal and fine, not a failure.
 - followUpQuestions: max 3 questions whose answers would materially change the advice.
 - confidence: "high" only if every applicableLaws item is backed by evidence actually given above; "low" if gaps contains anything central to the question; "medium" otherwise.
 
@@ -350,9 +367,175 @@ function dedupeSources(evidence) {
     const key = e.url || `${e.tid}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push({ tid: e.tid, title: e.title, docsource: e.docsource, url: e.url });
+    out.push({ tid: e.tid, title: e.title, docsource: e.docsource, url: e.url, sourceType: e.sourceType });
   }
   return out;
+}
+
+// ========================= STAGE 1: Understand =========================================
+async function understand(question) {
+  const understanding = await understandQuery(question);
+  return {
+    searchQuery: understanding.searchQuery,
+    topic: understanding.topic,
+    language: understanding.language,
+    emergency: {
+      flag: understanding.isEmergency,
+      reason: understanding.emergencyReason,
+      message: understanding.isEmergency ? EMERGENCY_MESSAGE : null,
+    },
+  };
+}
+
+// ========================= STAGE 2: Internal RAG first (Qdrant + corpus) ================
+/** @returns {Promise<{passages: object[], confident: boolean}>} confident -> skip stages 3 & 4 */
+async function searchRag(searchQuery) {
+  if (!ragEnabled()) return { passages: [], confident: false };
+  let passages = [];
+  try {
+    passages = await retrievePassages(searchQuery, { limit: MAX_PASSAGES + 2 });
+  } catch (err) {
+    console.error("Qdrant retrieval failed, moving to the next stage:", err.message);
+    return { passages: [], confident: false };
+  }
+  const confident = passages.filter((p) => p.score >= CONFIDENT_SCORE).length >= CONFIDENT_MIN_PASSAGES;
+  return { passages, confident };
+}
+
+// ========================= STAGE 3: Indian Kanoon fallback ==============================
+/** @returns {Promise<{docs: object[]}>} ranked, zero-relevance hits already dropped */
+async function searchIndianKanoon(searchQuery, filters, topN) {
+  let generalDocs = [];
+  let lawsDocs = [];
+  try {
+    const [{ docs }, lawsResult] = await Promise.all([
+      search(searchQuery, filters, 0, 1),
+      // Best-effort: a real auth/token problem will also surface via the call above
+      // (same token, same failure mode), so a failure here is safe to swallow rather
+      // than sinking the whole stage over an enhancement search.
+      search(searchQuery, { ...filters, court: "laws" }, 0, 1).catch(() => ({ docs: [] })),
+    ]);
+    generalDocs = docs || [];
+    lawsDocs = lawsResult.docs || [];
+  } catch (err) {
+    console.error("Indian Kanoon search failed, moving to the next stage:", err.message);
+    return { docs: [] };
+  }
+
+  // Score each candidate pool by relevance to the query — Gemini embeddings when
+  // GEMINI_API_KEY is configured (a real semantic match, which catches a
+  // paraphrased/conversational question that shares no exact keywords with the
+  // right statute/judgment), local TF-IDF otherwise (see relevanceRanking.js) — and
+  // drop anything judged unrelated rather than forcing it in. Fewer, genuinely relevant
+  // sources beats padding with noise.
+  const docText = (d) => `${d.title} ${stripHtml(d.headline)}`;
+  const [rankedLaw, rankedGeneral] = await Promise.all([
+    rankRelevantDocs(searchQuery, lawsDocs, docText),
+    rankRelevantDocs(searchQuery, generalDocs, docText),
+  ]);
+
+  const lawTop = rankedLaw.map((x) => x.item).slice(0, LAWS_TOP_N);
+  const lawTids = new Set(lawTop.map((d) => d.tid));
+  const generalTop = rankedGeneral.map((x) => x.item).filter((d) => !lawTids.has(d.tid));
+  return { docs: [...lawTop, ...generalTop].slice(0, topN) };
+}
+
+// ========================= STAGE 4: Tavily fallback ======================================
+// Only reached when stages 2+3 combined are still thin — Tavily's job is the practical
+// detail Indian Kanoon's case-law/bare-act corpus doesn't carry (procedure, helplines,
+// free legal aid, forms, time limits), not a substitute for it.
+const MIN_EVIDENCE_TO_SKIP_WEB = 2;
+const MAX_WEB_RESULTS = 3;
+
+/** @returns {Promise<{results: object[]}>} */
+async function searchTavily(searchQuery) {
+  if (!isTavilyConfigured()) return { results: [] };
+  try {
+    const results = await callTavily(searchQuery, { maxResults: MAX_WEB_RESULTS });
+    return { results };
+  } catch (err) {
+    console.error("Tavily search failed, continuing without web evidence:", err.message);
+    return { results: [] };
+  }
+}
+
+// ========================= STAGE 5: Build evidence + generate ===========================
+// Merges every origin into ONE numbered, order-stable list (rag -> indian_kanoon -> web)
+// so sourceIds in the model's output resolve unambiguously regardless of which stages ran.
+async function buildEvidence({ passages, ikDocs, webResults }, distilledQuery) {
+  const items = [
+    ...passagesToEvidence(passages),
+    ...(await indianKanoonDocsToEvidence(distilledQuery, ikDocs)),
+    ...webResultsToEvidence(webResults),
+  ];
+  return items.map((item, i) => ({ ...item, index: i + 1 }));
+}
+
+async function generateAnswer(question, topic, evidence, language, isEmergency) {
+  const raw = await chatCompletion(buildMessages(question, topic, evidence, language, isEmergency), { jsonMode: true });
+
+  let candidate = null;
+  try {
+    candidate = extractJson(raw);
+  } catch {
+    candidate = null;
+  }
+  let validated = candidate !== null ? AnswerSchema.safeParse(candidate) : null;
+
+  if (!validated?.success) {
+    // The object as a whole didn't parse — try salvaging individual well-formed
+    // scalar fields before giving up entirely (see salvageFields' doc comment).
+    const salvaged = salvageFields(raw);
+    validated = salvaged ? AnswerSchema.safeParse(salvaged) : null;
+  }
+
+  if (validated?.success) {
+    return { outcome: "answered", sections: attachSourceUrls({ ...emptyAnswerShape(), ...validated.data }, evidence), rawAnswer: null };
+  }
+
+  // Never show the user raw JSON-looking text (curly braces, "key":"value" noise) that
+  // neither parse attempt nor salvage could make sense of — that's confusing, not
+  // informative. Genuine unstructured prose (a model that just answered in plain
+  // sentences instead of JSON) is still shown as-is; only text that still looks like
+  // broken JSON syntax gets suppressed.
+  const cleanRaw = raw.trim();
+  const looksLikeBrokenJson = cleanRaw.startsWith("{") || /"[a-zA-Z]+"\s*:/.test(cleanRaw);
+  return {
+    outcome: "unparsed",
+    sections: { ...emptyAnswerShape(), summary: looksLikeBrokenJson ? null : cleanRaw || null },
+    rawAnswer: raw,
+  };
+}
+
+// ========================= STAGE 6: Learn (write back into RAG) =========================
+// Fire-and-forget — called AFTER the response is built, never awaited by the caller, and a
+// failure here must never surface to the user (it already answered them). Only indexes
+// content that was actually retrieved for this answer's evidence (stages 3/4), never the
+// user's own question text or any other personal data.
+async function indexIndianKanoonDocs(docs) {
+  const fresh = docs.slice(0, MAX_NEW_DOCS_PER_QUESTION);
+  const results = await Promise.allSettled(
+    fresh.map(async (d) => {
+      const full = await getDocumentRaw(d.tid);
+      return ingestIndianKanoonDoc({ tid: d.tid, title: d.title, docsource: d.docsource, html: full.doc });
+    })
+  );
+  for (const r of results) if (r.status === "rejected") console.error("RAG ingest (Indian Kanoon) failed:", r.reason?.message || r.reason);
+}
+
+async function indexWebResults(results) {
+  const settled = await Promise.allSettled(results.map((r) => ingestWebDoc({ url: r.url, title: r.title, text: r.content })));
+  for (const r of settled) if (r.status === "rejected") console.error("RAG ingest (web) failed:", r.reason?.message || r.reason);
+}
+
+/** Never await this from the request path — see the Stage 6 note above. */
+function learnIntoRag({ ikDocs, webResults }) {
+  if (!ragEnabled()) return;
+  const jobs = [];
+  if (ikDocs.length > 0) jobs.push(indexIndianKanoonDocs(ikDocs));
+  if (webResults.length > 0) jobs.push(indexWebResults(webResults));
+  if (jobs.length === 0) return;
+  Promise.allSettled(jobs).catch((err) => console.error("learnIntoRag failed unexpectedly:", err.message));
 }
 
 /**
@@ -365,7 +548,8 @@ function dedupeSources(evidence) {
  *   emergency: {flag: boolean, reason: string|null, message: string|null},
  *   sections: object,
  *   rawAnswer: string|null,
- *   sources: Array<{tid: number, title: string, docsource: string, url: string}>,
+ *   sources: Array<{tid: number|null, title: string, docsource: string, url: string, sourceType: string}>,
+ *   evidenceOrigin: {rag: number, indianKanoon: number, web: number},
  *   disclaimer: string
  * }>}
  */
@@ -373,140 +557,53 @@ export async function answerLegalQuestion(question, filters = {}, topN = DEFAULT
   const cacheKey = `legal-assistant:${question}:${JSON.stringify(filters)}:${topN}`;
 
   return cache.getOrSet(cacheKey, ANSWER_TTL_MS, async () => {
-    const understanding = await understandQuery(question);
-    const emergency = {
-      flag: understanding.isEmergency,
-      reason: understanding.emergencyReason,
-      message: understanding.isEmergency ? EMERGENCY_MESSAGE : null,
-    };
+    // Stage 1
+    const { searchQuery, topic, language, emergency } = await understand(question);
 
-    // 1) Knowledge base first (Qdrant): semantic passages from everything indexed so far.
-    let kbPassages = [];
-    if (ragEnabled()) {
-      try {
-        kbPassages = await retrievePassages(understanding.searchQuery, { limit: MAX_PASSAGES + 2 });
-      } catch (err) {
-        console.error("Qdrant retrieval failed, falling back to live search only:", err.message);
-      }
-    }
-    const kbConfident = kbPassages.filter((p) => p.score >= CONFIDENT_SCORE).length >= CONFIDENT_MIN_PASSAGES;
+    // Stage 2
+    const { passages, confident } = await searchRag(searchQuery);
 
-    // 2) Live Indian Kanoon search — skipped when the KB already answers confidently.
-    let docs = [];
-    let lawsResult = { docs: [] };
-    let liveError = null;
-    if (!kbConfident) {
-      try {
-        [{ docs }, lawsResult] = await Promise.all([
-          search(understanding.searchQuery, filters, 0, 1),
-          // Best-effort: a real auth/token problem will also surface via the call above
-          // (same token, same failure mode), so a failure here is safe to swallow rather
-          // than sinking the whole request over an enhancement search.
-          search(understanding.searchQuery, { ...filters, court: "laws" }, 0, 1).catch(() => ({ docs: [] })),
-        ]);
-      } catch (err) {
-        liveError = err;
-        // With a populated KB we can still answer; otherwise surface the real error.
-        if (kbPassages.length === 0) throw err;
-        console.error("Live search failed, answering from the knowledge base:", err.message);
-      }
-    }
+    // Stage 3 (skipped once stage 2 is confident)
+    const ikDocs = confident ? [] : (await searchIndianKanoon(searchQuery, filters, topN)).docs;
 
-    // Score each candidate pool by relevance to the query — Gemini embeddings when
-    // GEMINI_API_KEY is configured (a real semantic match, which catches a
-    // paraphrased/conversational question that shares no exact keywords with the
-    // right statute/judgment), local TF-IDF otherwise (see relevanceRanking.js) — and
-    // drop anything judged unrelated rather than forcing it in. Fewer, genuinely relevant
-    // sources (even zero, which falls through to no_evidence below) beats padding with noise.
-    const docText = (d) => `${d.title} ${stripHtml(d.headline)}`;
-    const [rankedLaw, rankedGeneral] = await Promise.all([
-      rankRelevantDocs(understanding.searchQuery, lawsResult.docs || [], docText),
-      rankRelevantDocs(understanding.searchQuery, docs || [], docText),
-    ]);
+    // Stage 4 (skipped once stage 2 is confident, or stage 2+3 combined are already enough)
+    const combinedCount = passages.length + ikDocs.length;
+    const webResults = confident || combinedCount >= MIN_EVIDENCE_TO_SKIP_WEB ? [] : (await searchTavily(searchQuery)).results;
 
-    const lawDocs = rankedLaw.map((x) => x.item).slice(0, LAWS_TOP_N);
-    const lawTids = new Set(lawDocs.map((d) => d.tid));
-    const generalDocs = rankedGeneral.map((x) => x.item).filter((d) => !lawTids.has(d.tid));
-    const top = [...lawDocs, ...generalDocs].slice(0, topN);
-
-    // 3) Passage-level evidence. Index what the live search found, then re-query the KB so the
-    //    model reads the best *passages* (not the first 3,000 characters of each document).
-    let passages = kbPassages;
-    if (ragEnabled() && top.length > 0 && !liveError) {
-      await indexSearchHits(top);
-      try {
-        passages = await retrievePassages(understanding.searchQuery, { limit: MAX_PASSAGES + 2 });
-      } catch (err) {
-        console.error("Qdrant re-query failed:", err.message);
-      }
-    }
-
-    if (top.length === 0 && passages.length === 0) {
+    if (passages.length === 0 && ikDocs.length === 0 && webResults.length === 0) {
       return {
         outcome: "no_evidence",
-        understanding: { searchQuery: understanding.searchQuery, topic: understanding.topic, language: understanding.language },
+        understanding: { searchQuery, topic, language },
         emergency,
         sections: withEmergencyImmediateAction({ ...emptyAnswerShape(), gaps: [INSUFFICIENT_EVIDENCE_NOTE] }, emergency),
         rawAnswer: null,
         sources: [],
+        evidenceOrigin: { rag: 0, indianKanoon: 0, web: 0 },
         disclaimer: DISCLAIMER,
       };
     }
 
-    const evidence = passages.length > 0 ? passagesToEvidence(passages) : await buildEvidence(understanding.searchQuery, top);
-    const raw = await chatCompletion(buildMessages(question, understanding.topic, evidence, understanding.language, understanding.isEmergency), {
-      jsonMode: true,
-    });
+    // Stage 5
+    const evidence = await buildEvidence({ passages, ikDocs, webResults }, searchQuery);
+    const { outcome, sections: generatedSections, rawAnswer } = await generateAnswer(question, topic, evidence, language, emergency.flag);
+    const sections = withEmergencyImmediateAction(generatedSections, emergency);
 
-    let sections;
-    let outcome = "answered";
-    let rawAnswer = null;
-
-    let candidate = null;
-    try {
-      candidate = extractJson(raw);
-    } catch {
-      candidate = null;
-    }
-    let validated = candidate !== null ? AnswerSchema.safeParse(candidate) : null;
-
-    if (!validated?.success) {
-      // The object as a whole didn't parse — try salvaging individual well-formed
-      // scalar fields before giving up entirely (see salvageFields' doc comment).
-      const salvaged = salvageFields(raw);
-      validated = salvaged ? AnswerSchema.safeParse(salvaged) : null;
-    }
-
-    if (validated?.success) {
-      sections = attachSourceUrls({ ...emptyAnswerShape(), ...validated.data }, evidence);
-    } else {
-      outcome = "unparsed";
-      rawAnswer = raw;
-      const cleanRaw = raw.trim();
-      // Never show the user raw JSON-looking text (curly braces, "key":"value" noise)
-      // that neither parse attempt nor salvage could make sense of — that's confusing,
-      // not informative. Genuine unstructured prose (a model that just answered in
-      // plain sentences instead of JSON) is still shown as-is; only text that still
-      // looks like broken JSON syntax gets suppressed.
-      const looksLikeBrokenJson = cleanRaw.startsWith("{") || /"[a-zA-Z]+"\s*:/.test(cleanRaw);
-      sections = {
-        ...emptyAnswerShape(),
-        summary: looksLikeBrokenJson ? null : cleanRaw || null,
-      };
-    }
-
-    sections = withEmergencyImmediateAction(sections, emergency);
-
-    return {
+    const response = {
       outcome,
-      understanding: { searchQuery: understanding.searchQuery, topic: understanding.topic, language: understanding.language },
+      understanding: { searchQuery, topic, language },
       emergency,
       sections,
       rawAnswer,
       sources: dedupeSources(evidence),
-      retrieval: { mode: passages.length > 0 ? "knowledge_base" : "live_search", passages: passages.length, servedFromKnowledgeBase: kbConfident },
+      evidenceOrigin: { rag: passages.length, indianKanoon: ikDocs.length, web: webResults.length },
+      retrieval: { mode: passages.length > 0 ? "knowledge_base" : "live_search", passages: passages.length, servedFromKnowledgeBase: confident },
       disclaimer: DISCLAIMER,
     };
+
+    // Stage 6 — never awaited; must not delay or risk the response above.
+    learnIntoRag({ ikDocs, webResults });
+
+    return response;
   });
 }
 

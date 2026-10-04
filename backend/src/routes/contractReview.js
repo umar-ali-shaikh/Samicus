@@ -1,4 +1,4 @@
-import { Router } from "express";
+﻿import { Router } from "express";
 import { z } from "zod";
 import { Document, HeadingLevel, Packer, Paragraph, TextRun } from "docx";
 import { getSupabase } from "../config/db.js";
@@ -130,7 +130,7 @@ router.get("/contract-reviews/:id/export", requireAuth, async (req, res) => {
   const review = await loadFullReview(req.user, req.params.id);
   const label = { drafter: "Favours you", counterparty: "Favours the other side", balanced: "Balanced" };
   const doc = new Document({
-    creator: "Samicus",
+    creator: "Vidhira",
     sections: [
       {
         children: [

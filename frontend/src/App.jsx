@@ -24,7 +24,7 @@ function Gate() {
     case "unconfigured":
       return (
         <AuthLayout title="Setup needed" subtitle="This build has no Supabase project configured.">
-          <Callout tone="warning">Set <code>VITE_SUPABASE_URL</code> and <code>VITE_SUPABASE_ANON_KEY</code> (see <code>frontend/.env.example</code>), then rebuild.</Callout>
+          <Callout tone="warning">Set <code>VITE_SUPABASE_URL</code> and <code>VITE_SUPABASE_ANON_KEY</code> (see <code>.env.example</code>), then rebuild.</Callout>
         </AuthLayout>
       );
     case "loading":

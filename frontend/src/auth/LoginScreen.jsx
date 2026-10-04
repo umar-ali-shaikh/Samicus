@@ -1,4 +1,4 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import { useAuth } from "./AuthProvider";
 import { AuthLayout } from "./AuthLayout";
 import { Button, Callout } from "../components/ui";
@@ -43,7 +43,7 @@ export function LoginScreen() {
   };
 
   const title = { signin: "Welcome back", signup: "Create your account", forgot: "Reset your password" }[mode];
-  const subtitle = { signin: "Sign in to continue to Samicus.", signup: "We'll email you a link to verify your address before you can continue.", forgot: "Enter your email and we'll send you a reset link." }[mode];
+  const subtitle = { signin: "Sign in to continue to Vidhira.", signup: "We'll email you a link to verify your address before you can continue.", forgot: "Enter your email and we'll send you a reset link." }[mode];
 
   return (
     <AuthLayout
@@ -51,7 +51,7 @@ export function LoginScreen() {
       subtitle={subtitle}
       footer={
         mode === "signin" ? (
-          <>New to Samicus? <a href="#signup" onClick={(e) => { e.preventDefault(); setMode("signup"); setError(""); }}>Create an account</a></>
+          <>New to Vidhira? <a href="#signup" onClick={(e) => { e.preventDefault(); setMode("signup"); setError(""); }}>Create an account</a></>
         ) : (
           <>Already have an account? <a href="#signin" onClick={(e) => { e.preventDefault(); setMode("signin"); setError(""); setNotice(""); }}>Sign in</a></>
         )

@@ -1,4 +1,4 @@
-// Route-level tests of authentication and authorization, run against the real Express app
+﻿// Route-level tests of authentication and authorization, run against the real Express app
 // with an in-memory Supabase stand-in (see src/test/fakeSupabase.js).
 import { test, mock, before, after } from "node:test";
 import assert from "node:assert/strict";
@@ -8,7 +8,7 @@ const ALICE = { id: "auth-alice", email: "alice@example.com", email_confirmed_at
 const BOB = { id: "auth-bob", email: "bob@example.com", email_confirmed_at: "2026-01-01T00:00:00Z", user_metadata: {}, app_metadata: { provider: "email" } };
 const CAROL = { id: "auth-carol", email: "carol@example.com", email_confirmed_at: null, user_metadata: {}, app_metadata: { provider: "email" } };
 const DAN = { id: "auth-dan", email: "dan_the@example.com", email_confirmed_at: "2026-01-01T00:00:00Z", user_metadata: { full_name: "Dan" }, app_metadata: { provider: "email" } };
-const OPS = { id: "auth-ops", email: "ops@samicus.in", email_confirmed_at: "2026-01-01T00:00:00Z", user_metadata: { name: "Ops" }, app_metadata: { provider: "google" } };
+const OPS = { id: "auth-ops", email: "ops@vidhira.in", email_confirmed_at: "2026-01-01T00:00:00Z", user_metadata: { name: "Ops" }, app_metadata: { provider: "google" } };
 
 const PA = "11111111-1111-4111-8111-111111111111";
 const ADV = "22222222-2222-4222-8222-222222222222";
@@ -34,7 +34,7 @@ mock.module("../config/db.js", { namedExports: { getSupabase: () => fake.client 
 let server;
 let base;
 before(async () => {
-  process.env.ADMIN_EMAILS = "ops@samicus.in";
+  process.env.ADMIN_EMAILS = "ops@vidhira.in";
   const { createApp } = await import("../app.js");
   server = createApp().listen(0);
   await new Promise((r) => server.once("listening", r));

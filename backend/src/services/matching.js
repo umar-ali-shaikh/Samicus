@@ -1,4 +1,4 @@
-// Neutral, server-side, auditable matching. No bids/boosts/ratings — see API & Data Model doc §5.
+﻿// Neutral, server-side, auditable matching. No bids/boosts/ratings — see API & Data Model doc §5.
 // Weights are versioned config, returned with every result set for reproducibility.
 
 export const MATCHING_WEIGHTS_VERSION = "2026.1";
@@ -106,7 +106,7 @@ export function rankAdvocates(advocates, intake) {
     .map((m, i) => ({ ...m, rank: i + 1 }));
 }
 
-// Booking-wizard fee math (Samicus §3): gst = round((fee + platformFee) * 0.18)
+// Booking-wizard fee math (Vidhira §3): gst = round((fee + platformFee) * 0.18)
 export const PLATFORM_FEE = 99;
 export const GST_RATE = 0.18;
 
