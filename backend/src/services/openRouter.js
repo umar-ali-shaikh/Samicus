@@ -6,18 +6,25 @@ import { increment } from "../utils/callCounter.js";
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 // Paid models, deliberately — free-tier slugs get retired/rate-limited/renamed often
 // enough to be unreliable in production. Override via OPENROUTER_MODEL if this one gets
-// retired. qwen3.7-flash is cheap (~$0.03/$0.13 per M tokens), has a 1M context window,
-// and is strong at multilingual (Hindi/Marathi/Urdu) instruction-following.
-export const DEFAULT_MODEL = "qwen/qwen3.7-flash";
+// retired. gpt-oss-20b supports both response_format AND strict structured_outputs, plus
+// adjustable reasoning_effort — this prompt's SYSTEM_PROMPT (legalAssistant.js) is long and
+// multi-constraint (strict per-field JSON shape, mandatory sourceIds, 6-way script
+// compliance, several numbered behavioural rules), and a model that only skims it tends to
+// under-fill arrays like stepByStep/yourRights even when the evidence supports more —
+// observed in production with qwen3.7-flash (which lacks structured_outputs) returning a
+// single stepByStep/yourRights item despite 5 directly-on-point case law sources.
+export const DEFAULT_MODEL = "openai/gpt-oss-20b";
 
 // Each a different upstream provider, so a single provider's outage/rate-limit/retired
 // model string doesn't take down the whole chain — see the "only stop early on a genuine
-// auth failure" comment in chatCompletion below. All paid, all cheap (sub-$0.20/M tokens).
+// auth failure" comment in chatCompletion below. All paid, all cheap (sub-$0.20/M tokens),
+// and all support structured_outputs (amazon/nova-micro-v1 — tried first — does not
+// support response_format at all, and was dropped for that reason).
 const FALLBACK_MODELS = [
-  "openai/gpt-oss-20b",
   "mistralai/mistral-small-24b-instruct-2501",
   "google/gemma-3-12b-it",
-  "amazon/nova-micro-v1",
+  "cohere/command-r7b-12-2024",
+  "qwen/qwen3.7-flash",
 ];
 
 export class OpenRouterAuthError extends Error {
