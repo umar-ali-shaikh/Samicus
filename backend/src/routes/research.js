@@ -1,11 +1,83 @@
 import { Router } from "express";
 import { getSupabase } from "../config/db.js";
 import { requireAuth } from "../middleware/auth.js";
-import { retrieve, answerFromRetrieval, generateResearchInsights, relevanceThreshold } from "../services/research.js";
+import {
+  retrieve,
+  answerFromRetrieval,
+  generateResearchInsights,
+  relevanceThreshold,
+  findRelatedCases,
+  detectLanguage,
+  answerFollowUp,
+} from "../services/research.js";
+import { renderResearchReportPdf } from "../services/draftRender.js";
 import { assertAccountMember, defaultAccountId, HttpError } from "../services/access.js";
 import { knowledgeBaseStats } from "../services/rag/retrieve.js";
 
 const router = Router();
+
+const MODEL_VERSION = "sentence-transformers/all-mpnet-base-v2+qdrant";
+const TITLE_MAX = 80;
+function deriveTitle(text) {
+  const t = text.trim();
+  return t.length > TITLE_MAX ? `${t.slice(0, TITLE_MAX - 1)}…` : t;
+}
+
+/** Loads a research_queries row the caller may see, or throws a 404 (never a 403 — ids aren't probeable). */
+async function loadOwnedQuery(req, id) {
+  const { data: query, error } = await getSupabase().from("research_queries").select("*").eq("id", id).maybeSingle();
+  if (error) throw error;
+  if (!query) throw new HttpError(404, "Unknown research query id.");
+  await assertAccountMember(req.user.id, query.account_id).catch(() => {
+    throw new HttpError(404, "Unknown research query id.");
+  });
+  return query;
+}
+
+/**
+ * Builds the answer (extractive segments + AI insights + related cases) for an already-scored
+ * retrieval and persists it — shared by POST /research/answer and the refresh endpoint so the
+ * two never drift out of sync.
+ * @returns {Promise<{outcome: string, discardedCount: number}>}
+ */
+async function buildAndPersistAnswer(supabase, query, scored, locale) {
+  if (scored.length === 0) return { outcome: "not_found", discardedCount: 0 };
+  const result = await answerFromRetrieval(scored);
+  if (result.outcome === "not_found") return { outcome: "not_found", discardedCount: result.discardedCount };
+
+  const { data: answer, error: answerError } = await supabase
+    .from("research_answers")
+    .insert({ query_id: query.id, unsupported_span_count: result.unsupportedSpanCount })
+    .select()
+    .single();
+  if (answerError) throw answerError;
+
+  const { error: segmentsError } = await supabase
+    .from("research_answer_segments")
+    .insert(result.segments.map((s, i) => ({ research_answer_id: answer.id, position: i, text: s.text, chunk_id: s.chunkId })));
+  if (segmentsError) throw segmentsError;
+
+  // Pure enhancements over the extractive segments above — never required for the report to
+  // be usable, so a failure in either just means the report shows passages without them.
+  const [insights, relatedCaseIds] = await Promise.all([
+    generateResearchInsights(query.text, result.segments, { language: locale }),
+    findRelatedCases(
+      result.segments[0],
+      result.segments.map((s) => s.documentId).filter(Boolean)
+    ),
+  ]);
+  const caseCards = {};
+  for (const seg of result.segments) {
+    caseCards[seg.chunkId] = { ...(insights.caseCards[seg.chunkId] || {}), gloss: insights.glosses[seg.chunkId] || null };
+  }
+  const { error: updateError } = await supabase
+    .from("research_answers")
+    .update({ summary: insights.summary, case_cards: caseCards, related_searches: insights.relatedSearches, related_case_ids: relatedCaseIds })
+    .eq("id", answer.id);
+  if (updateError) throw updateError;
+
+  return { outcome: result.outcome, discardedCount: result.discardedCount };
+}
 
 // Step 1: retrieve — a separate callable step, so the client sees retrieval before any answer exists.
 router.post("/research/retrieve", requireAuth, async (req, res) => {
@@ -15,16 +87,18 @@ router.post("/research/retrieve", requireAuth, async (req, res) => {
   const accountId = req.body.accountId || (await defaultAccountId(req.user.id));
   await assertAccountMember(req.user.id, accountId);
   const threshold = relevanceThreshold();
-  const scored = await retrieve(text, { sourcesEnabled });
+  const [scored, locale] = await Promise.all([retrieve(text, { sourcesEnabled }), detectLanguage(text)]);
 
   const { data: query, error } = await supabase
     .from("research_queries")
     .insert({
       account_id: accountId,
       text,
+      title: deriveTitle(text),
+      locale,
       sources_enabled: sourcesEnabled || [],
       threshold,
-      model_version: "sentence-transformers/all-mpnet-base-v2+qdrant",
+      model_version: MODEL_VERSION,
       outcome: scored.some((s) => s.score >= threshold) ? "answered" : "not_found",
     })
     .select()
@@ -59,10 +133,7 @@ router.post("/research/retrieve", requireAuth, async (req, res) => {
 router.post("/research/answer", requireAuth, async (req, res) => {
   const supabase = getSupabase();
   const { retrievalId } = req.body || {};
-  const { data: query, error } = await supabase.from("research_queries").select("*").eq("id", retrievalId).maybeSingle();
-  if (error) throw error;
-  if (!query) return res.status(404).json({ error: "Unknown retrieval id" });
-  await assertAccountMember(req.user.id, query.account_id).catch(() => { throw new HttpError(404, "Unknown retrieval id"); });
+  const query = await loadOwnedQuery(req, retrievalId);
 
   const { data: queryChunks, error: chunksError } = await supabase
     .from("research_query_chunks")
@@ -70,35 +141,320 @@ router.post("/research/answer", requireAuth, async (req, res) => {
     .eq("query_id", query.id)
     .order("position", { ascending: true });
   if (chunksError) throw chunksError;
-
   const scored = queryChunks.map((qc) => ({ chunk: qc.chunk, score: qc.score }));
-  const result = await answerFromRetrieval(scored);
 
-  if (result.outcome === "not_found") {
+  const { outcome, discardedCount } = await buildAndPersistAnswer(supabase, query, scored, query.locale);
+  if (outcome === "not_found") {
     const { error: updateError } = await supabase.from("research_queries").update({ outcome: "not_found" }).eq("id", query.id);
     if (updateError) throw updateError;
-    return res.json({ outcome: "not_found", segments: [], discardedCount: result.discardedCount });
+  }
+
+  // Re-fetch the just-built report in its saved shape so this response and a later
+  // GET /research/queries/:id/report are byte-identical — one code path for both.
+  res.json(await loadReport(supabase, query.id));
+});
+
+/** Loads a report in the exact shape the frontend expects, purely from already-persisted rows — no regeneration. */
+async function loadReport(supabase, queryId) {
+  const { data: query, error } = await supabase.from("research_queries").select("*").eq("id", queryId).maybeSingle();
+  if (error) throw error;
+  if (!query) return null;
+
+  if (query.outcome === "not_found") {
+    return { status: "done", query, outcome: "not_found", segments: [], aiSummary: null, relatedSearches: [], relatedCases: [], discardedCount: 0 };
   }
 
   const { data: answer, error: answerError } = await supabase
     .from("research_answers")
-    .insert({ query_id: query.id, unsupported_span_count: result.unsupportedSpanCount })
-    .select()
-    .single();
+    .select("*")
+    .eq("query_id", queryId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
   if (answerError) throw answerError;
+  // The query row exists (retrieve() ran) but /answer hasn't finished yet — e.g. a search
+  // still mid-flight from another tab. Let the client poll briefly instead of erroring.
+  if (!answer) return { status: "processing", query };
 
-  const { error: segmentsError } = await supabase
+  const { data: segmentRows, error: segmentsError } = await supabase
     .from("research_answer_segments")
-    .insert(result.segments.map((s, i) => ({ research_answer_id: answer.id, position: i, text: s.text, chunk_id: s.chunkId })));
+    .select("position, text, chunk:corpus_chunks(id, paragraph_class, section_label, document:corpus_documents(id, title, citation, court, source, canonical_url))")
+    .eq("research_answer_id", answer.id)
+    .order("position", { ascending: true });
   if (segmentsError) throw segmentsError;
 
-  // A pure enhancement over the extractive segments above — never required for the answer
-  // to be usable, so a missing/failed summary (no OPENROUTER_API_KEY, a bad call) just
-  // means the UI shows the passages without it, not an error.
-  const { summary: aiSummary, glosses } = await generateResearchInsights(query.text, result.segments);
-  const segments = result.segments.map((s) => ({ ...s, gloss: glosses[s.chunkId] || null }));
+  const caseCardsByChunk = answer.case_cards || {};
+  const segments = segmentRows.map((row) => {
+    const chunk = row.chunk;
+    const doc = chunk?.document;
+    const card = caseCardsByChunk[chunk?.id] || {};
+    return {
+      chunkId: chunk?.id,
+      documentId: doc?.id,
+      text: row.text,
+      documentTitle: doc?.title,
+      citation: doc?.citation,
+      court: doc?.court,
+      source: doc?.source,
+      url: doc?.canonical_url,
+      paragraphClass: chunk?.paragraph_class,
+      sectionLabel: chunk?.section_label,
+      gloss: card.gloss || null,
+      facts: card.facts || null,
+      issues: card.issues || null,
+      held: card.held || null,
+      ratio: card.ratio || null,
+      outcome: card.outcome || "not_stated",
+      keyParagraph: card.keyParagraph || null,
+    };
+  });
 
-  res.json({ outcome: result.outcome, answer, segments, discardedCount: result.discardedCount, aiSummary });
+  let relatedCases = [];
+  if ((answer.related_case_ids || []).length > 0) {
+    const { data: relatedDocs, error: relatedError } = await supabase
+      .from("corpus_documents")
+      .select("id, title, citation, court, source, canonical_url")
+      .in("id", answer.related_case_ids);
+    if (relatedError) throw relatedError;
+    relatedCases = relatedDocs;
+  }
+
+  return {
+    status: "done",
+    query,
+    answer,
+    outcome: query.outcome,
+    segments,
+    aiSummary: answer.summary,
+    relatedSearches: answer.related_searches || [],
+    relatedCases,
+    discardedCount: 0,
+  };
+}
+
+// Seeded example reports (tags contains "example") have no owning account — they're meant
+// to be visible to every signed-in user as a cold-start showcase — so they skip the normal
+// account-membership check. Anything else still goes through loadOwnedQuery's real check.
+async function loadQueryForReport(req, id) {
+  const { data: query, error } = await getSupabase().from("research_queries").select("*").eq("id", id).maybeSingle();
+  if (error) throw error;
+  if (!query) throw new HttpError(404, "Unknown research query id.");
+  if ((query.tags || []).includes("example")) return query;
+  await assertAccountMember(req.user.id, query.account_id).catch(() => {
+    throw new HttpError(404, "Unknown research query id.");
+  });
+  return query;
+}
+
+// The critical "instant reopen" endpoint — clicking a past search must load the FULL saved
+// report from here, never replay /retrieve + /answer.
+router.get("/research/queries/:id/report", requireAuth, async (req, res) => {
+  const supabase = getSupabase();
+  await loadQueryForReport(req, req.params.id); // 404s on bad id / no access before touching anything else
+  res.json(await loadReport(supabase, req.params.id));
+});
+
+// "My Research" — past searches for one account, newest first. Superseded (refreshed-away)
+// versions are hidden; only the current head of each refresh chain shows. ?tag=example is a
+// special case: seeded showcase reports with no owning account, visible to every user.
+router.get("/research/queries", requireAuth, async (req, res) => {
+  const supabase = getSupabase();
+  const isExamplesQuery = req.query.tag === "example";
+  let accountId = null;
+  if (!isExamplesQuery) {
+    accountId = req.query.accountId || (await defaultAccountId(req.user.id));
+    await assertAccountMember(req.user.id, accountId);
+  }
+
+  let q = supabase
+    .from("research_queries")
+    .select("id, title, text, outcome, pinned_at, tags, locale, created_at")
+    .is("superseded_by", null)
+    .order("created_at", { ascending: false })
+    .limit(100);
+  if (accountId) q = q.eq("account_id", accountId);
+  if (req.query.pinned === "true") q = q.not("pinned_at", "is", null);
+  if (req.query.tag) q = q.contains("tags", [req.query.tag]);
+  if (req.query.q) q = q.ilike("text", `%${req.query.q}%`);
+  const { data: queries, error } = await q;
+  if (error) throw error;
+
+  const ids = queries.map((r) => r.id);
+  const caseCount = {};
+  const topCourt = {};
+  if (ids.length > 0) {
+    const { data: chunkRows, error: chunkError } = await supabase
+      .from("research_query_chunks")
+      .select("query_id, score, chunk:corpus_chunks(document:corpus_documents(court))")
+      .in("query_id", ids)
+      .order("score", { ascending: false });
+    if (chunkError) throw chunkError;
+    for (const row of chunkRows) {
+      caseCount[row.query_id] = (caseCount[row.query_id] || 0) + 1;
+      if (!topCourt[row.query_id] && row.chunk?.document?.court) topCourt[row.query_id] = row.chunk.document.court;
+    }
+  }
+
+  res.json(queries.map((r) => ({ ...r, caseCount: caseCount[r.id] || 0, topCourt: topCourt[r.id] || null })));
+});
+
+router.patch("/research/queries/:id", requireAuth, async (req, res) => {
+  const supabase = getSupabase();
+  await loadOwnedQuery(req, req.params.id);
+
+  const patch = {};
+  if (typeof req.body?.pinned === "boolean") patch.pinned_at = req.body.pinned ? new Date().toISOString() : null;
+  if (Array.isArray(req.body?.tags)) patch.tags = req.body.tags.filter((t) => typeof t === "string" && t.trim()).map((t) => t.trim().slice(0, 40));
+  if (Object.keys(patch).length === 0) throw new HttpError(400, "Nothing to update — pass pinned and/or tags.");
+
+  const { data: updated, error } = await supabase.from("research_queries").update(patch).eq("id", req.params.id).select().single();
+  if (error) throw error;
+  res.json(updated);
+});
+
+router.delete("/research/queries/:id", requireAuth, async (req, res) => {
+  const supabase = getSupabase();
+  await loadOwnedQuery(req, req.params.id);
+
+  const { data: answers, error: answersError } = await supabase.from("research_answers").select("id").eq("query_id", req.params.id);
+  if (answersError) throw answersError;
+  const answerIds = answers.map((a) => a.id);
+  if (answerIds.length > 0) {
+    const { error: segError } = await supabase.from("research_answer_segments").delete().in("research_answer_id", answerIds);
+    if (segError) throw segError;
+    const { error: ansError } = await supabase.from("research_answers").delete().in("id", answerIds);
+    if (ansError) throw ansError;
+  }
+  const { error: chatError } = await supabase.from("research_chat_turns").delete().eq("research_query_id", req.params.id);
+  if (chatError) throw chatError;
+  const { error: chunksError } = await supabase.from("research_query_chunks").delete().eq("query_id", req.params.id);
+  if (chunksError) throw chunksError;
+  const { error: deleteError } = await supabase.from("research_queries").delete().eq("id", req.params.id);
+  if (deleteError) throw deleteError;
+
+  res.json({ deleted: true });
+});
+
+// Re-runs the same question through live retrieval, as a NEW query row — the old one is kept
+// (linked via superseded_by) so history never silently disappears.
+router.post("/research/queries/:id/refresh", requireAuth, async (req, res) => {
+  const supabase = getSupabase();
+  const query = await loadOwnedQuery(req, req.params.id);
+
+  const threshold = relevanceThreshold();
+  const [scored, locale] = await Promise.all([retrieve(query.text, { sourcesEnabled: query.sources_enabled }), detectLanguage(query.text)]);
+
+  const { data: newQuery, error: insertError } = await supabase
+    .from("research_queries")
+    .insert({
+      account_id: query.account_id,
+      text: query.text,
+      title: query.title || deriveTitle(query.text),
+      locale,
+      sources_enabled: query.sources_enabled,
+      threshold,
+      model_version: MODEL_VERSION,
+      outcome: scored.some((s) => s.score >= threshold) ? "answered" : "not_found",
+    })
+    .select()
+    .single();
+  if (insertError) throw insertError;
+
+  if (scored.length > 0) {
+    const { error: chunksError } = await supabase
+      .from("research_query_chunks")
+      .insert(scored.map((s, i) => ({ query_id: newQuery.id, chunk_id: s.chunk.id, score: s.score, position: i })));
+    if (chunksError) throw chunksError;
+  }
+
+  const { error: supersedeError } = await supabase.from("research_queries").update({ superseded_by: newQuery.id }).eq("id", query.id);
+  if (supersedeError) throw supersedeError;
+
+  await buildAndPersistAnswer(supabase, newQuery, scored, locale);
+  res.json({ searchId: newQuery.id });
+});
+
+// Follow-up chat scoped to ONE report's own evidence — never a fresh retrieval.
+router.post("/research/queries/:id/ask", requireAuth, async (req, res) => {
+  const supabase = getSupabase();
+  const query = await loadOwnedQuery(req, req.params.id);
+  const { question } = req.body || {};
+  if (typeof question !== "string" || question.trim().length < 3 || question.length > 500) throw new HttpError(400, "Enter a question of 3–500 characters.");
+
+  const { data: answer, error: answerError } = await supabase
+    .from("research_answers")
+    .select("id")
+    .eq("query_id", query.id)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (answerError) throw answerError;
+  if (!answer) throw new HttpError(409, "This report has no answer yet to ask follow-ups about.");
+
+  const [{ data: segmentRows, error: segError }, { data: priorRows, error: priorError }] = await Promise.all([
+    supabase
+      .from("research_answer_segments")
+      .select("position, text, chunk_id, chunk:corpus_chunks(document:corpus_documents(title))")
+      .eq("research_answer_id", answer.id)
+      .order("position", { ascending: true }),
+    supabase.from("research_chat_turns").select("question, answer, created_at").eq("research_query_id", query.id).order("created_at", { ascending: true }),
+  ]);
+  if (segError) throw segError;
+  if (priorError) throw priorError;
+
+  const segments = segmentRows.map((r) => ({ chunkId: r.chunk_id, text: r.text, documentTitle: r.chunk?.document?.title }));
+  const result = await answerFollowUp(question, segments, { language: query.locale, priorTurns: priorRows });
+
+  const citations = result.citedIndexes.map((i) => segments[i - 1]).filter(Boolean);
+  const { data: turn, error: turnError } = await supabase
+    .from("research_chat_turns")
+    .insert({ research_query_id: query.id, question, answer: { text: result.text, citations } })
+    .select()
+    .single();
+  if (turnError) throw turnError;
+
+  res.json(turn);
+});
+
+router.get("/research/queries/:id/chat", requireAuth, async (req, res) => {
+  const supabase = getSupabase();
+  await loadOwnedQuery(req, req.params.id);
+  const { data, error } = await supabase
+    .from("research_chat_turns")
+    .select("*")
+    .eq("research_query_id", req.params.id)
+    .order("created_at", { ascending: true });
+  if (error) throw error;
+  res.json(data);
+});
+
+router.get("/research/queries/:id/export.pdf", requireAuth, async (req, res) => {
+  const supabase = getSupabase();
+  const query = await loadOwnedQuery(req, req.params.id);
+  const report = await loadReport(supabase, req.params.id);
+  if (report.status !== "done") throw new HttpError(409, "This report isn't ready yet.");
+
+  const pdf = await renderResearchReportPdf({
+    title: query.title || query.text,
+    question: query.text,
+    date: new Date(query.created_at).toLocaleDateString("en-IN", { year: "numeric", month: "long", day: "numeric" }),
+    summary: report.aiSummary,
+    cases: report.segments.map((s) => ({
+      title: s.documentTitle,
+      citation: s.citation,
+      court: s.court,
+      outcome: s.outcome,
+      facts: s.facts,
+      issues: s.issues,
+      held: s.held,
+      ratio: s.ratio,
+      keyParagraph: s.keyParagraph,
+      url: s.url,
+    })),
+    relatedSearches: report.relatedSearches,
+  });
+  res.set({ "Content-Type": "application/pdf", "Content-Disposition": `attachment; filename="research-${query.id}.pdf"` });
+  res.send(pdf);
 });
 
 // Browse list for the Research library's default (no-query) view — so the page never looks

@@ -9,6 +9,7 @@ import { getSupabase } from "../config/db.js";
 import { retrievePassages, minScore } from "./rag/retrieve.js";
 import { ragEnabled } from "./rag/ingest.js";
 import { chatCompletion, isOpenRouterConfigured } from "./openRouter.js";
+import { understandQuery } from "./legalQueryUnderstanding.js";
 
 export class KnowledgeBaseUnavailableError extends Error {
   constructor() {
@@ -91,8 +92,11 @@ export async function answerFromRetrieval(retrieved) {
     text: r.chunk.text,
     chunkId: r.chunk.id,
     score: r.score,
+    documentId: r.chunk.document?.id,
     documentTitle: r.chunk.document?.title,
     citation: r.chunk.document?.citation,
+    court: r.chunk.document?.court,
+    source: r.chunk.document?.source,
     url: r.chunk.document?.canonical_url,
   }));
 
@@ -100,16 +104,26 @@ export async function answerFromRetrieval(retrieved) {
   return { outcome, segments, discardedCount, unsupportedSpanCount: 0 };
 }
 
+const OUTCOME_VALUES = ["allowed", "dismissed", "partial", "not_stated"];
+
 const INSIGHTS_SYSTEM_PROMPT = `You help Vidhira's research library turn raw retrieved passages into something a non-lawyer can skim professionally. You will be given a search question and a numbered list of verbatim passages (one per case/document) retrieved for it.
 
 Rules:
 1. Ground every word ONLY in the numbered passages given — never add a law, fact, case name, or holding that isn't in them. If a passage is too fragmentary to say anything concrete about, write a brief honest gloss like "A procedural excerpt; doesn't state a clear holding on its own." rather than inventing substance.
 2. "summary": 3-5 sentences answering the question from across ALL the passages together. Every sentence must end with the source number(s) it's based on, e.g. "...void under Section 27 [2]." Plain, simple English — short sentences, no unexplained jargon. If the passages only partially answer the question, say what they cover and stop — do not pad with speculation. Never guarantee an outcome or imply this is legal advice.
 3. "glosses": for EVERY numbered passage, ONE short sentence (max ~25 words) in plain English saying what THAT specific passage says or holds — not a summary of the whole case, just that excerpt. No citation marker needed here (it's already tied to its own passage). No legal jargon left unexplained.
+4. "caseCards": for EVERY numbered passage, a structured breakdown of what THAT excerpt itself shows (not the whole case if the excerpt doesn't cover it — leave a field null rather than guessing):
+   - "facts": 1-2 plain sentences of what happened, if the excerpt states them, else null.
+   - "issues": the legal question(s) this excerpt addresses, if stated, else null.
+   - "held": what the court decided/said, if stated, else null.
+   - "ratio": the reasoning/principle behind the holding, if stated, else null.
+   - "outcome": one of "allowed", "dismissed", "partial", "not_stated" — ONLY "allowed"/"dismissed"/"partial" if the excerpt itself states the result; otherwise "not_stated". Never infer this from the case name or general knowledge.
+   - "keyParagraph": the single most relevant sentence or two, copied VERBATIM from that passage's own text (never paraphrased, never invented) — or null if nothing stands out.
+5. "relatedSearches": 3-6 short follow-up search queries (not questions to the user — queries a lawyer would type next) that a reader of this research would plausibly want to run next, grounded in what the passages actually raise (a statute mentioned but not explored, a related procedural question, etc.) — never generic/unrelated topics.
 
 Output STRICT JSON only, no markdown fences, no commentary, matching exactly:
-{ "summary": string, "glosses": [ { "index": number, "gloss": string } ] }
-"glosses" must have exactly one entry per passage number given, in any order.`;
+{ "summary": string, "glosses": [ { "index": number, "gloss": string } ], "caseCards": [ { "index": number, "facts": string|null, "issues": string|null, "held": string|null, "ratio": string|null, "outcome": "allowed"|"dismissed"|"partial"|"not_stated", "keyParagraph": string|null } ], "relatedSearches": [string] }
+"glosses" and "caseCards" must each have exactly one entry per passage number given, in any order.`;
 
 function evidenceFromSegments(segments) {
   return segments.map((s, i) => `[${i + 1}] ${s.documentTitle}\n${s.text.slice(0, 1200)}`).join("\n\n");
@@ -121,24 +135,35 @@ function stripCodeFence(text) {
 }
 
 /**
- * One OpenRouter call that produces BOTH a strictly-grounded overall summary and a short
- * plain-English gloss per passage — a thin, clearly-labelled layer over the extractive
- * passages, never a replacement for them (the passages remain the source of truth). Returns
- * { summary: null, glosses: {} } (not an error) if OpenRouter isn't configured or the call/
- * parse fails — the extractive answer underneath works fine on its own, so this is a pure
- * enhancement, and a failure here must never break the research page.
+ * One OpenRouter call that produces a strictly-grounded overall summary, a short plain-English
+ * gloss per passage, a structured per-case breakdown, and related-search suggestions — a thin,
+ * clearly-labelled layer over the extractive passages, never a replacement for them (the
+ * passages remain the source of truth). Returns an all-empty shape (not an error) if
+ * OpenRouter isn't configured or the call/parse fails — the extractive answer underneath works
+ * fine on its own, so this is a pure enhancement, and a failure here must never break the
+ * research page.
  * @param {string} question
  * @param {Array<{chunkId: string, text: string, documentTitle: string}>} segments
- * @returns {Promise<{summary: string|null, glosses: Record<string,string>}>}
+ * @param {{language?: string}} [opts] - from detectLanguage(); "english"/"unknown" write in English.
+ * @returns {Promise<{summary: string|null, glosses: Record<string,string>, caseCards: Record<string,object>, relatedSearches: string[]}>}
  */
-export async function generateResearchInsights(question, segments) {
-  const empty = { summary: null, glosses: {} };
+export async function generateResearchInsights(question, segments, { language } = {}) {
+  const empty = { summary: null, glosses: {}, caseCards: {}, relatedSearches: [] };
   if (!isOpenRouterConfigured() || segments.length === 0) return empty;
   try {
+    const lang = language || "unknown";
+    const userContent =
+      `Question: ${question}\n\nPassages:\n${evidenceFromSegments(segments)}` +
+      // Restated after the (English) evidence block, not just once before it — models
+      // otherwise drift toward English after reading a long block of English case-law text,
+      // even when told the target language up front (see legalAssistant.js's buildMessages
+      // for the same fix applied to the main assistant's answer-generation prompt).
+      `\n\n---\nReminder: write "summary", every "gloss", and every caseCards field (facts/issues/held/ratio/keyParagraph stays verbatim where it's a direct quote, but write the OTHER prose fields) in "${lang}" ` +
+      `if that is a specific language ("english"/"unknown" means plain English) — never default to English just because the passages are in English. Case names, section numbers, and citation markers stay as-is.`;
     const raw = await chatCompletion(
       [
         { role: "system", content: INSIGHTS_SYSTEM_PROMPT },
-        { role: "user", content: `Question: ${question}\n\nPassages:\n${evidenceFromSegments(segments)}` },
+        { role: "user", content: userContent },
       ],
       { jsonMode: true }
     );
@@ -148,10 +173,64 @@ export async function generateResearchInsights(question, segments) {
       const seg = segments[g.index - 1];
       if (seg && typeof g.gloss === "string" && g.gloss.trim()) glosses[seg.chunkId] = g.gloss.trim();
     }
-    return { summary: typeof parsed.summary === "string" ? parsed.summary.trim() || null : null, glosses };
+    const caseCards = {};
+    for (const c of parsed.caseCards || []) {
+      const seg = segments[c.index - 1];
+      if (!seg) continue;
+      caseCards[seg.chunkId] = {
+        facts: typeof c.facts === "string" && c.facts.trim() ? c.facts.trim() : null,
+        issues: typeof c.issues === "string" && c.issues.trim() ? c.issues.trim() : null,
+        held: typeof c.held === "string" && c.held.trim() ? c.held.trim() : null,
+        ratio: typeof c.ratio === "string" && c.ratio.trim() ? c.ratio.trim() : null,
+        outcome: OUTCOME_VALUES.includes(c.outcome) ? c.outcome : "not_stated",
+        keyParagraph: typeof c.keyParagraph === "string" && c.keyParagraph.trim() ? c.keyParagraph.trim() : null,
+      };
+    }
+    const relatedSearches = (Array.isArray(parsed.relatedSearches) ? parsed.relatedSearches : [])
+      .filter((s) => typeof s === "string" && s.trim())
+      .map((s) => s.trim())
+      .slice(0, 6);
+    return { summary: typeof parsed.summary === "string" ? parsed.summary.trim() || null : null, glosses, caseCards, relatedSearches };
   } catch (err) {
     console.error("Research insights generation failed, showing passages without them:", err.message);
     return empty;
+  }
+}
+
+// Best-effort: one more vector search anchored on the top result's own text, excluding
+// documents already represented in this report. Pure enhancement — empty on any failure,
+// never blocks the report (same posture as generateResearchInsights above).
+const RELATED_CASES_LIMIT = 3;
+
+export async function findRelatedCases(topSegment, excludeDocumentIds = []) {
+  if (!topSegment?.text || !ragEnabled()) return [];
+  try {
+    const candidates = await retrievePassages(topSegment.text.slice(0, 500), { limit: 8, threshold: null });
+    const excluded = new Set(excludeDocumentIds);
+    const out = [];
+    for (const c of candidates) {
+      if (excluded.has(c.documentId)) continue;
+      excluded.add(c.documentId);
+      out.push(c.documentId);
+      if (out.length >= RELATED_CASES_LIMIT) break;
+    }
+    return out;
+  } catch (err) {
+    console.error("findRelatedCases failed, showing none:", err.message);
+    return [];
+  }
+}
+
+// Reuses the Legal Assistant's existing 6-way language/script detection (hindi/marathi/urdu/
+// hinglish/marathlish/english) rather than inventing a second classifier — same cache and
+// keyword-fallback behavior. Defaults to "english" on any failure; never blocks the report.
+export async function detectLanguage(question) {
+  try {
+    const { language } = await understandQuery(question);
+    return language || "english";
+  } catch (err) {
+    console.error("Research language detection failed, defaulting to English:", err.message);
+    return "english";
   }
 }
 
@@ -159,4 +238,51 @@ export async function resolveCitation(chunkId) {
   const { data, error } = await getSupabase().from("corpus_chunks").select("*, document:corpus_documents(*)").eq("id", chunkId).maybeSingle();
   if (error) throw error;
   return data;
+}
+
+const FOLLOWUP_SYSTEM_PROMPT = `You answer a follow-up question about a Vidhira research report. You will be given the SAME numbered passages the report was built from (never a new search — this is a closed-book question over evidence already gathered) and, if any, earlier Q&A in this same follow-up conversation.
+
+Rules:
+1. Ground every claim ONLY in the numbered passages. Never add a law, fact, case name, or holding that isn't in them.
+2. If the passages don't cover what's asked, say so plainly rather than guessing — do not invent an answer to seem helpful.
+3. Plain language, short sentences, no unexplained jargon. Never guarantee an outcome or imply this is legal advice.
+4. "citedIndexes": every passage number actually used to support the answer, in any order.
+
+Output STRICT JSON only, no markdown fences, no commentary, matching exactly:
+{ "text": string, "citedIndexes": number[] }`;
+
+/**
+ * Follow-up chat scoped to ONE report's own evidence — no new retrieval, ever. Returns
+ * { text: null, citedIndexes: [] } (not an error) if OpenRouter isn't configured or the
+ * call/parse fails, so the chat box can show a plain "couldn't answer that" rather than break.
+ * @param {string} question
+ * @param {Array<{chunkId: string, text: string, documentTitle: string}>} segments
+ * @param {{language?: string, priorTurns?: Array<{question: string, answer: {text: string|null}}>}} [opts]
+ * @returns {Promise<{text: string|null, citedIndexes: number[]}>}
+ */
+export async function answerFollowUp(question, segments, { language, priorTurns = [] } = {}) {
+  const empty = { text: null, citedIndexes: [] };
+  if (!isOpenRouterConfigured() || segments.length === 0) return empty;
+  try {
+    const history = priorTurns.map((t, i) => `Q${i + 1}: ${t.question}\nA${i + 1}: ${t.answer?.text || ""}`).join("\n\n");
+    const lang = language || "unknown";
+    const userContent =
+      `${history ? `Earlier in this conversation:\n${history}\n\n` : ""}Passages:\n${evidenceFromSegments(segments)}\n\nFollow-up question: ${question}` +
+      `\n\n---\nReminder: write "text" in "${lang}" (if that is a specific language; "english"/"unknown" means plain English) — never default to English just because the passages are in English.`;
+    const raw = await chatCompletion(
+      [
+        { role: "system", content: FOLLOWUP_SYSTEM_PROMPT },
+        { role: "user", content: userContent },
+      ],
+      { jsonMode: true }
+    );
+    const parsed = JSON.parse(stripCodeFence(raw));
+    return {
+      text: typeof parsed.text === "string" ? parsed.text.trim() || null : null,
+      citedIndexes: Array.isArray(parsed.citedIndexes) ? parsed.citedIndexes.filter((n) => Number.isInteger(n)) : [],
+    };
+  } catch (err) {
+    console.error("Research follow-up answer failed:", err.message);
+    return empty;
+  }
 }

@@ -19,11 +19,11 @@ export function UIProvider({ children }) {
   // provider is the nearest ancestor that doesn't. Only "New conversation" should clear it.
   const [assistantTurns, setAssistantTurns] = useState([]);
   const [assistantSessionId, setAssistantSessionId] = useState(null);
-  // Research library — same reasoning: TabRouter unmounts the screen on every tab
-  // change, so its search state has to live up here to survive navigating away and back.
+  // Research library — same reasoning: TabRouter unmounts the screen on every tab change,
+  // so the search box's typed-but-not-submitted text has to live up here to survive
+  // navigating away and back. (Submitted searches/reports are keyed by id in the URL hash
+  // instead — ResearchReport/JudgmentReader reload by id, no UI-state persistence needed.)
   const [researchQuestion, setResearchQuestion] = useState("");
-  const [researchState, setResearchState] = useState(null);
-  const [researchOpenChunk, setResearchOpenChunk] = useState(null);
   const timer = useRef(null);
 
   useEffect(() => {
@@ -54,8 +54,8 @@ export function UIProvider({ children }) {
     actAsClient, setActAsClient: (v) => { setActAsClientState(v); try { localStorage.setItem("vidhira.asClient", v ? "1" : "0"); } catch { /* ignore */ } },
     takeHandoff: (tab) => { const d = handoff[tab]; if (d) setHandoff((h) => { const { [tab]: _, ...rest } = h; return rest; }); return d; },
     assistantTurns, setAssistantTurns, assistantSessionId, setAssistantSessionId,
-    researchQuestion, setResearchQuestion, researchState, setResearchState, researchOpenChunk, setResearchOpenChunk,
-  }), [route, go, modal, toast, showToast, lang, actAsClient, handoff, assistantTurns, assistantSessionId, researchQuestion, researchState, researchOpenChunk]);
+    researchQuestion, setResearchQuestion,
+  }), [route, go, modal, toast, showToast, lang, actAsClient, handoff, assistantTurns, assistantSessionId, researchQuestion]);
 
   return <UIContext.Provider value={value}>{children}</UIContext.Provider>;
 }

@@ -669,6 +669,7 @@ create table research_queries (
   id uuid primary key default gen_random_uuid(),
   account_id uuid references accounts(id),
   text text not null,
+  title text, -- short label for the "My Research" list — derived from `text`, not re-typed by the user
   locale text not null default 'en',
   sources_enabled text[] not null default '{}',
   threshold numeric not null default 0.62,
@@ -676,6 +677,9 @@ create table research_queries (
   model_version text not null default 'fixture-1',
   prompt_version text not null default 'v1',
   latency_ms integer,
+  pinned_at timestamptz,
+  tags text[] not null default '{}',
+  superseded_by uuid references research_queries(id), -- set on the OLD row once "Refresh" creates a newer one
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -699,6 +703,10 @@ create table research_answers (
   unsupported_span_count integer not null default 0,
   reviewed_by_advocate_id uuid references advocates(id),
   helpful boolean,
+  summary text, -- the AI overall-summary text (grounded, [n]-cited — see generateResearchInsights)
+  case_cards jsonb not null default '{}'::jsonb, -- structured per-segment summary keyed by chunk id: facts/issues/held/ratio/outcome/keyParagraph/gloss
+  related_searches jsonb not null default '[]'::jsonb, -- string[] of suggested follow-up queries
+  related_case_ids uuid[] not null default '{}', -- corpus_documents.id[], similar cases not already in this report
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -713,6 +721,18 @@ create table research_answer_segments (
   chunk_id uuid not null references corpus_chunks(id)
 );
 create index research_answer_segments_research_answer_id_idx on research_answer_segments(research_answer_id);
+
+-- Follow-up chat scoped to ONE saved report — grounded only in that report's own segments,
+-- never a fresh retrieval (mirrors legal_assistant_turns' shape, but evidence-scoped instead
+-- of session-scoped).
+create table research_chat_turns (
+  id uuid primary key default gen_random_uuid(),
+  research_query_id uuid not null references research_queries(id),
+  question text not null,
+  answer jsonb not null, -- {text, citations: [{segmentIndex, ...}]}
+  created_at timestamptz not null default now()
+);
+create index research_chat_turns_query_id_idx on research_chat_turns(research_query_id);
 
 -- ===================== legal assistant (Vidhira) sessions =====================
 
