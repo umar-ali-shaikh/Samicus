@@ -33,19 +33,23 @@ async function qdrant(method, path, body, { allow404 = false } = {}) {
   const headers = { "Content-Type": "application/json" };
   if (process.env.QDRANT_API_KEY) headers["api-key"] = process.env.QDRANT_API_KEY;
 
-  let res;
+  // Everything from the network call through parsing the body lives in one try/catch —
+  // the AbortSignal timeout can fire just as easily while the body is still streaming in
+  // as during the initial fetch, and both must come out as a QdrantError, never escape
+  // raw (see the equivalent fix in openRouter.js/indianKanoon.js for the bug this guards).
   try {
-    res = await fetch(`${base}${path}`, { method, headers, body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(20000) });
+    const res = await fetch(`${base}${path}`, { method, headers, body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(20000) });
+    increment("qdrant");
+    if (res.status === 404 && allow404) return { status: 404 };
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new QdrantError(`Qdrant ${method} ${path} failed (${res.status})${text ? `: ${text.slice(0, 300)}` : ""}`, res.status);
+    }
+    return await res.json();
   } catch (err) {
+    if (err instanceof QdrantError) throw err;
     throw new QdrantError(`Network error calling Qdrant: ${err.message}`, 0);
   }
-  increment("qdrant");
-  if (res.status === 404 && allow404) return { status: 404 };
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new QdrantError(`Qdrant ${method} ${path} failed (${res.status})${text ? `: ${text.slice(0, 300)}` : ""}`, res.status);
-  }
-  return res.json();
 }
 
 const ensured = new Map(); // collection -> keyword indexes it was created with

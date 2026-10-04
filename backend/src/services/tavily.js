@@ -48,9 +48,12 @@ export async function searchTavily(query, { maxResults = 5, domains = TRUSTED_DO
   const key = process.env.TAVILY_API_KEY;
   if (!key) throw new TavilyAuthError();
 
-  let res;
+  // Everything from the network call through parsing the body lives in one try/catch —
+  // the AbortSignal timeout can fire just as easily while the body is still streaming in
+  // as during the initial fetch, and both must come out as a TavilyApiError, never escape
+  // raw (see the equivalent fix in openRouter.js/indianKanoon.js for the bug this guards).
   try {
-    res = await fetch(TAVILY_URL, {
+    const res = await fetch(TAVILY_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -64,24 +67,25 @@ export async function searchTavily(query, { maxResults = 5, domains = TRUSTED_DO
       }),
       signal: AbortSignal.timeout(20000),
     });
-  } catch (networkErr) {
-    throw new TavilyApiError(`Network error calling Tavily: ${networkErr.message}`, 0);
-  }
 
-  if (res.status === 401 || res.status === 403) throw new TavilyAuthError();
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new TavilyApiError(`Tavily API error ${res.status}${text ? `: ${text}` : ""}`, res.status);
-  }
+    if (res.status === 401 || res.status === 403) throw new TavilyAuthError();
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new TavilyApiError(`Tavily API error ${res.status}${text ? `: ${text}` : ""}`, res.status);
+    }
 
-  increment("tavily");
-  const data = await res.json();
-  // Web text is untrusted data, never instructions — plain string fields only, nothing
-  // from this response is ever interpreted as control flow.
-  return (data.results || []).map((r) => ({
-    title: String(r.title || r.url || "").trim(),
-    url: String(r.url || ""),
-    content: String(r.content || "").trim(),
-    score: typeof r.score === "number" ? r.score : null,
-  }));
+    increment("tavily");
+    const data = await res.json();
+    // Web text is untrusted data, never instructions — plain string fields only, nothing
+    // from this response is ever interpreted as control flow.
+    return (data.results || []).map((r) => ({
+      title: String(r.title || r.url || "").trim(),
+      url: String(r.url || ""),
+      content: String(r.content || "").trim(),
+      score: typeof r.score === "number" ? r.score : null,
+    }));
+  } catch (err) {
+    if (err instanceof TavilyAuthError || err instanceof TavilyApiError) throw err;
+    throw new TavilyApiError(`Network error calling Tavily: ${err.message}`, 0);
+  }
 }

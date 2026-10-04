@@ -93,26 +93,30 @@ export async function embedTexts(texts, taskType) {
     })),
   };
 
-  let res;
+  // Everything from the network call through parsing the body lives in one try/catch —
+  // the AbortSignal timeout can fire just as easily while the body is still streaming in
+  // as during the initial fetch, and both must come out as a GeminiApiError, never escape
+  // raw (see the equivalent fix in openRouter.js/indianKanoon.js for the bug this guards).
   try {
-    res = await fetch(`${GEMINI_URL}/${model}:batchEmbedContents`, {
+    const res = await fetch(`${GEMINI_URL}/${model}:batchEmbedContents`, {
       method: "POST",
       headers: { "x-goog-api-key": key, "Content-Type": "application/json" },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(20000),
     });
-  } catch (networkErr) {
-    throw new GeminiApiError(`Network error calling Gemini: ${networkErr.message}`, 0);
+
+    if (res.status === 401 || res.status === 403) throw new GeminiAuthError();
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new GeminiApiError(`Gemini API error ${res.status}${text ? `: ${text}` : ""}`, res.status);
+    }
+
+    increment("gemini");
+    const data = await res.json();
+    return (data.embeddings || []).map((e) => e.values || []);
+  } catch (err) {
+    if (err instanceof GeminiAuthError || err instanceof GeminiApiError) throw err;
+    throw new GeminiApiError(`Network error calling Gemini: ${err.message}`, 0);
   }
-
-  if (res.status === 401 || res.status === 403) throw new GeminiAuthError();
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new GeminiApiError(`Gemini API error ${res.status}${text ? `: ${text}` : ""}`, res.status);
-  }
-
-  increment("gemini");
-  const data = await res.json();
-  return (data.embeddings || []).map((e) => e.values || []);
 }

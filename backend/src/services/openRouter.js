@@ -48,28 +48,36 @@ async function callModel(model, messages, jsonMode, token) {
   const body = { model, messages };
   if (jsonMode) body.response_format = { type: "json_object" };
 
-  let res;
+  // Everything from the network call through parsing the body lives in one try/catch —
+  // the AbortSignal timeout can fire just as easily while the body is still streaming in
+  // (observed in production: a bare, unclassified DOMException [TimeoutError] out of
+  // res.json() with no application frames in its stack) as during the initial fetch, and
+  // both must come out as a retryable OpenRouterApiError, never escape raw.
   try {
-    res = await fetch(OPENROUTER_URL, {
+    const res = await fetch(OPENROUTER_URL, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(30000), // a hung free-tier model must fail over to the next one, not block the request forever
     });
-  } catch (networkErr) {
-    throw new OpenRouterApiError(`Network error calling OpenRouter: ${networkErr.message}`, 0);
+
+    if (res.status === 401 || res.status === 403) throw new OpenRouterAuthError();
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new OpenRouterApiError(`OpenRouter API error ${res.status}${text ? `: ${text}` : ""}`, res.status);
+    }
+
+    increment("openrouter");
+    const data = await res.json();
+    return data.choices?.[0]?.message?.content?.trim() || "";
+  } catch (err) {
+    if (err instanceof OpenRouterAuthError || err instanceof OpenRouterApiError) throw err;
+    // Network failure, or the timeout signal firing mid-response (headers already in,
+    // body not yet) — same "worth trying the next model" treatment as any other
+    // unreachable-provider failure (status 0), instead of an unclassified crash.
+    throw new OpenRouterApiError(`Network error calling OpenRouter: ${err.message}`, 0);
   }
-
-  if (res.status === 401 || res.status === 403) throw new OpenRouterAuthError();
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new OpenRouterApiError(`OpenRouter API error ${res.status}${text ? `: ${text}` : ""}`, res.status);
-  }
-
-  increment("openrouter");
-  const data = await res.json();
-  return data.choices?.[0]?.message?.content?.trim() || "";
 }
 
 /**

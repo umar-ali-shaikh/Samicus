@@ -59,9 +59,13 @@ async function postToIndianKanoon(path) {
   let attempt = 0;
   // eslint-disable-next-line no-constant-condition
   while (true) {
-    let res;
+    // Everything from the network call through parsing the body lives in one try/catch —
+    // the AbortSignal timeout can fire just as easily while the body is still streaming in
+    // (observed in production: a bare, unclassified DOMException [TimeoutError] out of
+    // res.json() with no application frames in its stack) as during the initial fetch,
+    // and both must be retried/classified the same way, never escape raw.
     try {
-      res = await fetch(`${BASE_URL}${path}`, {
+      const res = await fetch(`${BASE_URL}${path}`, {
         method: "POST",
         headers: {
           Authorization: `Token ${token}`,
@@ -69,32 +73,33 @@ async function postToIndianKanoon(path) {
         },
         signal: AbortSignal.timeout(20000),
       });
-    } catch (networkErr) {
+
+      if (res.status === 403) {
+        throw new IndianKanoonAuthError();
+      }
+
+      if (res.status >= 500 && attempt < MAX_RETRIES) {
+        await sleep(RETRY_BASE_DELAY_MS * (attempt + 1));
+        attempt += 1;
+        continue;
+      }
+
+      if (!res.ok) {
+        const body = await safeText(res);
+        throw new IndianKanoonApiError(`Indian Kanoon API error ${res.status}${body ? `: ${body}` : ""}`, res.status);
+      }
+
+      increment("indianKanoon"); // only successful, cache-missed calls are the ones actually billed
+      return await res.json();
+    } catch (err) {
+      if (err instanceof IndianKanoonAuthError || err instanceof IndianKanoonApiError) throw err;
       if (attempt < MAX_RETRIES) {
         await sleep(RETRY_BASE_DELAY_MS * (attempt + 1));
         attempt += 1;
         continue;
       }
-      throw new IndianKanoonApiError(`Network error calling Indian Kanoon: ${networkErr.message}`, 0);
+      throw new IndianKanoonApiError(`Network error calling Indian Kanoon: ${err.message}`, 0);
     }
-
-    if (res.status === 403) {
-      throw new IndianKanoonAuthError();
-    }
-
-    if (res.status >= 500 && attempt < MAX_RETRIES) {
-      await sleep(RETRY_BASE_DELAY_MS * (attempt + 1));
-      attempt += 1;
-      continue;
-    }
-
-    if (!res.ok) {
-      const body = await safeText(res);
-      throw new IndianKanoonApiError(`Indian Kanoon API error ${res.status}${body ? `: ${body}` : ""}`, res.status);
-    }
-
-    increment("indianKanoon"); // only successful, cache-missed calls are the ones actually billed
-    return res.json();
   }
 }
 
