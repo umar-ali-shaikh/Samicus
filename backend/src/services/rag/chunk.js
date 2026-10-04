@@ -31,6 +31,8 @@ export function looksGarbled(text) {
 export function stripTags(html) {
   return decodeEntities(String(html || "").replace(/<(script|style)[\s\S]*?<\/\1>/gi, " ").replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]+>/g, " "))
     .replace(/[ \t\f\v ]+/g, " ")
+    .replace(/ ([,.;:)\]])/g, "$1") // a removed tag can leave a stray space before punctuation, e.g. "(<b>Lease</b>," -> "( Lease ,"
+    .replace(/([(\[]) /g, "$1")
     .replace(/\s*\n\s*/g, "\n")
     .trim();
 }

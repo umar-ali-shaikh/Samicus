@@ -4,7 +4,7 @@
 import crypto from "crypto";
 import { getSupabase } from "../../config/db.js";
 import { embedMany, isGeminiConfigured } from "../gemini.js";
-import { chunkParagraphs, htmlToParagraphs, mapDocSource, textToParagraphs } from "./chunk.js";
+import { chunkParagraphs, htmlToParagraphs, mapDocSource, stripTags, textToParagraphs } from "./chunk.js";
 import { deletePoints, ensureCollection, isQdrantConfigured, legalCollection, matchFilter, upsertPoints } from "./qdrant.js";
 
 export function ragEnabled() {
@@ -51,6 +51,9 @@ async function embedAndStore(chunks, doc) {
  * Safe to call repeatedly: a document that is already fully embedded is skipped.
  */
 export async function ingestIndianKanoonDoc({ tid, title, docsource, html }, { maxChunks = 80 } = {}) {
+  // Indian Kanoon wraps the search term it matched in <b> inside titles/headlines (its
+  // own result-highlighting markup) — never meant to reach a document's permanent title.
+  title = stripTags(title);
   const key = `ik:${tid}`;
   if (inFlight.has(key)) return inFlight.get(key);
   const job = (async () => {

@@ -27,24 +27,22 @@ export function relevanceThreshold() {
 // passages (it has many internally-similar paragraphs), crowding out every other case on
 // the same topic. Capping how many passages one document contributes keeps results
 // diverse across cases, not just highly-ranked within one.
-const MAX_PASSAGES_PER_DOCUMENT = 2;
+const MAX_PASSAGES_PER_DOCUMENT = 1;
 const RESULT_LIMIT = 12;
 
 function diversifyByDocument(passages, { maxPerDoc = MAX_PASSAGES_PER_DOCUMENT, limit = RESULT_LIMIT } = {}) {
+  // Strict cap — no padding back in from documents that already hit their share. Showing
+  // fewer, genuinely distinct cases beats padding the list with a repeat of one judgment.
   const perDocCount = new Map();
   const kept = [];
-  const overflow = [];
   for (const p of passages) {
     const count = perDocCount.get(p.documentId) || 0;
-    if (count < maxPerDoc) {
-      perDocCount.set(p.documentId, count + 1);
-      kept.push(p);
-    } else {
-      overflow.push(p); // still shown if there's room left after every document had its fair share
-    }
+    if (count >= maxPerDoc) continue;
+    perDocCount.set(p.documentId, count + 1);
+    kept.push(p);
     if (kept.length >= limit) break;
   }
-  return kept.length >= limit ? kept : [...kept, ...overflow].slice(0, limit);
+  return kept;
 }
 
 /**
@@ -102,43 +100,58 @@ export async function answerFromRetrieval(retrieved) {
   return { outcome, segments, discardedCount, unsupportedSpanCount: 0 };
 }
 
-const SUMMARY_SYSTEM_PROMPT = `You summarize Indian statutes/judgments for Vidhira's research library. You will be given a search question and a numbered list of verbatim passages retrieved for it.
+const INSIGHTS_SYSTEM_PROMPT = `You help Vidhira's research library turn raw retrieved passages into something a non-lawyer can skim professionally. You will be given a search question and a numbered list of verbatim passages (one per case/document) retrieved for it.
 
 Rules:
-1. Ground every sentence ONLY in the numbered passages given — never add a law, fact, or holding that isn't in them.
-2. Every sentence must end with the source number(s) it's based on, e.g. "...void under Section 27 [2]." Never cite a number you weren't given.
-3. Plain, simple English — short sentences, no legal jargon left unexplained, written for someone without a law degree.
-4. 3-5 sentences. If the passages only partially answer the question, say what they do cover and stop there — do not pad with speculation.
-5. Never guarantee an outcome and never imply this is legal advice — it's a summary of what the indexed sources say.
+1. Ground every word ONLY in the numbered passages given — never add a law, fact, case name, or holding that isn't in them. If a passage is too fragmentary to say anything concrete about, write a brief honest gloss like "A procedural excerpt; doesn't state a clear holding on its own." rather than inventing substance.
+2. "summary": 3-5 sentences answering the question from across ALL the passages together. Every sentence must end with the source number(s) it's based on, e.g. "...void under Section 27 [2]." Plain, simple English — short sentences, no unexplained jargon. If the passages only partially answer the question, say what they cover and stop — do not pad with speculation. Never guarantee an outcome or imply this is legal advice.
+3. "glosses": for EVERY numbered passage, ONE short sentence (max ~25 words) in plain English saying what THAT specific passage says or holds — not a summary of the whole case, just that excerpt. No citation marker needed here (it's already tied to its own passage). No legal jargon left unexplained.
 
-Output plain text only — no JSON, no markdown, no preamble like "Summary:".`;
+Output STRICT JSON only, no markdown fences, no commentary, matching exactly:
+{ "summary": string, "glosses": [ { "index": number, "gloss": string } ] }
+"glosses" must have exactly one entry per passage number given, in any order.`;
 
 function evidenceFromSegments(segments) {
   return segments.map((s, i) => `[${i + 1}] ${s.documentTitle}\n${s.text.slice(0, 1200)}`).join("\n\n");
 }
 
+function stripCodeFence(text) {
+  const match = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  return match ? match[1].trim() : text.trim();
+}
+
 /**
- * Short, strictly-grounded prose summary of the already-retrieved, already-citable segments —
- * a thin layer over the extractive passages below it, never a replacement for them (the
- * passages remain the source of truth; this is just easier to read at a glance). Returns
- * null (not an error) if OpenRouter isn't configured or the call fails — the extractive
- * answer underneath it works fine on its own, so this is a pure enhancement.
+ * One OpenRouter call that produces BOTH a strictly-grounded overall summary and a short
+ * plain-English gloss per passage — a thin, clearly-labelled layer over the extractive
+ * passages, never a replacement for them (the passages remain the source of truth). Returns
+ * { summary: null, glosses: {} } (not an error) if OpenRouter isn't configured or the call/
+ * parse fails — the extractive answer underneath works fine on its own, so this is a pure
+ * enhancement, and a failure here must never break the research page.
  * @param {string} question
- * @param {Array<{text: string, documentTitle: string}>} segments
- * @returns {Promise<string|null>}
+ * @param {Array<{chunkId: string, text: string, documentTitle: string}>} segments
+ * @returns {Promise<{summary: string|null, glosses: Record<string,string>}>}
  */
-export async function summarizeAnswer(question, segments) {
-  if (!isOpenRouterConfigured() || segments.length === 0) return null;
+export async function generateResearchInsights(question, segments) {
+  const empty = { summary: null, glosses: {} };
+  if (!isOpenRouterConfigured() || segments.length === 0) return empty;
   try {
-    const raw = await chatCompletion([
-      { role: "system", content: SUMMARY_SYSTEM_PROMPT },
-      { role: "user", content: `Question: ${question}\n\nPassages:\n${evidenceFromSegments(segments)}` },
-    ]);
-    const text = raw.trim();
-    return text || null;
+    const raw = await chatCompletion(
+      [
+        { role: "system", content: INSIGHTS_SYSTEM_PROMPT },
+        { role: "user", content: `Question: ${question}\n\nPassages:\n${evidenceFromSegments(segments)}` },
+      ],
+      { jsonMode: true }
+    );
+    const parsed = JSON.parse(stripCodeFence(raw));
+    const glosses = {};
+    for (const g of parsed.glosses || []) {
+      const seg = segments[g.index - 1];
+      if (seg && typeof g.gloss === "string" && g.gloss.trim()) glosses[seg.chunkId] = g.gloss.trim();
+    }
+    return { summary: typeof parsed.summary === "string" ? parsed.summary.trim() || null : null, glosses };
   } catch (err) {
-    console.error("Research summary generation failed, showing passages without it:", err.message);
-    return null;
+    console.error("Research insights generation failed, showing passages without them:", err.message);
+    return empty;
   }
 }
 

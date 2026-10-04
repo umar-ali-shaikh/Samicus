@@ -162,18 +162,22 @@ export function Research() {
               </Callout>
             ) : (
               <Card>
-                <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--color-rust)", letterSpacing: "0.05em", marginBottom: 8 }}>PASSAGES RETRIEVED (VERBATIM)</div>
+                <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--color-rust)", letterSpacing: "0.05em", marginBottom: 8 }}>CASES FOUND · one per source, click to read the full passage above</div>
                 {segments.map((s, i) => (
-                  <div
+                  <button
                     key={s.chunkId}
                     ref={(el) => { if (el) segmentRefs.current[s.chunkId] = el; }}
-                    style={{ marginBottom: 14, padding: 8, marginInline: -8, borderRadius: 8, background: openChunk === s.chunkId ? "#F7F1E0" : "transparent", transition: "background 0.2s" }}
+                    onClick={() => setOpenChunk(s.chunkId)}
+                    style={{ display: "block", width: "100%", textAlign: "left", marginBottom: 10, padding: 10, borderRadius: 8, border: "none", cursor: "pointer", background: openChunk === s.chunkId ? "#F7F1E0" : "transparent", transition: "background 0.2s" }}
                   >
-                    <div style={{ fontSize: 13.5, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{s.text}
-                      <button onClick={() => setOpenChunk(s.chunkId)} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 18, height: 18, margin: "0 4px", borderRadius: 5, border: "none", fontFamily: "var(--font-mono)", fontSize: 10.5, cursor: "pointer", background: openChunk === s.chunkId ? "var(--color-navy)" : "#F1EFE6", color: openChunk === s.chunkId ? "#fff" : "var(--color-ink)" }}>{i + 1}</button>
+                    <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                      <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 18, height: 18, flex: "none", borderRadius: 5, fontFamily: "var(--font-mono)", fontSize: 10.5, background: openChunk === s.chunkId ? "var(--color-navy)" : "#F1EFE6", color: openChunk === s.chunkId ? "#fff" : "var(--color-ink)" }}>{i + 1}</span>
+                      <span style={{ fontWeight: 700, fontSize: 13 }}>{s.documentTitle}</span>
                     </div>
-                    <div style={{ fontSize: 11.5, color: "var(--color-text-muted)" }}>{s.documentTitle}</div>
-                  </div>
+                    <div style={{ fontSize: 13, lineHeight: 1.55, marginTop: 3, marginInlineStart: 24, color: "var(--color-text)" }}>
+                      {s.gloss || `${s.text.slice(0, 160)}${s.text.length > 160 ? "…" : ""}`}
+                    </div>
+                  </button>
                 ))}
               </Card>
             )}
