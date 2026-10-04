@@ -1,7 +1,7 @@
 ﻿// Thin Qdrant REST client (no SDK dependency). Works with Qdrant Cloud's free tier
 // (1 GB, no card) or a self-hosted container: set QDRANT_URL (+ QDRANT_API_KEY for cloud).
 //
-// Budget design: 768-d Gemini embeddings, int8 scalar quantization (≈4× less RAM) and
+// Budget design: 768-d embeddings, int8 scalar quantization (≈4× less RAM) and
 // payloads on disk, so the free cluster comfortably holds a few hundred thousand passages.
 import { increment } from "../../utils/callCounter.js";
 

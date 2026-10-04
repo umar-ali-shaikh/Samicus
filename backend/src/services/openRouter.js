@@ -4,19 +4,20 @@
 import { increment } from "../utils/callCounter.js";
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-// OpenRouter's free-tier catalogue changes; override via OPENROUTER_MODEL if this one
-// gets retired or rate-limited.
-export const DEFAULT_MODEL = "google/gemma-4-31b-it:free";
+// Paid models, deliberately — free-tier slugs get retired/rate-limited/renamed often
+// enough to be unreliable in production. Override via OPENROUTER_MODEL if this one gets
+// retired. qwen3.7-flash is cheap (~$0.03/$0.13 per M tokens), has a 1M context window,
+// and is strong at multilingual (Hindi/Marathi/Urdu) instruction-following.
+export const DEFAULT_MODEL = "qwen/qwen3.7-flash";
 
-// Free models share a pool upstream and routinely 429 independent of our own OpenRouter
-// account limit — each provider's shared pool fills up on its own schedule. Rather than
-// manually swapping DEFAULT_MODEL every time the current one gets hit, fall through this
-// chain (each a different upstream provider) until one responds.
+// Each a different upstream provider, so a single provider's outage/rate-limit/retired
+// model string doesn't take down the whole chain — see the "only stop early on a genuine
+// auth failure" comment in chatCompletion below. All paid, all cheap (sub-$0.20/M tokens).
 const FALLBACK_MODELS = [
-  "qwen/qwen3.8-27b:free",
-  "nvidia/nemotron-3-super-120b-a12b:free",
-  "z-ai/glm-5.2:free",
-  "inclusionai/ling-3.0-flash-vl:free",
+  "openai/gpt-oss-20b",
+  "mistralai/mistral-small-24b-instruct-2501",
+  "google/gemma-3-12b-it",
+  "amazon/nova-micro-v1",
 ];
 
 export class OpenRouterAuthError extends Error {
@@ -99,10 +100,12 @@ export async function chatCompletion(messages, opts = {}) {
       return await callModel(model, messages, opts.jsonMode, token);
     } catch (err) {
       lastErr = err;
-      // Worth trying the next model for a rate limit, or a timeout/network failure (status
-      // 0 — a hung/unreachable free-tier model) — an auth problem or a real non-429 API
-      // error will fail the same way on every model in the chain, so only those stop the chain.
-      if (err.status !== 429 && err.status !== 0) throw err;
+      // Only a genuine auth failure (bad/missing key) is account-wide and will recur
+      // identically on every model, so only that stops the chain early. Everything else —
+      // a rate limit, a timeout/network failure (status 0), a 404 because this particular
+      // model string was retired/renamed upstream, a provider-side 5xx — is specific to
+      // the one model that just failed, so it's always worth trying the next one.
+      if (err instanceof OpenRouterAuthError) throw err;
     }
   }
   throw lastErr;

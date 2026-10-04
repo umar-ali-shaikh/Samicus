@@ -78,7 +78,7 @@ export function Review() {
     <div style={{ maxWidth: 820, display: "flex", flexDirection: "column", gap: 16 }}>
       <PageHeader title="Contract review" subtitle="Upload a contract and see how each clause compares with a balanced baseline from our clause library. This is not a legal opinion." />
 
-      {disabled && <Callout tone="warning" title="Not enabled on this deployment">Contract review needs the knowledge base (Qdrant + Gemini embeddings) to be configured.</Callout>}
+      {disabled && <Callout tone="warning" title="Not enabled on this deployment">Contract review needs the knowledge base (Qdrant + OpenRouter embeddings) to be configured.</Callout>}
 
       {current ? (
         <>

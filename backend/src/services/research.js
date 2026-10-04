@@ -1,5 +1,5 @@
 // Vidhira research library — grounded in the Qdrant knowledge base:
-//   1. retrieve(query) -> passages with cosine scores (semantic, Gemini embeddings)
+//   1. retrieve(query) -> passages with cosine scores (semantic, OpenRouter embeddings)
 //   2. keep score >= threshold
 //   3. zero hits -> {outcome: "not_found"}, no answer is assembled at all
 //   4. the "answer" is EXTRACTIVE: every segment is a retrieved passage's own text, so every
@@ -12,7 +12,7 @@ import { chatCompletion, isOpenRouterConfigured } from "./openRouter.js";
 
 export class KnowledgeBaseUnavailableError extends Error {
   constructor() {
-    super("The research library is not configured on this deployment (needs QDRANT_URL and GEMINI_API_KEY).");
+    super("The research library is not configured on this deployment (needs QDRANT_URL and OPENROUTER_API_KEY).");
     this.status = 503;
     this.expose = true;
     this.code = "RAG_DISABLED";

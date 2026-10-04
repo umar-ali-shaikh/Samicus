@@ -1,9 +1,9 @@
 // Ranks candidate documents by relevance to a query, preferring real semantic
-// embeddings (Gemini, free tier) and automatically falling back to local TF-IDF
+// embeddings (OpenRouter) and automatically falling back to local TF-IDF
 // (utils/tfidf.js) whenever embeddings aren't configured or the call fails for any
 // reason. Embeddings are a pure enhancement here — the RAG pipeline in legalAssistant.js
-// must keep producing answers even if GEMINI_API_KEY is never set.
-import { embedTexts, isGeminiConfigured } from "./gemini.js";
+// must keep producing answers even if OPENROUTER_API_KEY is never set.
+import { embedTexts, isOpenRouterEmbeddingsConfigured } from "./openRouterEmbeddings.js";
 import { cosineSimilarity } from "../utils/cosine.js";
 import { rankWithScores as rankByTfidf } from "../utils/tfidf.js";
 
@@ -27,7 +27,7 @@ const MIN_EMBEDDING_SIMILARITY = 0.5;
 export async function rankRelevantDocs(query, items, getText) {
   if (items.length === 0) return [];
 
-  if (isGeminiConfigured()) {
+  if (isOpenRouterEmbeddingsConfigured()) {
     try {
       const [queryVecs, docVecs] = await Promise.all([
         embedTexts([query], "RETRIEVAL_QUERY"),
@@ -39,7 +39,7 @@ export async function rankRelevantDocs(query, items, getText) {
         .filter((x) => x.score >= MIN_EMBEDDING_SIMILARITY)
         .sort((a, b) => b.score - a.score);
     } catch (err) {
-      console.error("Gemini embedding re-rank failed, falling back to local TF-IDF:", err.message);
+      console.error("OpenRouter embedding re-rank failed, falling back to local TF-IDF:", err.message);
     }
   }
 

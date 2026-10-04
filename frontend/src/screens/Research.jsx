@@ -87,7 +87,7 @@ export function Research() {
         <KnowledgeBaseStats />
       </div>
 
-      {disabled && <Callout tone="warning" title="Not enabled on this deployment">The research library needs Qdrant and Gemini embeddings to be configured (see .env.example).</Callout>}
+      {disabled && <Callout tone="warning" title="Not enabled on this deployment">The research library needs Qdrant and OpenRouter to be configured (see .env.example).</Callout>}
 
       <Card style={{ background: "var(--color-navy)", display: "flex", flexDirection: "column", gap: 10 }}>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>

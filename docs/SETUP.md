@@ -40,15 +40,14 @@ Google accounts arrive with a verified email, so they skip the verification scre
   `QDRANT_URL=http://localhost:6333` (no API key).
 
 Collections and payload indexes are created automatically on first use. Without `QDRANT_URL` and
-`GEMINI_API_KEY` the app still runs; the research library and contract review say they are not
+`OPENROUTER_API_KEY` the app still runs; the research library and contract review say they are not
 enabled and the assistant falls back to live Indian Kanoon search.
 
 ## 4. Other keys
 
 | Variable | Where from | Needed for |
 |---|---|---|
-| `GEMINI_API_KEY` | <https://aistudio.google.com/apikey> (free) | embeddings (RAG) |
-| `OPENROUTER_API_KEY` | <https://openrouter.ai> | assistant answers, contract review |
+| `OPENROUTER_API_KEY` | <https://openrouter.ai> | assistant answers, contract review, embeddings (RAG) |
 | `IK_API_TOKEN` | <https://api.indiankanoon.org> (paid per call) | live case-law search / assistant |
 | `TAVILY_API_KEY` | <https://tavily.com> (free tier) | web-search fallback, see below (optional) |
 | `RAZORPAY_KEY_ID/SECRET/WEBHOOK_SECRET` | <https://razorpay.com> | online payments (optional) |

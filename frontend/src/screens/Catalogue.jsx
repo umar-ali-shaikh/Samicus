@@ -115,7 +115,7 @@ function Usage() {
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
         {Object.keys(calls).length === 0 ? <span style={{ fontSize: 12.5, color: "var(--color-text-muted)" }}>No calls yet.</span> : Object.entries(calls).map(([k, v]) => <Card key={k} style={{ padding: 12 }}><div style={{ fontFamily: "var(--font-serif)", fontSize: 18 }}>{v}</div><div style={{ fontSize: 11, color: "var(--color-text-muted)" }}>{k}</div></Card>)}
       </div>
-      <div style={{ fontSize: 11.5, color: "var(--color-label)" }}>In-memory counters (reset on restart): Indian Kanoon and OpenRouter bill per call; Gemini and Qdrant have free tiers.</div>
+      <div style={{ fontSize: 11.5, color: "var(--color-label)" }}>In-memory counters (reset on restart): Indian Kanoon and OpenRouter (chat + embeddings) bill per call; Qdrant has a free tier.</div>
     </div>
   );
 }

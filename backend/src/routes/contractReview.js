@@ -33,7 +33,7 @@ router.post("/contract-reviews", requireAuth, async (req, res) => {
   if (!parsed.success) throw new HttpError(400, parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "));
   const { documentId, contractType, counterpartyName } = parsed.data;
   if (!ragEnabled()) {
-    throw new HttpError(503, "Contract review needs the knowledge base (QDRANT_URL and GEMINI_API_KEY) to be configured.", { code: "RAG_DISABLED" });
+    throw new HttpError(503, "Contract review needs the knowledge base (QDRANT_URL and OPENROUTER_API_KEY) to be configured.", { code: "RAG_DISABLED" });
   }
 
   const { doc, owner } = await loadReadableDocument(req.user, documentId);

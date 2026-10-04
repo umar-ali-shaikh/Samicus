@@ -111,7 +111,7 @@ export function handle(method, path, persona, body) {
   if (p === "/admin/verification-cases") return [{ id: uuid(150), created_at: iso(-H), checks: [{ type: "bar_council_enrolment", status: "pending" }], advocate: { id: IDS.adv, bar_council: "Bar Council of Delhi", enrolment_number: "D/123/2018", enrolment_year: 2018, city: "Delhi", years_of_practice: 8, education: ["DU Law"], user: { full_name: "Anil Kumar", email: "anil@example.com" }, advocate_practice_areas: [{ practice_area: area }] } }];
   if (p === "/admin/moderation") return { questions: [{ id: uuid(151), body: "What is bail?", practice_area: "Criminal defence", city: "Pune" }], answers: [{ id: uuid(152), body: "Bail is release from custody pending trial.", question: { body: "What is bail?" }, advocate: { user: { full_name: "Rohan Iyer" } } }] };
   if (p === "/admin/service-orders") return [{ id: uuid(153), status: "started", paid_at: iso(-H), created_at: iso(-2 * H), notes: null, service: { name: "Legal notice drafting" }, account: { display_name: "Meera (000002)" }, advocate: null }];
-  if (p === "/admin/usage") return { callsSinceStart: { indianKanoon: 4, openrouter: 8, gemini: 12, qdrant: 20 } };
+  if (p === "/admin/usage") return { callsSinceStart: { indianKanoon: 4, openrouter: 8, openrouter_embeddings: 12, qdrant: 20 } };
   if (p === "/admin/complaints") return { kpis: [{ label: "Open", value: 1 }], complaints: [{ id: uuid(154), ref: "CMP-2026-12345", title: "Late deliverable", description: "The draft was delayed by two days.", category: "deliverable_delay", status: "open", severity: "medium", owner: null, root_cause: null, corrective_action: null, created_at: iso(-H) }] };
   const a = m(/^\/admin\/analytics\/(\w+)$/);
   if (a) {

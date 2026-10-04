@@ -24,7 +24,7 @@ router.post("/research/retrieve", requireAuth, async (req, res) => {
       text,
       sources_enabled: sourcesEnabled || [],
       threshold,
-      model_version: "gemini-embedding-001+qdrant",
+      model_version: "sentence-transformers/all-mpnet-base-v2+qdrant",
       outcome: scored.some((s) => s.score >= threshold) ? "answered" : "not_found",
     })
     .select()

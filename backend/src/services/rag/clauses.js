@@ -2,7 +2,7 @@
 // clause is embedded into its own Qdrant collection so an uploaded contract's clauses can be
 // matched to the nearest baseline clause semantically.
 import { getSupabase } from "../../config/db.js";
-import { embedMany, embedTexts } from "../gemini.js";
+import { embedMany, embedTexts } from "../openRouterEmbeddings.js";
 import { clauseCollection, collectionStats, ensureCollection, matchFilter, queryPoints, upsertPoints } from "./qdrant.js";
 import { ragEnabled } from "./ingest.js";
 

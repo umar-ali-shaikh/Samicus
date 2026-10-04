@@ -36,7 +36,7 @@ async function main() {
   if (ragEnabled()) {
     ensureClauseIndex().catch((err) => console.error("Clause library indexing failed:", err.message));
   } else {
-    console.warn("RAG is off: set QDRANT_URL and GEMINI_API_KEY to enable the knowledge base, research library and contract review.");
+    console.warn("RAG is off: set QDRANT_URL and OPENROUTER_API_KEY to enable the knowledge base, research library and contract review.");
   }
 
   const app = createApp();

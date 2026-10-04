@@ -311,7 +311,7 @@ test("answerLegalQuestion() re-ranks general candidates by relevance, not just I
 });
 
 // ---- Stage 3/4/6 tests: Indian Kanoon + Tavily fallbacks ------------------------------
-// QDRANT_URL/GEMINI_API_KEY are never set in this file, so ragEnabled() is false and
+// QDRANT_URL is never set in this file, so ragEnabled() is false and
 // stage 2 always returns zero passages — the same observable shape as a genuine "RAG
 // miss" for every test in this file, without needing a Qdrant/Supabase double here.
 // (The "RAG hit skips everything" and "learn step dedupes" cases genuinely need a live

@@ -9,7 +9,7 @@ const router = Router();
 router.use("/admin", requireAuth, requireRole("admin", "founder"));
 
 // Lightweight cost/usage visibility for the per-call-billed providers (Indian Kanoon,
-// OpenRouter, Gemini) — in-memory only (resets on restart).
+// OpenRouter chat + embeddings) — in-memory only (resets on restart).
 router.get("/admin/usage", (req, res) => {
   res.json({ callsSinceStart: getCounts() });
 });

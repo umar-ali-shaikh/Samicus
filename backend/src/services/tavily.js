@@ -3,7 +3,7 @@
 // bare-act corpus doesn't carry: procedure, helplines, free legal aid, forms, time
 // limits. Restricted to a trusted-domain allowlist so the pipeline never grounds an
 // answer in an arbitrary web page. Genuinely optional: unset TAVILY_API_KEY and this
-// stage is skipped, same pattern as Qdrant/Gemini/Razorpay elsewhere in the app.
+// stage is skipped, same pattern as Qdrant/Razorpay elsewhere in the app.
 import { increment } from "../utils/callCounter.js";
 
 const TAVILY_URL = "https://api.tavily.com/search";

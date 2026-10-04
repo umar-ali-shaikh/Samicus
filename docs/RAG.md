@@ -1,13 +1,22 @@
-﻿# RAG architecture (Qdrant + Gemini + Supabase)
+﻿# RAG architecture (Qdrant + OpenRouter + Supabase)
 
 Vidhira answers legal questions from **retrieved passages**, never from model memory. Three stores
-share the work, chosen for cost (all have a free tier that is enough to launch):
+share the work:
 
 | Store | Holds | Why |
 |---|---|---|
 | **Supabase Postgres** | `corpus_documents` (one row per source document) and `corpus_chunks` (the passage text, paragraph class, deep link) | Source of truth. Citations resolve against it and the vector index can always be rebuilt from it. |
 | **Qdrant** | One vector per chunk (768-d, cosine, int8-quantised, payload on disk) in collection `vidhira_legal`; the clause library in `vidhira_clauses` | Fast semantic search. The point id **is** the `corpus_chunks.id`. |
-| **Gemini `gemini-embedding-001`** | Embeddings (`RETRIEVAL_DOCUMENT` for passages, `RETRIEVAL_QUERY` for questions) | Free tier, no card. |
+| **OpenRouter `sentence-transformers/all-mpnet-base-v2`** (`services/openRouterEmbeddings.js`) | Embeddings for both passages and questions (symmetric model, no query/document distinction) | Paid per call, but sub-cent — chosen specifically because its native 768-dim output matches Qdrant's `VECTOR_SIZE`, so it's a drop-in for whatever embedding model preceded it as long as the corpus is fully re-embedded (see below). Override via `OPENROUTER_EMBEDDING_MODEL`. |
+
+**Changing the embedding model is not a config-only change.** Two different embedding models
+produce vectors in different, incomparable coordinate spaces — a vector from the old model next to
+a vector from the new model is not meaningfully comparable by cosine similarity, even if both
+happen to be 768-dim. After changing `OPENROUTER_EMBEDDING_MODEL` (or swapping providers
+entirely), run `npm run rag:reembed-all` to force every existing chunk to be re-embedded with the
+new model before trusting retrieval results again. If the new model's native dimension differs
+from 768, you also need to delete and recreate the Qdrant collection(s) (`vidhira_legal`,
+`vidhira_clauses`) with the new `vectors.size` — see `services/rag/qdrant.js`'s `VECTOR_SIZE`.
 
 MongoDB is not used: relational data already lives in Postgres, and a document store would add a
 third database without solving anything Qdrant + Postgres don't.

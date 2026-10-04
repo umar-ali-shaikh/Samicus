@@ -9,6 +9,7 @@
     "seed": "node src/seed/seed.js",
     "test": "node --experimental-test-module-mocks --test",
     "rag:reindex": "node src/utils/rag.js reindex",
+    "rag:reembed-all": "node src/utils/rag.js reembed-all",
     "rag:status": "node src/utils/rag.js status"
   },
   "dependencies": {

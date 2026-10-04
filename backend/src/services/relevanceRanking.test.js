@@ -5,11 +5,11 @@ import { rankRelevantDocs } from "./relevanceRanking.js";
 let originalKey;
 
 before(() => {
-  originalKey = process.env.GEMINI_API_KEY;
+  originalKey = process.env.OPENROUTER_API_KEY;
 });
 
 after(() => {
-  process.env.GEMINI_API_KEY = originalKey;
+  process.env.OPENROUTER_API_KEY = originalKey;
 });
 
 function jsonResponse(status, body) {
@@ -17,7 +17,7 @@ function jsonResponse(status, body) {
 }
 
 test("rankRelevantDocs() returns [] for an empty candidate list without calling fetch", async (t) => {
-  delete process.env.GEMINI_API_KEY;
+  delete process.env.OPENROUTER_API_KEY;
   let called = false;
   t.mock.method(globalThis, "fetch", async () => {
     called = true;
@@ -29,12 +29,12 @@ test("rankRelevantDocs() returns [] for an empty candidate list without calling 
   assert.equal(called, false);
 });
 
-test("rankRelevantDocs() falls back to TF-IDF when GEMINI_API_KEY is unset", async (t) => {
-  delete process.env.GEMINI_API_KEY;
+test("rankRelevantDocs() falls back to TF-IDF when OPENROUTER_API_KEY is unset", async (t) => {
+  delete process.env.OPENROUTER_API_KEY;
   let fetchCalled = false;
   t.mock.method(globalThis, "fetch", async () => {
     fetchCalled = true;
-    throw new Error("should not be called — no Gemini key configured");
+    throw new Error("should not be called — no OpenRouter key configured");
   });
 
   const items = [
@@ -48,14 +48,14 @@ test("rankRelevantDocs() falls back to TF-IDF when GEMINI_API_KEY is unset", asy
   assert.equal(ranked[0].item.title, items[1].title);
 });
 
-test("rankRelevantDocs() uses Gemini embeddings when configured, filtering below the similarity threshold", async (t) => {
-  process.env.GEMINI_API_KEY = "test-key";
+test("rankRelevantDocs() uses OpenRouter embeddings when configured, filtering below the similarity threshold", async (t) => {
+  process.env.OPENROUTER_API_KEY = "test-key";
   t.mock.method(globalThis, "fetch", async (url, opts) => {
     const body = JSON.parse(opts.body);
-    const isQuery = body.requests[0].taskType === "RETRIEVAL_QUERY";
-    if (isQuery) return jsonResponse(200, { embeddings: [{ values: [1, 0] }] });
+    const isQuery = body.input.length === 1;
+    if (isQuery) return jsonResponse(200, { data: [{ embedding: [1, 0] }] });
     // doc A closely aligned with the query vector, doc B orthogonal (unrelated)
-    return jsonResponse(200, { embeddings: [{ values: [0.9, 0.1] }, { values: [0, 1] }] });
+    return jsonResponse(200, { data: [{ embedding: [0.9, 0.1] }, { embedding: [0, 1] }] });
   });
 
   const items = [{ title: "relevant" }, { title: "unrelated" }];
@@ -65,8 +65,8 @@ test("rankRelevantDocs() uses Gemini embeddings when configured, filtering below
   assert.equal(ranked[0].item.title, "relevant");
 });
 
-test("rankRelevantDocs() falls back to TF-IDF when the Gemini call fails", async (t) => {
-  process.env.GEMINI_API_KEY = "test-key";
+test("rankRelevantDocs() falls back to TF-IDF when the OpenRouter call fails", async (t) => {
+  process.env.OPENROUTER_API_KEY = "test-key";
   t.mock.method(globalThis, "fetch", async () => jsonResponse(500, { error: "boom" }));
 
   const items = [

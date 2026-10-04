@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import crypto from "crypto";
 import { createFakeSupabase } from "../../test/fakeSupabase.js";
 
-// ---- fakes: Supabase (in-memory), Gemini embeddings (bag-of-words), Qdrant (in-memory cosine) ----
+// ---- fakes: Supabase (in-memory), OpenRouter embeddings (bag-of-words), Qdrant (in-memory cosine) ----
 const fake = createFakeSupabase({ unique: { corpus_documents: [{ cols: ["external_id"] }] } });
 mock.module("../../config/db.js", { namedExports: { getSupabase: () => fake.client } });
 
@@ -33,9 +33,9 @@ function stubFetch(extra = () => null) {
     const handled = extra(u, init);
     if (handled) return handled;
 
-    if (u.startsWith("https://generativelanguage.googleapis.com")) {
+    if (u.startsWith("https://openrouter.ai/api/v1/embeddings")) {
       const body = JSON.parse(init.body);
-      return json(200, { embeddings: body.requests.map((r) => ({ values: embedText(r.content.parts[0].text) })) });
+      return json(200, { data: body.input.map((text) => ({ embedding: embedText(text) })) });
     }
     if (u.startsWith("https://api.tavily.com")) return json(200, { results: [] }); // tests override via `extra` when they need results
     if (u.startsWith("http://qdrant.test")) {
@@ -75,7 +75,7 @@ function stubFetch(extra = () => null) {
 const realFetch = globalThis.fetch;
 const env = {};
 before(() => {
-  for (const [k, v] of Object.entries({ QDRANT_URL: "http://qdrant.test", GEMINI_API_KEY: "g", RAG_MIN_SCORE: "0.15", RAG_SKIP_LIVE_SEARCH_SCORE: "0.2", RAG_SKIP_LIVE_MIN_PASSAGES: "1", IK_API_TOKEN: "ik", OPENROUTER_API_KEY: "or", TAVILY_API_KEY: "tvly" })) {
+  for (const [k, v] of Object.entries({ QDRANT_URL: "http://qdrant.test", RAG_MIN_SCORE: "0.15", RAG_SKIP_LIVE_SEARCH_SCORE: "0.2", RAG_SKIP_LIVE_MIN_PASSAGES: "1", IK_API_TOKEN: "ik", OPENROUTER_API_KEY: "or", TAVILY_API_KEY: "tvly" })) {
     env[k] = process.env[k];
     process.env[k] = v;
   }
@@ -118,10 +118,10 @@ test("ingesting a document stores text in Postgres and vectors in Qdrant, once",
   // Point ids are the Postgres chunk ids.
   assert.deepEqual(new Set(points.map((p) => p.id)), new Set(fake.db.corpus_chunks.map((c) => c.id)));
 
-  const embedCallsBefore = calls.filter((c) => c.includes("generativelanguage")).length;
+  const embedCallsBefore = calls.filter((c) => c.includes("/embeddings")).length;
   const second = await ingestIndianKanoonDoc(doc);
   assert.equal(second.skipped, true);
-  assert.equal(calls.filter((c) => c.includes("generativelanguage")).length, embedCallsBefore, "no re-embedding");
+  assert.equal(calls.filter((c) => c.includes("/embeddings")).length, embedCallsBefore, "no re-embedding");
   assert.equal(fake.db.corpus_documents.length, 1);
 });
 
@@ -159,7 +159,7 @@ test("answerLegalQuestion answers from retrieved passages and skips the paid liv
   const ANSWER = JSON.stringify({ summary: "Per [1], a post-employment non compete is void.", immediateActions: [], stepByStep: [], yourRights: [], applicableLaws: [{ act: "Indian Contract Act", section: "27", plainMeaning: "Restraint of trade agreements are void.", sourceId: "1" }], caseLaw: [], whereToGetHelp: [], gaps: [], followUpQuestions: [], confidence: "medium" });
 
   globalThis.fetch = stubFetch((u, init) => {
-    if (u.startsWith("https://openrouter.ai")) {
+    if (u.startsWith("https://openrouter.ai/api/v1/chat/completions")) {
       orCalls++;
       if (orCalls % 2 === 1) return llm(UNDERSTANDING);
       generationPrompt = JSON.parse(init.body).messages.at(-1).content;
@@ -215,25 +215,25 @@ test("answerLegalQuestion() learns Tavily results into the knowledge base withou
   const TAVILY_HIT = { title: "Rent disputes — step by step", url: WEB_URL, content: "A tenant can approach the rent authority to recover a wrongfully withheld deposit from the landlord.", score: 0.9 };
 
   // `extra` (stubFetch's first arg) must be a SYNCHRONOUS function returning either a
-  // response shape or a falsy value to fall through to stubFetch's own Gemini/Qdrant
+  // response shape or a falsy value to fall through to stubFetch's own embeddings/Qdrant
   // handling (see the other tests in this file) — an async function would always return
   // a truthy Promise and silently break that fallthrough.
   function mockFor(question, { gateLearnEmbed } = {}) {
     let orCalls = 0;
-    let geminiCalls = 0;
+    let embedCalls = 0;
     return (u, init) => {
-      if (u.startsWith("https://openrouter.ai")) {
+      if (u.startsWith("https://openrouter.ai/api/v1/chat/completions")) {
         orCalls++;
         return llm(orCalls % 2 === 1 ? UNDERSTANDING(question) : ANSWER);
       }
       if (u.startsWith("https://api.tavily.com")) return json(200, { results: [TAVILY_HIT] });
       if (u.includes("indiankanoon.org/search/")) return json(200, { found: 0, docs: [], categories: [] });
-      if (gateLearnEmbed && u.startsWith("https://generativelanguage.googleapis.com")) {
-        geminiCalls++;
-        if (geminiCalls === 1) return null; // stage 2's retrieval embed — answer normally
+      if (gateLearnEmbed && u.startsWith("https://openrouter.ai/api/v1/embeddings")) {
+        embedCalls++;
+        if (embedCalls === 1) return null; // stage 2's retrieval embed — answer normally
         // Stage 6's learn embed (for the Tavily doc) — held open until the test releases it,
         // so we can prove answerLegalQuestion resolves without waiting on it.
-        return gateLearnEmbed.then(() => json(200, { embeddings: JSON.parse(init.body).requests.map(() => ({ values: new Array(DIM).fill(0.01) })) }));
+        return gateLearnEmbed.then(() => json(200, { data: JSON.parse(init.body).input.map(() => ({ embedding: new Array(DIM).fill(0.01) })) }));
       }
       return null;
     };

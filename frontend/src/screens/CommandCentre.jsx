@@ -153,7 +153,7 @@ function Ai({ p }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10 }}>{p.kpis.map((k) => <Metric key={k.label} m={k} />)}</div>
-      {p.knowledgeBase && !p.knowledgeBase.enabled && <Callout tone="warning">The knowledge base is not configured (QDRANT_URL / GEMINI_API_KEY).</Callout>}
+      {p.knowledgeBase && !p.knowledgeBase.enabled && <Callout tone="warning">The knowledge base is not configured (QDRANT_URL / OPENROUTER_API_KEY).</Callout>}
       <div>
         <div style={{ fontWeight: 700, marginBottom: 8 }}>Legal knowledge gaps</div>
         {p.gaps.length === 0 ? <div style={{ fontSize: 12.5, color: "var(--color-text-muted)" }}>No unanswered topics in the last 90 days.</div> : p.gaps.map((g) => (

@@ -29,8 +29,8 @@ separate project:
 | Chat UI | [frontend/src/screens/LegalAssistant.jsx](../frontend/src/screens/LegalAssistant.jsx) |
 | API client | [frontend/src/api/legalAssistantClient.js](../frontend/src/api/legalAssistantClient.js) |
 | Chat history persistence | `legal_assistant_sessions` / `legal_assistant_turns` tables ([schema.sql](../backend/src/db/schema.sql)), written by [routes/legalAssistant.js](../backend/src/routes/legalAssistant.js) |
-| Relevance re-ranking orchestration (Gemini embeddings if configured, else local TF-IDF) | [backend/src/services/relevanceRanking.js](../backend/src/services/relevanceRanking.js) |
-| Gemini embeddings client (optional) | [backend/src/services/gemini.js](../backend/src/services/gemini.js) |
+| Relevance re-ranking orchestration (OpenRouter embeddings if configured, else local TF-IDF) | [backend/src/services/relevanceRanking.js](../backend/src/services/relevanceRanking.js) |
+| OpenRouter embeddings client | [backend/src/services/openRouterEmbeddings.js](../backend/src/services/openRouterEmbeddings.js) (supersedes the earlier Gemini-based client this section originally described — see the historical note below) |
 | Local TF-IDF fallback ranker | [backend/src/utils/tfidf.js](../backend/src/utils/tfidf.js), [backend/src/utils/cosine.js](../backend/src/utils/cosine.js) |
 | Cost/usage counter | [backend/src/utils/callCounter.js](../backend/src/utils/callCounter.js), exposed via `GET /api/admin/usage` in [admin.js](../backend/src/routes/admin.js) |
 
@@ -51,13 +51,12 @@ cached once for both.
 2. **Retrieval** — two parallel Indian Kanoon searches: the general query, and the same query
    scoped to `doctypes:laws` (bare Acts/Rules). Within each pool, candidates are scored for
    relevance via `rankRelevantDocs()` (`services/relevanceRanking.js`), which:
-   - Uses **Gemini embeddings** (`services/gemini.js`, `gemini-embedding-001`,
-     `RETRIEVAL_QUERY`/`RETRIEVAL_DOCUMENT` task types via one batched
-     `batchEmbedContents` call per pool) when `GEMINI_API_KEY` is set — real semantic
-     cosine similarity, filtered at `MIN_EMBEDDING_SIMILARITY = 0.5` (a starting
-     heuristic, not empirically tuned).
-   - **Automatically falls back to local TF-IDF** (`utils/tfidf.js`) if `GEMINI_API_KEY`
-     is unset, or the Gemini call fails for any reason (network, rate limit, bad key) —
+   - Uses **OpenRouter embeddings** (`services/openRouterEmbeddings.js`,
+     `sentence-transformers/all-mpnet-base-v2` by default, one batched request per pool)
+     when `OPENROUTER_API_KEY` is set — real semantic cosine similarity, filtered at
+     `MIN_EMBEDDING_SIMILARITY = 0.5` (a starting heuristic, not empirically tuned).
+   - **Automatically falls back to local TF-IDF** (`utils/tfidf.js`) if `OPENROUTER_API_KEY`
+     is unset, or the embeddings call fails for any reason (network, rate limit, bad key) —
      logged, not thrown. TF-IDF candidates below score `> 0` (zero shared vocabulary with
      the query) are dropped the same way.
    - Either way, this is about picking a better subset of what Indian Kanoon already
@@ -78,7 +77,7 @@ cached once for both.
    would answer the question better. Known limitation of the TF-IDF fallback specifically: a
    "score > 0" bar only catches *zero*-overlap noise — two docs sharing only generic
    legal-boilerplate words (e.g. "person", "state", "authority") can still both clear it even
-   if only one is actually on point. Gemini embeddings (when configured) don't have this exact
+   if only one is actually on point. Embeddings (when configured) don't have this exact
    failure mode, but the `0.5` similarity cutoff is unvalidated against real traffic.
 3. **Evidence extraction** — per hit: try full `getDocument(tid)` text first, fall back to a
    query-targeted `getFragment` snippet if that fails/empties, fall back to the search
@@ -183,10 +182,12 @@ a production incident (irrelevant Acts cited as sources for an FIR question) tra
 6. **No cost/usage observability** — ✅ **done.** `backend/src/utils/callCounter.js` is a tiny
    in-memory per-provider counter, incremented on every successful (cache-missed, i.e.
    actually billed) call in `indianKanoon.js`'s `postToIndianKanoon`, `openRouter.js`'s
-   `callModel`, and `gemini.js`'s `embedTexts`. Exposed via `GET /api/admin/usage`
+   `callModel`, and `openRouterEmbeddings.js`'s `embedTexts` (its own `openrouter_embeddings`
+   bucket, kept separate from chat completions' `openrouter` since the two have very
+   different per-call cost). Exposed via `GET /api/admin/usage`
    (`requireAuth` + `requireRole("admin")`, matching `admin.js`'s existing pattern) —
-   `{ callsSinceStart: { indianKanoon, openrouter, gemini } }`. Resets on restart, same
-   single-process tradeoff as the cache (#5).
+   `{ callsSinceStart: { indianKanoon, openrouter, openrouter_embeddings } }`. Resets on
+   restart, same single-process tradeoff as the cache (#5).
 
 7. **Retrieval relevance / no semantic search** — ✅ **done**, not in the original six gaps.
    Indian Kanoon's search is exact-keyword; a paraphrased/conversational question regularly
@@ -194,22 +195,27 @@ a production incident (irrelevant Acts cited as sources for an FIR question) tra
    `doctypes:laws` returning something with literally nothing in common with the question
    (e.g. "Kerala Municipality Act" cited for an FIR question) because the old code took the
    top `LAWS_TOP_N`/`topN` unconditionally. Fixed with `services/relevanceRanking.js`:
-   - **Gemini embeddings** (`services/gemini.js`) when `GEMINI_API_KEY` is set — real semantic
-     cosine similarity, `RETRIEVAL_QUERY`/`RETRIEVAL_DOCUMENT` task types, filtered at
+   - **OpenRouter embeddings** (`services/openRouterEmbeddings.js`, originally Gemini — see
+     the historical note near the end of this doc for why/when that changed) when
+     `OPENROUTER_API_KEY` is set — real semantic cosine similarity, filtered at
      `MIN_EMBEDDING_SIMILARITY = 0.5` (unvalidated against real traffic — tighten/loosen once
      there's a feel for false positive/negative rates).
-   - **Local TF-IDF** (`utils/tfidf.js`) as the always-available, zero-cost, zero-config
-     fallback — used automatically if `GEMINI_API_KEY` is unset or the Gemini call fails.
+   - **Local TF-IDF** (`utils/tfidf.js`) as the always-available, zero-config fallback — used
+     automatically if the embeddings call fails for any reason.
      Filters at `score > 0` (zero shared vocabulary with the query).
    - Either scorer: a candidate judged unrelated is **dropped**, not ranked lower — fewer,
      genuinely relevant sources (even zero, correctly falling through to `no_evidence`) beats
      padding evidence with noise just to hit a target count.
-   - OpenRouter (the chat/LLM provider) has no genuinely free embedding model as of this
-     writing — verified directly against model pages, not just search summaries, which were
-     stale/wrong here. Gemini is a second, independent provider chosen specifically because
-     Google AI Studio issues free API keys with no credit card. New env vars:
-     `GEMINI_API_KEY` (optional), `GEMINI_EMBEDDING_MODEL` (optional, defaults to
-     `gemini-embedding-001`).
+   - **Historical note:** OpenRouter originally had no genuinely free embedding model, so
+     Gemini (a second, independent provider with a free-tier API key, no card) was wired up
+     for embeddings instead — `GEMINI_API_KEY`/`GEMINI_EMBEDDING_MODEL`. Once the OpenRouter
+     account moved to paid credit, embeddings moved too (`services/openRouterEmbeddings.js`,
+     `sentence-transformers/all-mpnet-base-v2` by default, overridable via
+     `OPENROUTER_EMBEDDING_MODEL`) — one provider/one bill instead of two, and the paid
+     OpenRouter chat models already in use made the "needs a free-tier provider" constraint
+     moot. `gemini.js` was removed; see docs/RAG.md for the re-embedding migration this
+     required (switching embedding models/providers always needs one, since old and new
+     vectors live in incomparable coordinate spaces).
 
 ## 5. Env vars to add (`backend/.env.example`)
 
@@ -233,15 +239,13 @@ CLAUDE_MODEL=claude-sonnet-5
 - `doctypes:laws` priority search — without it, statute-answerable questions get buried under
   tangential case law.
 - Re-ranking (`services/relevanceRanking.js`) runs on the title+headline the `/search/` call
-  already returned — never an extra Indian Kanoon call per candidate. OpenRouter has no
-  genuinely free embedding model (verified directly against their model pages, not just search
-  summaries, which were stale/wrong there) — Gemini (a different provider, its own free-tier
-  API key) is what's actually wired up for real embeddings; TF-IDF (`utils/tfidf.js`) is the
-  always-available, zero-config fallback, not a placeholder to be deleted once Gemini exists.
-  `GEMINI_API_KEY` must stay optional — the pipeline has to keep working with zero external
-  cost for anyone who never sets it.
+  already returned — never an extra Indian Kanoon call per candidate. Embeddings go through
+  OpenRouter (`services/openRouterEmbeddings.js`, see the historical note in §4 for why this
+  used to be Gemini); TF-IDF (`utils/tfidf.js`) is the always-available, zero-config fallback,
+  not a placeholder to be deleted once embeddings exist — `OPENROUTER_API_KEY` being unset (or
+  the embeddings call failing for any reason) must keep degrading to it, never hard-fail.
 - The zero-relevance filter (`rankRelevantDocs()` in `relevanceRanking.js`, `score > 0` for
-  TF-IDF / `score >= MIN_EMBEDDING_SIMILARITY` for Gemini) is load bearing, not cosmetic —
+  TF-IDF / `score >= MIN_EMBEDDING_SIMILARITY` for embeddings) is load bearing, not cosmetic —
   without it, an off-topic `doctypes:laws` or general hit gets force-included just to fill
   `LAWS_TOP_N`/`topN` slots, which is the exact bug that produced "Kerala Municipality Act" as
   a cited source for an FIR question in production. Don't revert to "always take the top N

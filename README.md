@@ -14,8 +14,8 @@ document templates with their clause library).
 | Sign-in | **Supabase Auth** — Google OAuth 2.0 and email/password, **email verification required** | Free; Google accounts arrive pre-verified |
 | Relational data + files | **Supabase** Postgres + private Storage bucket | Row-level security denies the public key everything; only the API touches data |
 | Vector search (RAG) | **Qdrant** (Cloud free tier or self-hosted) | 768-d, int8-quantised, payload on disk |
-| Embeddings | **Google Gemini** `gemini-embedding-001` | Free tier |
-| LLM | **OpenRouter** (free-tier models by default) | Query understanding, grounded answers, contract review |
+| Embeddings | **OpenRouter** `sentence-transformers/all-mpnet-base-v2` | Paid per call, sub-cent per request |
+| LLM | **OpenRouter** (paid models) | Query understanding, grounded answers, contract review |
 | Legal sources | **Indian Kanoon** API | Paid per call — the knowledge base avoids repeat calls |
 | Payments | **Razorpay** (optional) | Pay-per-transaction; the UI says so honestly when it is off |
 | Video | **Jitsi Meet** | No account needed |
@@ -47,7 +47,7 @@ See **[docs/SETUP.md](docs/SETUP.md)** for Supabase, Google OAuth, Qdrant and de
 
 ```bash
 npm install
-cp .env.example .env   # single shared file: SUPABASE_*, QDRANT_*, GEMINI_API_KEY, OPENROUTER_API_KEY, IK_API_TOKEN, VITE_*
+cp .env.example .env   # single shared file: SUPABASE_*, QDRANT_*, OPENROUTER_API_KEY, IK_API_TOKEN, VITE_*
 # run backend/src/db/schema.sql once in the Supabase SQL editor
 npm run dev:full                         # API :4000 + web :5173
 ```

@@ -1,14 +1,14 @@
-// Ingestion: document → paragraphs → chunks → Gemini embeddings → Qdrant, with the text and
-// metadata kept in Postgres (corpus_documents / corpus_chunks) so citations resolve and the
-// vector index can always be rebuilt. The point id in Qdrant IS the corpus_chunks row id.
+// Ingestion: document → paragraphs → chunks → OpenRouter embeddings → Qdrant, with the text
+// and metadata kept in Postgres (corpus_documents / corpus_chunks) so citations resolve and
+// the vector index can always be rebuilt. The point id in Qdrant IS the corpus_chunks row id.
 import crypto from "crypto";
 import { getSupabase } from "../../config/db.js";
-import { embedMany, isGeminiConfigured } from "../gemini.js";
+import { embedMany, isOpenRouterEmbeddingsConfigured } from "../openRouterEmbeddings.js";
 import { chunkParagraphs, htmlToParagraphs, mapDocSource, stripTags, textToParagraphs } from "./chunk.js";
 import { deletePoints, ensureCollection, isQdrantConfigured, legalCollection, matchFilter, upsertPoints } from "./qdrant.js";
 
 export function ragEnabled() {
-  return isQdrantConfigured() && isGeminiConfigured();
+  return isQdrantConfigured() && isOpenRouterEmbeddingsConfigured();
 }
 
 export const PAYLOAD_INDEXES = ["source", "document_id", "para_class"];

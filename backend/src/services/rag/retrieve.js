@@ -1,10 +1,12 @@
 // Semantic retrieval over the Qdrant knowledge base.
-import { embedTexts } from "../gemini.js";
+import { embedTexts } from "../openRouterEmbeddings.js";
 import { legalCollection, matchFilter, queryPoints, collectionStats } from "./qdrant.js";
 import { ragEnabled } from "./ingest.js";
 
-// Gemini cosine scores for on-topic legal passages cluster around 0.6–0.8; this is a
-// starting point — tune with RAG_MIN_SCORE once you have real traffic.
+// 0.6-0.8 was observed with Gemini embeddings; different embedding models calibrate
+// cosine scores differently, so after switching models/providers (see
+// services/openRouterEmbeddings.js) this range — and RAG_MIN_SCORE's default — should be
+// re-validated against real traffic, not assumed to still hold.
 export function minScore() {
   const v = Number(process.env.RAG_MIN_SCORE);
   return Number.isFinite(v) && v > 0 && v < 1 ? v : 0.55;

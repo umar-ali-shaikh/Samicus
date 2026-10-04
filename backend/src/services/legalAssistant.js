@@ -422,8 +422,8 @@ async function searchIndianKanoon(searchQuery, filters, topN) {
     return { docs: [] };
   }
 
-  // Score each candidate pool by relevance to the query — Gemini embeddings when
-  // GEMINI_API_KEY is configured (a real semantic match, which catches a
+  // Score each candidate pool by relevance to the query — OpenRouter embeddings when
+  // OPENROUTER_API_KEY is configured (a real semantic match, which catches a
   // paraphrased/conversational question that shares no exact keywords with the
   // right statute/judgment), local TF-IDF otherwise (see relevanceRanking.js) — and
   // drop anything judged unrelated rather than forcing it in. Fewer, genuinely relevant
