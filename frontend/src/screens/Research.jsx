@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useConfig, useGet, useMut } from "../api/hooks";
 import { useUI } from "../state/UIState";
 import { api } from "../lib/api";
@@ -24,27 +24,61 @@ function KnowledgeBaseStats() {
   );
 }
 
+// Every passage indexed for one document, read in order — shown when a browse-list card is
+// expanded. Verbatim, same extractive guarantee as the rest of this library.
+function DocumentPassages({ documentId }) {
+  const chunks = useGet(`/corpus/documents/${documentId}/chunks`, undefined, { staleTime: 60000 });
+  if (chunks.isLoading) return <Loading label="Loading indexed passages…" />;
+  if (chunks.isError) return <Callout tone="danger">{chunks.error.message}</Callout>;
+  if (!chunks.data?.length) return <Callout tone="neutral">No passages indexed for this document.</Callout>;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--color-border)" }}>
+      {chunks.data.map((c) => (
+        <div key={c.id} style={{ borderLeft: "3px solid var(--color-gold)", paddingLeft: 10, fontSize: 12.5, whiteSpace: "pre-wrap" }}>
+          <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--color-label)", marginBottom: 2 }}>{CLASS_LABEL[c.paragraph_class] || c.paragraph_class}</div>
+          {c.text}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function IndexedLibrary() {
   const docs = useGet("/corpus/documents", undefined, { staleTime: 60000 });
+  const [openDocId, setOpenDocId] = useState(null);
   if (docs.isLoading) return <Loading label="Loading the indexed library…" />;
   if (!docs.data?.length) return <Callout tone="neutral">Nothing indexed yet — ask a question in the AI Legal Assistant to start building the library.</Callout>;
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--color-label)" }}>ALREADY INDEXED · {docs.data.length} document{docs.data.length === 1 ? "" : "s"}</div>
+      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--color-label)" }}>ALREADY INDEXED · {docs.data.length} document{docs.data.length === 1 ? "" : "s"} · click a document to read its indexed passages</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {docs.data.map((d) => (
-          <Card key={d.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-            <div style={{ minWidth: 0 }}>
-              <div style={{ fontWeight: 700, fontSize: 13.5 }}>{d.title}</div>
-              <div style={{ fontSize: 11.5, color: "var(--color-text-muted)" }}>
-                {(SOURCE_LABEL[d.source] || d.source)}{d.court ? ` · ${d.court}` : ""}{d.citation ? ` · ${d.citation}` : ""}
+        {docs.data.map((d) => {
+          const open = openDocId === d.id;
+          return (
+            <Card key={d.id}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                <button
+                  onClick={() => setOpenDocId(open ? null : d.id)}
+                  style={{ all: "unset", cursor: "pointer", minWidth: 0, flex: "1 1 auto" }}
+                >
+                  <div style={{ fontWeight: 700, fontSize: 13.5 }}>{d.title}</div>
+                  <div style={{ fontSize: 11.5, color: "var(--color-text-muted)" }}>
+                    {(SOURCE_LABEL[d.source] || d.source)}{d.court ? ` · ${d.court}` : ""}{d.citation ? ` · ${d.citation}` : ""}
+                  </div>
+                </button>
+                <div style={{ display: "flex", alignItems: "center", gap: 12, flex: "none" }}>
+                  <button onClick={() => setOpenDocId(open ? null : d.id)} style={{ all: "unset", cursor: "pointer", fontSize: 12, fontWeight: 600, color: "var(--color-rust)" }}>
+                    {open ? "Hide passages ↑" : "Read passages ↓"}
+                  </button>
+                  {d.canonical_url && (
+                    <a href={d.canonical_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12 }}>Open source ↗</a>
+                  )}
+                </div>
               </div>
-            </div>
-            {d.canonical_url && (
-              <a href={d.canonical_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, flex: "none" }}>Open source ↗</a>
-            )}
-          </Card>
-        ))}
+              {open && <DocumentPassages documentId={d.id} />}
+            </Card>
+          );
+        })}
       </div>
     </div>
   );

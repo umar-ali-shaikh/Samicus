@@ -120,6 +120,19 @@ router.get("/corpus/documents/:id", requireAuth, async (req, res) => {
   res.json(doc);
 });
 
+// Every passage indexed for one document, in reading order — lets the browse list ("already
+// indexed" view) be read in-app instead of only linking out to the external source. Verbatim,
+// same as everywhere else in this library — never an LLM summary written from memory.
+router.get("/corpus/documents/:id/chunks", requireAuth, async (req, res) => {
+  const { data, error } = await getSupabase()
+    .from("corpus_chunks")
+    .select("id, ordinal, text, paragraph_class, para_number")
+    .eq("document_id", req.params.id)
+    .order("ordinal", { ascending: true });
+  if (error) throw error;
+  res.json(data);
+});
+
 // A couple of neighbouring chunks (same document, adjacent ordinal) give the reader more
 // surrounding text than the single retrieved passage alone — useful when that passage is a
 // short, isolated paragraph (e.g. one reasoning line sandwiched between differently-classed

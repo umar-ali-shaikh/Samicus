@@ -95,6 +95,8 @@ export function handle(method, path, persona, body) {
   if (m(/^\/accounts\/[^/]+\/members$/)) return [{ id: uuid(120), role: "owner", user: { id: IDS.user, full_name: persona.name, email: "x@example.com" } }];
   if (m(/^\/accounts\/[^/]+\/legal-spend$/)) return { openMatters: 1, totals: { professional: 60000, government: 8000, platform: 99, total: 70000, paid: 40000 } };
   if (p === "/corpus/status") return { bySource: [{ source: "supreme_court", count: 3 }], chunkCount: 120, vectorIndex: { enabled: true, points: 120 } };
+  if (p === "/corpus/documents") return [{ id: IDS.doc, title: "Golikari v Century", source: "supreme_court", citation: "Golikari v Century", court: "Supreme Court of India", canonical_url: "https://indiankanoon.org/doc/1/", indexed_at: iso(-H) }];
+  if (m(/^\/corpus\/documents\/[^/]+\/chunks$/)) return [{ id: uuid(131), ordinal: 0, text: "Agreement in restraint of trade is void.", paragraph_class: "reasoning", para_number: "12" }];
   if (m(/^\/corpus\/chunks\/([^/]+)$/)) {
     const [, id] = m(/^\/corpus\/chunks\/([^/]+)$/);
     return {
