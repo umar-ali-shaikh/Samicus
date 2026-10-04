@@ -263,11 +263,21 @@ Empty arrays are allowed; invented content is not.`;
 function buildMessages(question, topic, evidence, language, isEmergency) {
   const context = evidence.map((e) => `[${e.index}] ${e.title} (${e.docsource})\n${e.text}`).join("\n\n");
   const urgency = isEmergency ? "emergency" : "normal";
+  const lang = language || "unknown";
   return [
     { role: "system", content: SYSTEM_PROMPT },
     {
       role: "user",
-      content: `User question (topic: ${topic}, language: ${language || "unknown"}, urgency: ${urgency}): ${question}\n\nEvidence:\n${context}`,
+      content:
+        `User question (topic: ${topic}, language: ${lang}, urgency: ${urgency}): ${question}\n\nEvidence:\n${context}` +
+        // Restated after the (English-heavy) evidence block, not just once before it —
+        // models otherwise drift toward English in the output after reading a long block
+        // of English case-law text, even when told the target language up front.
+        `\n\n---\nReminder: the evidence above is in English, but per rule 8 every field of your JSON ` +
+        `output (summary, immediateActions, stepByStep, yourRights, applicableLaws, caseLaw, ` +
+        `whereToGetHelp, gaps, followUpQuestions) MUST be written in "${lang}" — never default to ` +
+        `English just because the evidence is in English. Case names, section numbers, and citation ` +
+        `markers stay as-is; everything else is translated/paraphrased into "${lang}".`,
     },
   ];
 }
