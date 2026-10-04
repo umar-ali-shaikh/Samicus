@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useRef } from "react";
 import { useConfig, useGet, useMut } from "../api/hooks";
+import { useUI } from "../state/UIState";
 import { api } from "../lib/api";
 import { Card, StatTile, Callout, Button, ProgressBar, Badge, Loading } from "../components/ui";
 import { PageHeader } from "../components/PageHeader";
@@ -51,9 +52,12 @@ function IndexedLibrary() {
 
 export function Research() {
   const config = useConfig();
-  const [question, setQuestion] = useState("");
-  const [state, setState] = useState(null); // { text, retrieval, answer }
-  const [openChunk, setOpenChunk] = useState(null);
+  const {
+    researchQuestion: question, setResearchQuestion: setQuestion,
+    researchState: state, setResearchState: setState, // { text, retrieval, answer }
+    researchOpenChunk: openChunk, setResearchOpenChunk: setOpenChunk,
+  } = useUI();
+  const segmentRefs = useRef({}); // chunkId -> DOM node, so selecting a passage scrolls the verbatim list to it
 
   const run = useMut(async (text) => {
     const retrieval = await api.post("/research/retrieve", { text });
@@ -67,6 +71,14 @@ export function Research() {
   const segments = answer?.segments || [];
   const numberOf = (chunkId) => segments.findIndex((s) => s.chunkId === chunkId) + 1;
   const active = retrieval?.chunks.find((c) => c.chunkId === openChunk);
+
+  // Selecting a passage in the retrieval trail (left) or a [n] marker only changed the
+  // detail panel (right) — the verbatim list (middle) stayed scrolled wherever it was,
+  // so the selection often wasn't visible at all without manually scrolling. Bring it
+  // into view whenever the selection changes.
+  useEffect(() => {
+    segmentRefs.current[openChunk]?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [openChunk]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
@@ -114,13 +126,35 @@ export function Research() {
             {retrieval.chunks.length === 0 && <Callout tone="neutral">Nothing in the library resembles this question yet.</Callout>}
           </div>
 
-          <div style={{ flex: "3 1 280px", minWidth: 0, display: "flex", flexDirection: "column", gap: 14 }}>
+          <div style={{ flex: "1 1 500px", minWidth: 0, display: "flex", flexDirection: "column", gap: 14 }}>
             <Card><div style={{ fontSize: 10, fontWeight: 700, color: "var(--color-label)" }}>QUESTION</div><div style={{ fontFamily: "var(--font-serif)", fontSize: 18 }}>{state.text}</div></Card>
+
+            {answer.aiSummary && (
+              <Card style={{ background: "var(--color-navy)", color: "#F6F1E8" }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "#9AA5BC", letterSpacing: "0.05em", marginBottom: 6 }}>AI SUMMARY</div>
+                <div style={{ fontSize: 14, lineHeight: 1.65 }}>{answer.aiSummary}</div>
+                <div style={{ fontSize: 11, color: "#9AA5BC", marginTop: 8 }}>Written from the passages below — every sentence is numbered to the source it came from. Read the verbatim passages (and the full source) before relying on this.</div>
+              </Card>
+            )}
+
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <Badge tone={answer.outcome === "not_found" ? "warning" : "success"}>{answer.outcome === "not_found" ? "Answer withheld" : `${segments.length} passage${segments.length === 1 ? "" : "s"} used`}</Badge>
               <Badge>0 unsupported sentences</Badge>
               {answer.discardedCount > 0 && <Badge tone="info">{answer.discardedCount} discarded</Badge>}
             </div>
+
+            {/* Whichever passage is selected (left trail, or a [n] marker below) shows its context
+                right here — no separate side column, so it's visible for every single selection
+                without having to look elsewhere on the page. */}
+            {active && (
+              <Card style={{ background: "#FBF8F2" }}>
+                {active.url && <a href={active.url} target="_blank" rel="noreferrer" style={{ fontSize: 12, fontWeight: 600 }}>Open the full source ↗</a>}
+                <div style={{ fontSize: 10, fontWeight: 700, color: "var(--color-label)", marginTop: 8 }}>{(SOURCE_LABEL[active.source] || active.source).toUpperCase()} · {CLASS_LABEL[active.paragraphClass] || active.paragraphClass}{numberOf(active.chunkId) ? ` · [${numberOf(active.chunkId)}]` : ""}</div>
+                <div style={{ fontFamily: "var(--font-serif)", fontSize: 15, marginBottom: 8 }}>{active.documentTitle}</div>
+                <div style={{ borderLeft: "3px solid var(--color-gold)", paddingLeft: 10, fontSize: 12.5, color: "var(--color-text-muted)", margin: "10px 0", whiteSpace: "pre-wrap", maxHeight: 240, overflowY: "auto" }}>{active.text}</div>
+                {["petitioner_arguments", "respondent_arguments"].includes(active.paragraphClass) && <Callout tone="warning">This is a party's argument — shown for context, never cited as the court's view.</Callout>}
+              </Card>
+            )}
 
             {answer.outcome === "not_found" ? (
               <Callout tone="warning" title="Not in the indexed library">
@@ -130,7 +164,11 @@ export function Research() {
               <Card>
                 <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--color-rust)", letterSpacing: "0.05em", marginBottom: 8 }}>PASSAGES RETRIEVED (VERBATIM)</div>
                 {segments.map((s, i) => (
-                  <div key={s.chunkId} style={{ marginBottom: 14 }}>
+                  <div
+                    key={s.chunkId}
+                    ref={(el) => { if (el) segmentRefs.current[s.chunkId] = el; }}
+                    style={{ marginBottom: 14, padding: 8, marginInline: -8, borderRadius: 8, background: openChunk === s.chunkId ? "#F7F1E0" : "transparent", transition: "background 0.2s" }}
+                  >
                     <div style={{ fontSize: 13.5, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{s.text}
                       <button onClick={() => setOpenChunk(s.chunkId)} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 18, height: 18, margin: "0 4px", borderRadius: 5, border: "none", fontFamily: "var(--font-mono)", fontSize: 10.5, cursor: "pointer", background: openChunk === s.chunkId ? "var(--color-navy)" : "#F1EFE6", color: openChunk === s.chunkId ? "#fff" : "var(--color-ink)" }}>{i + 1}</button>
                     </div>
@@ -139,19 +177,21 @@ export function Research() {
                 ))}
               </Card>
             )}
-          </div>
 
-          <div style={{ flex: "1 1 280px", minWidth: 0 }}>
-            {active ? (
+            {segments.length > 0 && (
               <Card>
-                <div style={{ fontSize: 10, fontWeight: 700, color: "var(--color-label)" }}>{(SOURCE_LABEL[active.source] || active.source).toUpperCase()} · {CLASS_LABEL[active.paragraphClass] || active.paragraphClass}{numberOf(active.chunkId) ? ` · [${numberOf(active.chunkId)}]` : ""}</div>
-                <div style={{ fontFamily: "var(--font-serif)", fontSize: 15, marginBottom: 8 }}>{active.documentTitle}</div>
-                <div style={{ borderLeft: "3px solid var(--color-gold)", paddingLeft: 10, fontSize: 12.5, color: "var(--color-text-muted)", margin: "10px 0", whiteSpace: "pre-wrap", maxHeight: 360, overflowY: "auto" }}>{active.text}</div>
-                {["petitioner_arguments", "respondent_arguments"].includes(active.paragraphClass) && <Callout tone="warning">This is a party's argument — shown for context, never cited as the court's view.</Callout>}
-                {active.url && <a href={active.url} target="_blank" rel="noreferrer" style={{ fontSize: 12 }}>Open the full source ↗</a>}
+                <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--color-label)", letterSpacing: "0.05em", marginBottom: 8 }}>RELATED READING</div>
+                <ul style={{ margin: 0, paddingInlineStart: 18, fontSize: 12.5, display: "flex", flexDirection: "column", gap: 4 }}>
+                  {[...new Map(segments.map((s) => [s.url || s.documentTitle, s])).values()].map((s) => (
+                    <li key={s.url || s.documentTitle}>
+                      {s.url ? <a href={s.url} target="_blank" rel="noopener noreferrer">{s.documentTitle}</a> : s.documentTitle}
+                    </li>
+                  ))}
+                </ul>
               </Card>
-            ) : <Card><div style={{ fontSize: 12.5, color: "var(--color-text-muted)" }}>Select a passage to read it in context.</div></Card>}
-            <div style={{ marginTop: 10, background: "var(--color-navy)", color: "#F6F1E8", borderRadius: 12, padding: 12, fontSize: 11.5 }}>
+            )}
+
+            <div style={{ background: "var(--color-navy)", color: "#F6F1E8", borderRadius: 12, padding: 12, fontSize: 11.5 }}>
               This library only contains what has been indexed so far. It does not claim completeness or that a judgment is still good law — check before relying on it.
             </div>
           </div>

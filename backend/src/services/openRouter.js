@@ -34,6 +34,10 @@ export class OpenRouterApiError extends Error {
   }
 }
 
+export function isOpenRouterConfigured() {
+  return Boolean(process.env.OPENROUTER_API_KEY);
+}
+
 function getToken() {
   const token = process.env.OPENROUTER_API_KEY;
   if (!token) throw new OpenRouterAuthError();

@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { getSupabase } from "../config/db.js";
 import { requireAuth } from "../middleware/auth.js";
-import { retrieve, answerFromRetrieval, relevanceThreshold } from "../services/research.js";
+import { retrieve, answerFromRetrieval, summarizeAnswer, relevanceThreshold } from "../services/research.js";
 import { assertAccountMember, defaultAccountId, HttpError } from "../services/access.js";
 import { knowledgeBaseStats } from "../services/rag/retrieve.js";
 
@@ -92,7 +92,12 @@ router.post("/research/answer", requireAuth, async (req, res) => {
     .insert(result.segments.map((s, i) => ({ research_answer_id: answer.id, position: i, text: s.text, chunk_id: s.chunkId })));
   if (segmentsError) throw segmentsError;
 
-  res.json({ outcome: result.outcome, answer, segments: result.segments, discardedCount: result.discardedCount });
+  // A pure enhancement over the extractive segments above — never required for the answer
+  // to be usable, so a missing/failed summary (no OPENROUTER_API_KEY, a bad call) just
+  // means the UI shows the passages without it, not an error.
+  const aiSummary = await summarizeAnswer(query.text, result.segments);
+
+  res.json({ outcome: result.outcome, answer, segments: result.segments, discardedCount: result.discardedCount, aiSummary });
 });
 
 // Browse list for the Research library's default (no-query) view — so the page never looks

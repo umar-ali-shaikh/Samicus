@@ -55,8 +55,19 @@ export async function ingestIndianKanoonDoc({ tid, title, docsource, html }, { m
   if (inFlight.has(key)) return inFlight.get(key);
   const job = (async () => {
     const supabase = getSupabase();
-    const { data: existing, error } = await supabase.from("corpus_documents").select("id").eq("external_id", key).maybeSingle();
+    let { data: existing, error } = await supabase.from("corpus_documents").select("id").eq("external_id", key).maybeSingle();
     if (error) throw error;
+
+    // Indian Kanoon sometimes lists the same judgment under two different document ids
+    // (e.g. a re-indexed/reposted copy) — same title, different tid. Dedupe on title too,
+    // not just external_id, so the same case doesn't end up ingested (and surfaced) twice.
+    if (!existing) {
+      // .limit(1) rather than .maybeSingle() — titles can already have more than one row
+      // (pre-existing duplicates from before this check existed), which .maybeSingle() errors on.
+      const { data: byTitle, error: titleError } = await supabase.from("corpus_documents").select("id").eq("title", title).limit(1);
+      if (titleError) throw titleError;
+      if (byTitle?.[0]) return { documentId: byTitle[0].id, chunks: 0, skipped: true };
+    }
 
     const source = mapDocSource(docsource);
     const paragraphs = htmlToParagraphs(html, { fallbackClass: source === "bare_act" ? "provision" : "reasoning" });

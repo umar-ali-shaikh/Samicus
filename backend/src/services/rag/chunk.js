@@ -10,6 +10,24 @@ export function decodeEntities(text) {
     .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)));
 }
 
+// Some Indian Kanoon documents embed a scanned/OCR'd regional-language annexure whose PDF
+// used a non-Unicode "ASCII hack" font (common with older Kannada/Telugu/Tamil/Malayalam
+// typesetting) — converted without that font's private mapping, every glyph lands on the
+// wrong Unicode codepoint and the result is unreadable garbage, already corrupted in
+// Indian Kanoon's own source (not something our extraction can recover). This app's
+// content is English/Hindi; a paragraph that's heavily South-Indian-script is almost
+// certainly this failure mode, not a genuine untranslated quote, so it's dropped rather
+// than shown as raw noise to the user.
+const SOUTH_INDIAN_SCRIPT_RE = /[஀-௿ఀ-౿ಀ-೿ഀ-ൿ]/g;
+const GARBLED_SCRIPT_RATIO = 0.1;
+
+export function looksGarbled(text) {
+  const s = String(text || "");
+  if (s.length < 20) return false;
+  const hits = s.match(SOUTH_INDIAN_SCRIPT_RE)?.length || 0;
+  return hits / s.length > GARBLED_SCRIPT_RATIO;
+}
+
 export function stripTags(html) {
   return decodeEntities(String(html || "").replace(/<(script|style)[\s\S]*?<\/\1>/gi, " ").replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]+>/g, " "))
     .replace(/[ \t\f\v ]+/g, " ")
@@ -46,14 +64,15 @@ export function htmlToParagraphs(html, { fallbackClass = "reasoning" } = {}) {
   while ((match = re.exec(html || ""))) {
     const attrs = match[2] || "";
     const text = stripTags(match[3]);
-    if (!text || text.length < 3) continue;
+    if (!text || text.length < 3 || looksGarbled(text)) continue;
     const title = /title\s*=\s*"([^"]*)"/i.exec(attrs)?.[1];
     const id = /id\s*=\s*"p_(\d+)"/i.exec(attrs)?.[1] ?? null;
     out.push({ text, paraClass: classFromTitle(title, fallbackClass), paraNumber: id });
   }
   if (out.length === 0) {
     for (const line of stripTags(html).split(/\n{1,}/)) {
-      if (line.trim().length >= 3) out.push({ text: line.trim(), paraClass: fallbackClass, paraNumber: null });
+      const t = line.trim();
+      if (t.length >= 3 && !looksGarbled(t)) out.push({ text: t, paraClass: fallbackClass, paraNumber: null });
     }
   }
   return out;
@@ -70,7 +89,7 @@ export function textToParagraphs(text, { fallbackClass = "provision" } = {}) {
   const normalized = decodeEntities(String(text || "")).trim();
   const blocks = normalized.split(/\n\s*\n+/).filter((b) => b.trim().length >= 3);
   const lines = blocks.length > 0 ? blocks : normalized.split(/\n+/).filter((l) => l.trim().length >= 3);
-  return lines.map((l) => ({ text: l.trim(), paraClass: fallbackClass, paraNumber: null }));
+  return lines.filter((l) => !looksGarbled(l)).map((l) => ({ text: l.trim(), paraClass: fallbackClass, paraNumber: null }));
 }
 
 function splitLong(text, max) {
