@@ -71,6 +71,11 @@ export function Research() {
   const segments = answer?.segments || [];
   const numberOf = (chunkId) => segments.findIndex((s) => s.chunkId === chunkId) + 1;
   const active = retrieval?.chunks.find((c) => c.chunkId === openChunk);
+  // The retrieved passage alone is sometimes a single short, isolated paragraph (chunking
+  // only merges consecutive same-class paragraphs) — fetch a couple of neighbouring chunks
+  // from the same document so the reader sees more surrounding text, not just that one line.
+  const chunkDetail = useGet(`/corpus/chunks/${openChunk}`, undefined, { enabled: Boolean(openChunk) });
+  const context = chunkDetail.data?.context?.length > 1 ? chunkDetail.data.context : null;
 
   // Selecting a passage in the retrieval trail (left) or a [n] marker only changed the
   // detail panel (right) — the verbatim list (middle) stayed scrolled wherever it was,
@@ -151,7 +156,28 @@ export function Research() {
                 {active.url && <a href={active.url} target="_blank" rel="noreferrer" style={{ fontSize: 12, fontWeight: 600 }}>Open the full source ↗</a>}
                 <div style={{ fontSize: 10, fontWeight: 700, color: "var(--color-label)", marginTop: 8 }}>{(SOURCE_LABEL[active.source] || active.source).toUpperCase()} · {CLASS_LABEL[active.paragraphClass] || active.paragraphClass}{numberOf(active.chunkId) ? ` · [${numberOf(active.chunkId)}]` : ""}</div>
                 <div style={{ fontFamily: "var(--font-serif)", fontSize: 15, marginBottom: 8 }}>{active.documentTitle}</div>
-                <div style={{ borderLeft: "3px solid var(--color-gold)", paddingLeft: 10, fontSize: 12.5, color: "var(--color-text-muted)", margin: "10px 0", whiteSpace: "pre-wrap", maxHeight: 240, overflowY: "auto" }}>{active.text}</div>
+                {context ? (
+                  <div style={{ margin: "10px 0", maxHeight: 320, overflowY: "auto" }}>
+                    {context.map((c) => (
+                      <div
+                        key={c.id}
+                        style={{
+                          borderLeft: `3px solid ${c.id === openChunk ? "var(--color-gold)" : "var(--color-border)"}`,
+                          paddingLeft: 10,
+                          marginBottom: 8,
+                          fontSize: 12.5,
+                          whiteSpace: "pre-wrap",
+                          color: c.id === openChunk ? "var(--color-text)" : "var(--color-text-muted)",
+                        }}
+                      >
+                        {c.id !== openChunk && <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, marginBottom: 2 }}>{CLASS_LABEL[c.paragraph_class] || c.paragraph_class}</div>}
+                        {c.text}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ borderLeft: "3px solid var(--color-gold)", paddingLeft: 10, fontSize: 12.5, color: "var(--color-text-muted)", margin: "10px 0", whiteSpace: "pre-wrap", maxHeight: 240, overflowY: "auto" }}>{active.text}</div>
+                )}
                 {["petitioner_arguments", "respondent_arguments"].includes(active.paragraphClass) && <Callout tone="warning">This is a party's argument — shown for context, never cited as the court's view.</Callout>}
               </Card>
             )}

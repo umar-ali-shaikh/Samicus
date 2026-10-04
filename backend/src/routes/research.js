@@ -120,15 +120,32 @@ router.get("/corpus/documents/:id", requireAuth, async (req, res) => {
   res.json(doc);
 });
 
+// A couple of neighbouring chunks (same document, adjacent ordinal) give the reader more
+// surrounding text than the single retrieved passage alone — useful when that passage is a
+// short, isolated paragraph (e.g. one reasoning line sandwiched between differently-classed
+// ones, so chunkParagraphs couldn't merge it with anything).
+const CONTEXT_WINDOW = 2;
+
 router.get("/corpus/chunks/:id", requireAuth, async (req, res) => {
-  const { data: chunk, error } = await getSupabase()
+  const supabase = getSupabase();
+  const { data: chunk, error } = await supabase
     .from("corpus_chunks")
     .select("*, document:corpus_documents(*)")
     .eq("id", req.params.id)
     .maybeSingle();
   if (error) throw error;
   if (!chunk) return res.status(404).json({ error: "Not found" });
-  res.json(chunk);
+
+  const { data: context, error: contextError } = await supabase
+    .from("corpus_chunks")
+    .select("id, ordinal, text, paragraph_class, para_number")
+    .eq("document_id", chunk.document_id)
+    .gte("ordinal", chunk.ordinal - CONTEXT_WINDOW)
+    .lte("ordinal", chunk.ordinal + CONTEXT_WINDOW)
+    .order("ordinal", { ascending: true });
+  if (contextError) throw contextError;
+
+  res.json({ ...chunk, context });
 });
 
 router.get("/corpus/status", requireAuth, async (req, res) => {
