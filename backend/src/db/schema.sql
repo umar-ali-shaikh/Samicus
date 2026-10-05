@@ -168,6 +168,19 @@ create table advocate_jurisdictions (
 create index advocate_jurisdictions_advocate_id_idx on advocate_jurisdictions(advocate_id);
 create index advocate_jurisdictions_forum_idx on advocate_jurisdictions(forum);
 
+-- "Notify me when an advocate is available" — the honest fallback shown wherever an
+-- advocate search/match comes back empty, instead of a dead-end button.
+create table notify_requests (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references users(id),
+  account_id uuid references accounts(id),
+  topic text not null,
+  practice_area_id uuid references practice_areas(id),
+  created_at timestamptz not null default now()
+);
+create index notify_requests_topic_idx on notify_requests(topic);
+create index notify_requests_user_id_idx on notify_requests(user_id);
+
 -- ===================== verification / conflict checks =====================
 
 create table verification_cases (

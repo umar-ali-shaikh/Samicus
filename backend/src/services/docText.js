@@ -34,18 +34,27 @@ export async function extractDocumentText(buffer, mime) {
 
 const HEADING = /^\s*(?:(?:clause|article|section)\s+\d+[.:)]?|\d+(?:\.\d+)*[.)]\s+\S|\([a-z0-9]{1,3}\)\s+\S|[A-Z][A-Z0-9 ,&'\-]{4,60}$)/i;
 
-/** Splits contract text into clause-sized segments (numbered headings first, paragraphs otherwise). */
-export function segmentContract(text, { minChars = 120, maxChars = 1800, maxSegments = 60 } = {}) {
+/**
+ * Splits contract text into clause-sized segments (numbered headings first, paragraphs
+ * otherwise). A new numbered/headed line always starts its OWN segment once anything has
+ * been accumulated — it used to only split once the accumulated buffer already held
+ * `minChars`, which silently merged consecutive SHORT clauses together (a one-sided rental
+ * agreement's clauses are often one-liners well under 120 chars) and dropped a short final
+ * clause entirely. `minChars` now only floors out genuinely trivial fragments (a stray
+ * heading with nothing under it), not legitimate short clauses.
+ */
+export function segmentContract(text, { minChars = 20, maxChars = 1800, maxSegments = 80 } = {}) {
   const lines = text.split(/\n+/).map((l) => l.trim()).filter(Boolean);
   const segments = [];
   let cur = "";
   const push = () => {
-    if (cur.trim().length >= minChars) segments.push(cur.trim());
+    const t = cur.trim();
+    if (t.length >= minChars) segments.push(t);
     cur = "";
   };
   for (const line of lines) {
     const startsClause = HEADING.test(line) && line.length < 200;
-    if ((startsClause && cur.length >= minChars) || cur.length + line.length > maxChars) push();
+    if ((startsClause && cur) || cur.length + line.length > maxChars) push();
     cur += (cur ? "\n" : "") + line;
   }
   push();

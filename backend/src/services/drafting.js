@@ -5,12 +5,24 @@ function renderTemplateString(str, vals, fieldSchema) {
   const usedFallback = new Set();
   const rendered = str.replace(/\{\{(\w+)\}\}/g, (_, key) => {
     const value = vals[key];
-    if (value !== undefined && value !== null && value !== "") return value;
-    const field = fieldSchema.find((f) => f.key === key);
+    if (value !== undefined && value !== null && String(value).trim() !== "") return value;
     usedFallback.add(key);
-    return field?.placeholder || `[${key}]`;
+    const field = fieldSchema.find((f) => f.key === key);
+    // NEVER substitute the UI's placeholder HINT text (e.g. "Recipient Name") as if it were
+    // real content — a reader skimming the rendered document could easily mistake it for an
+    // actual (wrong) name instead of an unfilled field. An unmistakable blank instead; the
+    // route layer blocks download outright while a *required* field is still like this
+    // (see missingRequiredFields below) — this fallback is reached only in a live preview.
+    return `[${(field?.label || key).toUpperCase()} — NOT FILLED IN]`;
   });
   return { rendered, usedFallback: [...usedFallback] };
+}
+
+/** @returns {string[]} labels of every required field still empty — blocks rendering a final document. */
+export function missingRequiredFields(fieldSchema, fieldValues) {
+  return (fieldSchema || [])
+    .filter((f) => f.required && !String(fieldValues?.[f.key] ?? "").trim())
+    .map((f) => f.label);
 }
 
 export function checkClauseGuards(selectedClauseIds, clauseLibrary, fieldValues) {

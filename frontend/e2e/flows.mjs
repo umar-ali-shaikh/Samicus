@@ -279,6 +279,55 @@ await flow("AI assistant: header 'Ask Vidhira' hand-off asks the question and sh
   const ask = calls.find((c) => c.key === "POST /legal-assistant/ask").body;
   assert.equal(ask.question, "Can my landlord keep my deposit?");
   assert.match(ask.sessionId, /^[0-9a-f-]{36}$/);
+
+  // Regression: asking a SECOND question from the header while ALREADY on #legalassistant
+  // (no tab change, so the screen never remounts) used to be silently dropped — the
+  // hand-off was set but nothing ever re-read it after the initial mount.
+  await page.getByPlaceholder("Ask Vidhira a legal question…").fill("What if the landlord deducted cleaning charges?");
+  await page.getByPlaceholder("Ask Vidhira a legal question…").press("Enter");
+  await text(page, "What if the landlord deducted cleaning charges?");
+  assert.equal(calls.filter((c) => c.key === "POST /legal-assistant/ask").length, 2, "the second header question must reach the API, not be dropped");
+});
+
+await flow("sign out clears every app key from storage (shared-device hygiene)", async () => {
+  const { page } = await newPage();
+  await page.goto(`${base}/#home`);
+  await text(page, "Hello, Meera");
+  // Simulate leftover state from this session (account selection, a persisted assistant
+  // chat session key) that must never survive into whoever uses this browser next.
+  await page.evaluate(() => {
+    localStorage.setItem("vidhira.account", "stale-account-id");
+    localStorage.setItem("legalAssistant.sessionId.some-user", "stale-session-id");
+    sessionStorage.setItem("whatever.else", "1");
+  });
+  await page.getByRole("button", { name: "Account menu" }).click();
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await text(page, "Welcome back");
+  const remaining = await page.evaluate(() => ({ local: localStorage.length, session: sessionStorage.length }));
+  assert.equal(remaining.local, 0, "localStorage must be fully cleared on sign-out");
+  assert.equal(remaining.session, 0, "sessionStorage must be fully cleared on sign-out");
+});
+
+await flow("case law search: empty search shows inline validation, and opening a result scrolls it into view", async () => {
+  const { page } = await newPage();
+  await page.goto(`${base}/#caselaw`);
+  await text(page, "Case law search");
+  await page.getByRole("button", { name: "Search", exact: true }).click();
+  await text(page, "Enter a search term");
+
+  await page.getByPlaceholder(/breach of contract/).fill("deposit dispute");
+  await page.getByRole("button", { name: "Search", exact: true }).click();
+  await text(page, "X vs Y");
+  await page.getByText("X vs Y").first().click();
+  await text(page, "Full judgment text");
+  // The opened judgment must be scrolled into view, not merely appended far below a long
+  // results list with nothing to show it changed.
+  await page.waitForFunction(() => {
+    const el = [...document.querySelectorAll("div")].find((d) => d.textContent?.includes("Full judgment text"));
+    if (!el) return false;
+    const r = el.getBoundingClientRect();
+    return r.top >= 0 && r.top < window.innerHeight;
+  }, null, { timeout: 6000 });
 });
 
 await flow("messages: send posts the trimmed body to the thread", async () => {

@@ -6,6 +6,7 @@ import { api } from "../lib/api";
 import { ModalShell } from "../components/Modal";
 import { Button, Callout, QueryBoundary } from "../components/ui";
 import { LiveConsult } from "../components/LiveConsult";
+import { NoAdvocatesFallback } from "../components/NoAdvocatesFallback";
 
 // Each urgent category maps to a practice area by name (the practice-area catalogue is seeded).
 const CATEGORIES = [
@@ -22,6 +23,9 @@ export function UrgentModal() {
   const [category, setCategory] = useState("");
   const [consent, setConsent] = useState(false);
   const [live, setLive] = useState(null);
+  const [validationError, setValidationError] = useState("");
+
+  const matchedArea = (areas.data || []).find((a) => a.name === CATEGORIES.find(([c]) => c === category)?.[1]);
 
   const start = useMut(async () => {
     const areaName = CATEGORIES.find(([c]) => c === category)?.[1];
@@ -54,10 +58,22 @@ export function UrgentModal() {
                 ))}
               </div>
               <label style={{ display: "flex", gap: 8, fontSize: 12.5, alignItems: "flex-start" }}>
-                <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} style={{ marginTop: 3 }} />
+                <input type="checkbox" checked={consent} onChange={(e) => { setConsent(e.target.checked); setValidationError(""); }} style={{ marginTop: 3 }} />
                 I consent to sharing this category with an available advocate after their conflict check clears.
               </label>
-              <Button variant="danger" onClick={() => start.mutate()} disabled={!category || !consent || start.isPending}>{start.isPending ? "Searching…" : "Find an advocate now"}</Button>
+              {validationError && <Callout tone="danger">{validationError}</Callout>}
+              <Button
+                variant="danger"
+                onClick={() => {
+                  if (!category) return setValidationError("Choose what's happening first.");
+                  if (!consent) return setValidationError("Please tick the consent box so an advocate can review your category.");
+                  setValidationError("");
+                  start.mutate();
+                }}
+                disabled={start.isPending}
+              >
+                {start.isPending ? "Searching…" : "Find an advocate now"}
+              </Button>
             </div>
           )}
         </QueryBoundary>
@@ -70,8 +86,7 @@ export function UrgentModal() {
       )}
       {phase === "none" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <Callout tone="warning">No advocate who accepts urgent requests is available for this category right now.</Callout>
-          <div style={{ fontSize: 13 }}>Free legal aid: National Legal Services Authority helpline <strong>15100</strong> (or your State Legal Services Authority). In danger, call <strong>112</strong>.</div>
+          <NoAdvocatesFallback accountId={activeAccount?.id} practiceAreaId={matchedArea?.id} title="No advocate who accepts urgent requests is available for this category right now" />
           <Button variant="outline" onClick={() => setPhase("category")}>Search again</Button>
         </div>
       )}

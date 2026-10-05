@@ -98,6 +98,17 @@ router.get("/advocates", async (req, res) => {
   );
 });
 
+// The honest fallback for a dead-end advocate search/match: real persistence (not a fake
+// "we'll notify you" promise), so a later batch job can actually act on it.
+router.post("/advocates/notify-when-available", requireAuth, async (req, res) => {
+  const { accountId, practiceAreaId } = req.body || {};
+  const { error } = await getSupabase()
+    .from("notify_requests")
+    .insert({ user_id: req.user.id, account_id: accountId || null, topic: "advocate_availability", practice_area_id: practiceAreaId || null });
+  if (error) throw error;
+  res.status(201).json({ ok: true });
+});
+
 router.get("/advocates/:id", async (req, res) => {
   const { data, error } = await getSupabase()
     .from("advocates")

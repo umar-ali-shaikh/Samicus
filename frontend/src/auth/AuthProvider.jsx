@@ -19,6 +19,16 @@ export function AuthProvider({ children }) {
   const statusRef = useRef(status);
   useEffect(() => { statusRef.current = status; }, [status]);
 
+  // Wipes every app key from both storages — not just Supabase's own auth token — so a
+  // second person signing in on the same shared device can never see the first person's
+  // chat history, active account, or anything else that was sitting in localStorage
+  // (e.g. legalAssistant.sessionId.<userId>, vidhira.account). Safe to call more than once.
+  const clearLocalData = useCallback(() => {
+    try { localStorage.clear(); } catch { /* storage unavailable */ }
+    try { sessionStorage.clear(); } catch { /* storage unavailable */ }
+    setActiveAccountIdState(null);
+  }, []);
+
   const setActiveAccountId = useCallback((id) => {
     setActiveAccountIdState(id);
     try {
@@ -72,6 +82,7 @@ export function AuthProvider({ children }) {
       if (event === "SIGNED_OUT") {
         setMe(null);
         qc.clear();
+        clearLocalData();
         setStatus((s) => (s === "unverified" ? s : "signed_out"));
         return;
       }
@@ -81,7 +92,7 @@ export function AuthProvider({ children }) {
       }
     });
     return () => { cancelled = true; sub.subscription.unsubscribe(); };
-  }, [loadMe, qc]);
+  }, [loadMe, qc, clearLocalData]);
 
   // The API reports a dead/unverified session on any call.
   useEffect(() => onAuthFailure((err) => {
@@ -144,10 +155,11 @@ export function AuthProvider({ children }) {
       setPendingEmail("");
       setStatus("signed_out");
       qc.clear();
+      clearLocalData();
     },
     refresh: loadMe,
-    backToSignIn() { setPendingEmail(""); supabase.auth.signOut().finally(() => setStatus("signed_out")); },
-  }), [loadMe, pendingEmail, qc, session]);
+    backToSignIn() { setPendingEmail(""); supabase.auth.signOut().finally(() => { setStatus("signed_out"); clearLocalData(); }); },
+  }), [loadMe, pendingEmail, qc, session, clearLocalData]);
 
   const accounts = useMemo(() => me?.accounts || [], [me]);
   const activeAccount = accounts.find((a) => a.id === activeAccountId) || accounts.find((a) => a.myRole === "owner") || accounts[0] || null;

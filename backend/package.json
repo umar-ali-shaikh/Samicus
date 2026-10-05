@@ -8,6 +8,7 @@
     "start": "node src/index.js",
     "seed": "node src/seed/seed.js",
     "seed:research-examples": "node src/seed/researchExamples.js",
+    "seed:demo-advocates": "node src/seed/demoAdvocates.js",
     "test": "node --experimental-test-module-mocks --test",
     "rag:reindex": "node src/utils/rag.js reindex",
     "rag:reembed-all": "node src/utils/rag.js reembed-all",

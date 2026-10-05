@@ -3,6 +3,7 @@ import { useUI } from "../state/UIState";
 import { useGet } from "../api/hooks";
 import { Card, Callout, VerifiedBadge, Button, Pill, QueryBoundary, EmptyState, AvatarTile } from "../components/ui";
 import { PageHeader } from "../components/PageHeader";
+import { NoAdvocatesFallback } from "../components/NoAdvocatesFallback";
 import { inr, initials, languageName, modeName } from "../lib/format";
 import { useAuth } from "../auth/AuthProvider";
 
@@ -46,6 +47,7 @@ export function Find() {
   const areas = useGet("/specialisations", undefined, { staleTime: 10 * 60 * 1000 });
   const advocates = useGet("/advocates", { q: q.trim() || undefined, issue: issue || undefined, available_today: availableOnly ? "true" : undefined });
   const canBook = user?.role !== "admin" && user?.role !== "founder";
+  const hasFilters = Boolean(q.trim() || issue || availableOnly);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
@@ -66,7 +68,16 @@ export function Find() {
         <button onClick={() => { setQ(""); setIssue(""); setAvailableOnly(false); }} style={{ background: "none", border: "none", color: "var(--color-rust)", cursor: "pointer", fontSize: 12.5 }}>Reset</button>
       </div>
 
-      <QueryBoundary query={advocates} empty={<EmptyState title="No advocates match" body="Try widening your filters. New advocates appear here as soon as their enrolment is verified." />}>
+      <QueryBoundary
+        query={advocates}
+        empty={
+          hasFilters ? (
+            <EmptyState title="No advocates match" body="Try widening or resetting your filters. New advocates appear here as soon as their enrolment is verified." />
+          ) : (
+            <NoAdvocatesFallback practiceAreaId={issue || undefined} />
+          )
+        }
+      >
         {(list) => (
           <>
             <div style={{ fontSize: 12, color: "var(--color-text-muted)" }}>{list.length} advocate{list.length === 1 ? "" : "s"} found</div>

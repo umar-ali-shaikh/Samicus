@@ -160,14 +160,24 @@ async function seedDraftingTemplates() {
     "doc_templates",
     { name: "Demand Notice" },
     {
-      category: "notice", name: "Demand Notice", jurisdiction: "India", version: 1, blurb: "A formal demand / cease-and-desist notice.", pages: 2,
+      category: "notice", name: "Demand Notice", jurisdiction: "India", version: 2, blurb: "A formal demand / cease-and-desist notice.", pages: 2,
+      // Written in the FIRST PERSON throughout ("I", "me") — this template is for someone
+      // drafting and sending the notice themselves, not an advocate writing on behalf of a
+      // client, so "our client" would be both wrong and confusing to read back.
       base_sections: [
+        { key: "sender", heading: "From", bodyTemplate: "From: {{senderName}}, {{senderAddress}}" },
+        { key: "date", heading: "Date", bodyTemplate: "Date: {{noticeDate}}" },
         { key: "recipient", heading: "To", bodyTemplate: "To: {{recipientName}}, {{recipientAddress}}" },
-        { key: "demand", heading: "Demand", bodyTemplate: "You are hereby called upon to {{demandAction}} within {{noticePeriodDays}} days of receipt of this notice, failing which our client shall be constrained to initiate appropriate legal proceedings without further notice." },
+        { key: "facts", heading: "Background", bodyTemplate: "{{factsReason}}" },
+        { key: "demand", heading: "Demand", bodyTemplate: "You are hereby called upon to {{demandAction}} within {{noticePeriodDays}} days of receipt of this notice, failing which I shall be constrained to initiate appropriate legal proceedings against you without further notice, entirely at your own risk as to costs and consequences." },
       ],
       field_schema: [
+        { key: "senderName", label: "Your name", placeholder: "Your Name", required: true },
+        { key: "senderAddress", label: "Your address", placeholder: "Your Address", wide: true, required: true },
+        { key: "noticeDate", label: "Date", placeholder: "1 October 2026", required: true },
         { key: "recipientName", label: "Recipient name", placeholder: "Recipient Name", required: true },
         { key: "recipientAddress", label: "Recipient address", placeholder: "Recipient Address", wide: true },
+        { key: "factsReason", label: "What happened (facts/reason for this notice)", placeholder: "Briefly describe what happened and why you are sending this notice", wide: true, required: true },
         { key: "demandAction", label: "Demand", placeholder: "pay the outstanding amount of Rs. 1,00,000", wide: true, required: true },
         { key: "noticePeriodDays", label: "Notice period (days)", placeholder: "15" },
       ],
@@ -175,7 +185,7 @@ async function seedDraftingTemplates() {
     }
   );
   await replaceChildren("clause_library", "template_id", notice.id, [
-    { template_id: notice.id, title: "Reservation of rights", body_template: "This notice is issued without prejudice to any other right or remedy available to our client under law.", rationale_note: "Standard boilerplate protecting the sender's other legal options.", disposition: "recommended", risk_side: "mutual", favors: "balanced", requires_fields: [] },
+    { template_id: notice.id, title: "Reservation of rights", body_template: "This notice is issued without prejudice to any other right or remedy available to me under law.", rationale_note: "Standard boilerplate protecting the sender's other legal options.", disposition: "recommended", risk_side: "mutual", favors: "balanced", requires_fields: [] },
   ]);
 
   return { rental, employment, nda, notice };

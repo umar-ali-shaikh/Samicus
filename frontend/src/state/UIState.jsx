@@ -1,4 +1,5 @@
 ﻿import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useAuth } from "../auth/AuthProvider";
 
 const UIContext = createContext(null);
 
@@ -8,6 +9,7 @@ function readHash() {
 }
 
 export function UIProvider({ children }) {
+  const { status } = useAuth();
   const [route, setRoute] = useState(readHash);
   const [modal, setModal] = useState(null); // { name, props }
   const [toast, setToast] = useState("");
@@ -32,6 +34,21 @@ export function UIProvider({ children }) {
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
 
+  // This provider sits ABOVE the signed-in/signed-out switch (see App.jsx), so it never
+  // unmounts across a sign-out/sign-in cycle — without this, a second person signing in on
+  // the same shared device would see the first person's AI Legal Assistant conversation
+  // and research search box still sitting here in memory, even after localStorage was wiped.
+  useEffect(() => {
+    if (status !== "signed_out") return;
+    setAssistantTurns([]);
+    setAssistantSessionId(null);
+    setResearchQuestion("");
+    setHandoff({});
+    setModal(null);
+    setLang("en");
+    setActAsClientState(false);
+  }, [status]);
+
   const go = useCallback((tab, param = "", data) => {
     if (data) setHandoff((h) => ({ ...h, [tab]: data }));
     const next = `#${tab}${param ? `/${param}` : ""}`;
@@ -50,8 +67,14 @@ export function UIProvider({ children }) {
     tab: route.tab, param: route.param, go,
     modal, openModal: (name, props = {}) => setModal({ name, props }), closeModal: () => setModal(null),
     toast, showToast,
-    lang, toggleLang: () => setLang((l) => { const n = l === "en" ? "hi" : "en"; try { localStorage.setItem("vidhira.lang", n); } catch { /* ignore */ } return n; }),
+    // "lang" picks which of the (currently bilingual) situation labels show — "hi" shows
+    // label_hi, everything else shows label_en (honest: there's no Hinglish/Marathi/Urdu
+    // translation of that data yet, so those codes fall back to English rather than
+    // faking a translation). setLang replaces the old two-way EN/HI-only toggle with a
+    // real 5-option menu (see Shell.jsx's LanguageMenu).
+    lang, setLang: (code) => { setLang(code); try { localStorage.setItem("vidhira.lang", code); } catch { /* ignore */ } },
     actAsClient, setActAsClient: (v) => { setActAsClientState(v); try { localStorage.setItem("vidhira.asClient", v ? "1" : "0"); } catch { /* ignore */ } },
+    handoff,
     takeHandoff: (tab) => { const d = handoff[tab]; if (d) setHandoff((h) => { const { [tab]: _, ...rest } = h; return rest; }); return d; },
     assistantTurns, setAssistantTurns, assistantSessionId, setAssistantSessionId,
     researchQuestion, setResearchQuestion,

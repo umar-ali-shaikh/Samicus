@@ -7,6 +7,7 @@ import { Card, Button, Callout } from "../components/ui";
 import { PageHeader } from "../components/PageHeader";
 import { Select, TextArea } from "../components/forms";
 import { LiveConsult } from "../components/LiveConsult";
+import { NoAdvocatesFallback } from "../components/NoAdvocatesFallback";
 import { LANGUAGES, STATES } from "../lib/format";
 
 export function TalkNow() {
@@ -15,6 +16,7 @@ export function TalkNow() {
   const situations = useGet("/situations", undefined, { staleTime: 3600000 });
   const [form, setForm] = useState({ description: "", situationId: "", urgency: "today", mode: "video", language: "en", state: "", consent: false });
   const [live, setLive] = useState(null); // { intakeId, startedAt }
+  const [validationError, setValidationError] = useState("");
   const patch = (p) => setForm((f) => ({ ...f, ...p }));
 
   const start = useMut(async () => {
@@ -29,7 +31,16 @@ export function TalkNow() {
   }, { onSuccess: ({ intake, count }) => setLive({ intakeId: intake.id, startedAt: Date.now(), count }) });
 
   const none = start.data && start.data.count === 0;
-  const ready = form.description.trim().length >= 10 && form.situationId && form.consent;
+  const situationPracticeAreaId = (situations.data || []).find((s) => s.id === form.situationId)?.mapped_practice_area?.id;
+
+  function onSubmit() {
+    if (form.description.trim().length < 10) return setValidationError("Describe the issue in at least a few words (10+ characters).");
+    if (!form.situationId) return setValidationError("Choose the issue type that's closest to your situation.");
+    if (!form.consent) return setValidationError("Please tick the consent box so an advocate can review your issue.");
+    setValidationError("");
+    setLive(null);
+    start.mutate();
+  }
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -47,12 +58,13 @@ export function TalkNow() {
             <Select label="Language" value={form.language} onChange={(e) => patch({ language: e.target.value })} options={LANGUAGES} />
             <Select label="State (optional)" value={form.state} onChange={(e) => patch({ state: e.target.value })} placeholder="Any" options={STATES} />
           </div>
-          {none && <Callout tone="warning">No verified advocate is currently available for those preferences. Try another language or mode, or <a href="#find">browse advocates</a> to book a slot.</Callout>}
+          {none && <NoAdvocatesFallback accountId={activeAccount?.id} practiceAreaId={situationPracticeAreaId} title="No verified advocate is currently available for those preferences" />}
           <label style={{ display: "flex", gap: 8, fontSize: 13, alignItems: "flex-start" }}>
-            <input type="checkbox" checked={form.consent} onChange={(e) => patch({ consent: e.target.checked })} style={{ marginTop: 3 }} />
+            <input type="checkbox" checked={form.consent} onChange={(e) => { patch({ consent: e.target.checked }); setValidationError(""); }} style={{ marginTop: 3 }} />
             I consent to sharing my described issue with the advocate who accepts, after their conflict check clears.
           </label>
-          <Button onClick={() => { setLive(null); start.mutate(); }} disabled={!ready || start.isPending}>{start.isPending ? "Finding advocates…" : "Find an available advocate"}</Button>
+          {validationError && <Callout tone="danger">{validationError}</Callout>}
+          <Button onClick={onSubmit} disabled={start.isPending}>{start.isPending ? "Finding advocates…" : "Find an available advocate"}</Button>
           <div style={{ fontSize: 11.5, color: "var(--color-label)" }}>The advocate's fee is shown before you pay or join.</div>
         </Card>
       )}

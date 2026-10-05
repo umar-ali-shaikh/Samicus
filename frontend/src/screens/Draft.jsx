@@ -60,6 +60,7 @@ function Editor({ templateId, draft, onBack }) {
   const t = template.data?.template;
   const clauses = template.data?.clauses || [];
   const commit = (patch) => save.mutate(patch);
+  const missingFields = (t?.field_schema || []).filter((f) => f.required && !String(fields[f.key] || "").trim()).map((f) => f.label);
 
   if (template.isPending) return <Loading />;
   if (template.isError) return <Callout tone="danger">{template.error.message}</Callout>;
@@ -78,7 +79,8 @@ function Editor({ templateId, draft, onBack }) {
             {(t.field_schema || []).map((f) => (
               <TextInput key={f.key} label={f.label + (f.required ? " *" : "")} placeholder={f.placeholder} value={fields[f.key] || ""} onChange={(e) => setFields({ ...fields, [f.key]: e.target.value })} onBlur={() => commit({ fieldValues: fields })} />
             ))}
-            <Button onClick={() => { commit({ fieldValues: fields }); setStep(3); }}>Continue</Button>
+            {missingFields.length > 0 && <Callout tone="danger">Required (marked *): {missingFields.join(", ")}.</Callout>}
+            <Button onClick={() => { commit({ fieldValues: fields }); setStep(3); }} disabled={missingFields.length > 0}>Continue</Button>
           </div>
         )}
 
@@ -107,9 +109,15 @@ function Editor({ templateId, draft, onBack }) {
         {step === 4 && (
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             <Callout tone="warning">This is a standard draft, not legal advice, until reviewed by a named verified advocate. {t.stamp_duty_note}</Callout>
+            {missingFields.length > 0 && (
+              <Callout tone="danger">
+                Fill in the required fields before downloading: {missingFields.join(", ")}.{" "}
+                <button onClick={() => setStep(2)} style={{ all: "unset", cursor: "pointer", fontWeight: 700, textDecoration: "underline" }}>Go back to Your details</button>
+              </Callout>
+            )}
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              <Button onClick={() => download.mutate("docx")} disabled={download.isPending}>Download DOCX</Button>
-              <Button variant="outline" onClick={() => download.mutate("pdf")} disabled={download.isPending}>Download PDF</Button>
+              <Button onClick={() => download.mutate("docx")} disabled={download.isPending || missingFields.length > 0}>Download DOCX</Button>
+              <Button variant="outline" onClick={() => download.mutate("pdf")} disabled={download.isPending || missingFields.length > 0}>Download PDF</Button>
             </div>
             <Card style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               <div style={{ fontWeight: 700 }}>Advocate review · {inr(t.review_fee)} + fees</div>

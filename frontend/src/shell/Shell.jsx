@@ -11,6 +11,59 @@ import { initials } from "../lib/format";
 
 const ROLE_CAPTION = { client: "Client", lawyer: "Advocate", admin: "Trust & verification", founder: "Founder" };
 
+const LANGUAGE_OPTIONS = [
+  ["en", "EN", "English"],
+  ["hi", "हिं", "हिंदी"],
+  ["hinglish", "Hgl", "Hinglish"],
+  ["mr", "मरा", "मराठी"],
+  ["ur", "اردو", "اردو"],
+];
+
+// Replaces the old silent EN/हिं-only toggle with a real 5-option menu. Only Hindi has an
+// actual translated data source today (situations.label_hi) — picking Hinglish/Marathi/Urdu
+// is honest about that: content shown in English rather than faking a translation that
+// doesn't exist yet, same posture the rest of the app takes toward not inventing content.
+function LanguageMenu() {
+  const { lang, setLang } = useUI();
+  const [open, setOpen] = useState(false);
+  const current = LANGUAGE_OPTIONS.find(([code]) => code === lang) || LANGUAGE_OPTIONS[0];
+  return (
+    <div style={{ position: "relative" }}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        title="Language for situation labels"
+        aria-label="Language"
+        aria-haspopup="true"
+        aria-expanded={open}
+        style={{ background: "#182338", border: "1px solid #2A3854", borderRadius: 9, padding: "7px 12px", fontSize: 12, fontWeight: 600, color: "#F6F1E8", cursor: "pointer", minWidth: 44, minHeight: 36 }}
+      >
+        {current[1]}
+      </button>
+      {open && (
+        <>
+          <div onClick={() => setOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 49 }} />
+          <div role="menu" style={{ position: "absolute", top: "calc(100% + 8px)", right: 0, zIndex: 50, background: "#fff", color: "var(--color-text)", borderRadius: 12, border: "1px solid var(--color-border)", boxShadow: "0 12px 32px rgba(10,16,28,.25)", padding: 6, minWidth: 160 }}>
+            {LANGUAGE_OPTIONS.map(([code, , label]) => (
+              <button
+                key={code}
+                role="menuitemradio"
+                aria-checked={lang === code}
+                onClick={() => { setLang(code); setOpen(false); }}
+                style={{
+                  display: "block", width: "100%", textAlign: "left", padding: "10px 12px", minHeight: 44, borderRadius: 8, border: "none",
+                  background: lang === code ? "#F1EFE6" : "transparent", fontWeight: lang === code ? 700 : 500, fontSize: 13.5, cursor: "pointer",
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function ProfileMenu() {
   const { user, signOut } = useAuth();
   const { actAsClient } = useUI();
@@ -40,7 +93,7 @@ function ProfileMenu() {
 
 function TopBar() {
   const { user } = useAuth();
-  const { lang, toggleLang, actAsClient, go } = useUI();
+  const { actAsClient, go } = useUI();
   const isMobile = useIsMobile();
   const view = viewFor(user, actAsClient);
   return (
@@ -57,9 +110,7 @@ function TopBar() {
         />
       )}
       <div style={{ display: "flex", gap: 10, alignItems: "center", flex: "none" }}>
-        <button onClick={toggleLang} title="Language for situation labels" style={{ background: "#182338", border: "1px solid #2A3854", borderRadius: 9, padding: "7px 12px", fontSize: 12, fontWeight: 600, color: "#F6F1E8", cursor: "pointer" }}>
-          {lang === "en" ? "EN" : "हिं"}
-        </button>
+        <LanguageMenu />
         <ProfileMenu />
       </div>
     </div>

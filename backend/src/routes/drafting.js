@@ -2,7 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { getSupabase } from "../config/db.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
-import { assembleDraft, checkClauseGuards } from "../services/drafting.js";
+import { assembleDraft, checkClauseGuards, missingRequiredFields } from "../services/drafting.js";
 import { renderDocx, renderPdf } from "../services/draftRender.js";
 import { HttpError, advocateForUser, assertAccountMember, defaultAccountId, memberAccountIds } from "../services/access.js";
 
@@ -146,14 +146,17 @@ async function assemble(draftId) {
 // Server-authoritative rendering: same inputs always assemble identically (pinned template version).
 router.post("/drafts/:id/preview", requireAuth, async (req, res) => {
   await loadOwnDraft(req.user, req.params.id, "id, account_id");
-  const { assembled } = await assemble(req.params.id);
-  res.json(assembled);
+  const { draft, assembled } = await assemble(req.params.id);
+  const missing = missingRequiredFields(draft.template.field_schema, draft.field_values);
+  res.json({ ...assembled, missingRequiredFields: missing });
 });
 
 router.get("/drafts/:id/download", requireAuth, async (req, res) => {
   const format = req.query.format === "pdf" ? "pdf" : "docx";
   await loadOwnDraft(req.user, req.params.id, "id, account_id");
   const { draft, assembled } = await assemble(req.params.id);
+  const missing = missingRequiredFields(draft.template.field_schema, draft.field_values);
+  if (missing.length > 0) throw new HttpError(422, `Fill in the required fields before downloading: ${missing.join(", ")}.`);
   const title = draft.template.name;
   const buffer = format === "pdf" ? await renderPdf({ title, blocks: assembled.blocks }) : await renderDocx({ title, blocks: assembled.blocks });
 

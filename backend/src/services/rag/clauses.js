@@ -54,7 +54,12 @@ export async function ensureClauseIndex() {
  * Nearest baseline clause for each segment.
  * @returns {Promise<({ clauseId: string, score: number, title: string, body: string, rationale: string|null, favors: string, disposition: string }|null)[]>}
  */
-export async function matchBaselineClauses(segments, category, { threshold = 0.6 } = {}) {
+// 0.6 was dropping clearly-on-topic clauses that merely used different wording than the
+// library's own baseline phrasing (a one-sided clause in particular often reads nothing
+// like the balanced version it should be compared to) — lowered so more uploaded clauses
+// actually get compared instead of silently falling through to "not assessed". Red flags
+// (see contractReview.js's RED_FLAG_RULES) are checked independently of this threshold.
+export async function matchBaselineClauses(segments, category, { threshold = 0.45 } = {}) {
   if (!ragEnabled()) return segments.map(() => null);
   const vectors = await embedMany(segments, "RETRIEVAL_QUERY");
   const out = [];

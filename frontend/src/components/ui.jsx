@@ -1,9 +1,14 @@
 ﻿// Shared, inline-styled UI primitives matching the Vidhira/Vidhira/Command Centre design
 // language: Newsreader serif headings, Public Sans body, generous radii, cream/navy palette.
+import { forwardRef } from "react";
 
-export function Card({ children, style, ...rest }) {
+// forwardRef so callers can scrollIntoView/measure a Card directly (e.g. jumping to a
+// cited case, or a newly-opened judgment) — a plain function component silently drops a
+// `ref` prop passed to it, which left those scroll targets pointing at nothing.
+export const Card = forwardRef(function Card({ children, style, ...rest }, ref) {
   return (
     <div
+      ref={ref}
       style={{
         background: "var(--color-white)",
         border: "1px solid var(--color-border)",
@@ -16,7 +21,7 @@ export function Card({ children, style, ...rest }) {
       {children}
     </div>
   );
-}
+});
 
 export function Callout({ tone = "neutral", title, children, style }) {
   const tones = {

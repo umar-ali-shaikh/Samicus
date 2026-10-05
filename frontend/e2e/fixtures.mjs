@@ -114,6 +114,7 @@ export function handle(method, path, persona, body) {
   if (p === "/research/retrieve") return { retrievalId: uuid(130), threshold: 0.55, chunks: [{ chunkId: uuid(131), score: 0.78, kept: true, text: "Agreement in restraint of trade is void.", paragraphClass: "reasoning", documentTitle: "Golikari v Century", source: "supreme_court", url: "https://indiankanoon.org/doc/1/" }, { chunkId: uuid(132), score: 0.4, kept: false, text: "Unrelated.", paragraphClass: "facts", documentTitle: "Other", source: "high_court" }] };
   if (p === "/research/answer") return { outcome: "answered", segments: [{ chunkId: uuid(131), text: "Agreement in restraint of trade is void.", documentTitle: "Golikari v Century", score: 0.78 }], discardedCount: 1 };
   if (p === "/case-law/search") return { found: 1, docs: [{ tid: 1, title: "X vs Y", headline: "<b>deposit</b> dispute", docsource: "Delhi High Court" }] };
+  if (m(/^\/case-law\/\d+$/)) return { title: "X vs Y", doc: '<p>Full judgment text. See also <a href="/doc/2/">related case</a>.</p>', citeList: [] };
 
   // advocate
   if (p === "/advocate/requests") return [{ id: IDS.intake, practice_area: area, kind: "instant", urgency: "today", mode: "video", language: "en", city: "Pune", state: "Maharashtra", created_at: iso(-300000), conflict_status: "pending" }];

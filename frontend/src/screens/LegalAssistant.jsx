@@ -694,7 +694,7 @@ function VoiceInputButton({ onResult }) {
 
 export function LegalAssistant() {
   const { user } = useAuth();
-  const { takeHandoff, assistantTurns: turns, setAssistantTurns: setTurns, assistantSessionId, setAssistantSessionId } = useUI();
+  const { handoff, takeHandoff, assistantTurns: turns, setAssistantTurns: setTurns, assistantSessionId, setAssistantSessionId } = useUI();
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -714,11 +714,19 @@ export function LegalAssistant() {
         setTurns(persisted.map((t) => ({ id: crypto.randomUUID(), question: t.question, result: t.result })));
       })
       .catch(() => {}); // best-effort rehydrate — a failed fetch just starts a fresh-looking session
-    // A question typed into the header's "Ask Vidhira" box arrives here as a one-shot hand-off.
-    const handoff = takeHandoff("legalassistant");
-    if (handoff?.question) ask(handoff.question);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // A question typed into the header's "Ask Vidhira" box arrives here as a one-shot
+  // hand-off. This used to live in the mount-only effect above, which meant it was only
+  // ever read once — if the user was ALREADY on this screen and asked a second question
+  // from the header, `go()` set the hand-off but nothing re-read it, silently dropping the
+  // question. Watching `handoff.legalassistant` directly means a new hand-off is picked up
+  // every time, mounted or not.
+  useEffect(() => {
+    if (handoff?.legalassistant?.question) ask(takeHandoff("legalassistant").question);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [handoff?.legalassistant]);
 
   function newConversation() {
     sessionIdRef.current = getOrCreateSessionId(user.id, { fresh: true });

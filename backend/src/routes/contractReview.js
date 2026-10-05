@@ -5,7 +5,7 @@ import { getSupabase } from "../config/db.js";
 import { requireAuth } from "../middleware/auth.js";
 import { HttpError, assertAccountMember, memberAccountIds } from "../services/access.js";
 import { extractDocumentText, segmentContract } from "../services/docText.js";
-import { judgeClauses } from "../services/contractReview.js";
+import { detectRedFlags, judgeClauses } from "../services/contractReview.js";
 import { matchBaselineClauses } from "../services/rag/clauses.js";
 import { ragEnabled } from "../services/rag/ingest.js";
 import { getObject } from "../services/storage.js";
@@ -49,10 +49,12 @@ router.post("/contract-reviews", requireAuth, async (req, res) => {
   if (segments.length === 0) throw new HttpError(422, "No clauses could be identified in this document.");
 
   const matches = await matchBaselineClauses(segments, template.category);
+  const redFlagsBySegment = segments.map((seg) => detectRedFlags(seg));
   const matched = segments.map((seg, i) => ({ index: i, text: seg, match: matches[i] })).filter((m) => m.match);
 
   const judgements = await judgeClauses(matched.map((m) => ({ index: m.index, text: m.text, baseline: m.match })));
   const unmatched = segments.length - matched.length;
+  const redFlagCount = redFlagsBySegment.filter((f) => f.length > 0).length;
 
   const { data: review, error } = await supabase
     .from("contract_reviews")
@@ -64,35 +66,46 @@ router.post("/contract-reviews", requireAuth, async (req, res) => {
       clauses_identified: segments.length,
       status: "done",
       notes: [
-        `${matched.length} of ${segments.length} clauses were compared against the balanced baseline; ${unmatched} had no close baseline clause and were not assessed.`,
+        `${matched.length} of ${segments.length} clauses were compared against the balanced baseline; ${unmatched} had no close baseline clause and are listed as not assessed.`,
         judgements === null ? "Automatic comparison was unavailable, so matched clauses are listed without a verdict." : null,
+        redFlagCount > 0 ? `${redFlagCount} clause${redFlagCount === 1 ? "" : "s"} matched a known one-sided pattern and ${redFlagCount === 1 ? "was" : "were"} flagged automatically.` : null,
       ].filter(Boolean).join(" "),
     })
     .select()
     .single();
   if (error) throw error;
 
-  const findings = matched.map((m, position) => {
-    const j = judgements?.get(m.index);
+  // Every identified clause gets a finding row — including ones with no close baseline
+  // match — so "All"/"Not assessed" in the UI actually lists them instead of showing
+  // nothing just because nothing happened to clear the similarity threshold. Red flags are
+  // checked on every segment regardless of whether it matched a baseline, and always win:
+  // a pattern this one-sided is never softened by a milder (or missing) AI verdict.
+  const findings = segments.map((text, index) => {
+    const match = matches[index];
+    const flags = redFlagsBySegment[index];
+    const j = match ? judgements?.get(index) : null;
+    const flagged = flags.length > 0;
     return {
       contract_review_id: review.id,
-      position,
-      clause_type: m.match.title,
-      clause_ref: `Clause ${m.index + 1}`,
-      extracted_text: m.text,
-      library_entry_id: m.match.clauseId,
-      favors: j?.favors ?? null,
-      deviation_note: j?.deviation ?? `Matched to the baseline “${m.match.title}”. An automatic comparison was not available for this clause.`,
-      recommended_ask: j?.ask ?? null,
-      why_it_matters: j?.whyItMatters ?? null,
+      position: index,
+      clause_type: match ? match.title : flags[0]?.title || "Unclassified clause",
+      clause_ref: `Clause ${index + 1}`,
+      extracted_text: text,
+      library_entry_id: match ? match.clauseId : null,
+      favors: flagged ? "counterparty" : j?.favors ?? null,
+      deviation_note: flagged
+        ? flags.map((f) => f.note).join(" ")
+        : match
+          ? j?.deviation ?? `Matched to the baseline “${match.title}”. An automatic comparison was not available for this clause.`
+          : "No close baseline clause was found for this text — not automatically assessed. Consider having an advocate review it directly.",
+      recommended_ask: flagged ? "Ask for this clause to be removed or rebalanced before signing." : j?.ask ?? null,
+      why_it_matters: flagged ? flags.map((f) => f.whyItMatters).join(" ") : j?.whyItMatters ?? null,
       authority_citation: null,
-      similarity: Math.round(m.match.score * 1000) / 1000,
+      similarity: match ? Math.round(match.score * 1000) / 1000 : null,
     };
   });
-  if (findings.length > 0) {
-    const { error: findingsError } = await supabase.from("contract_review_findings").insert(findings);
-    if (findingsError) throw findingsError;
-  }
+  const { error: findingsError } = await supabase.from("contract_review_findings").insert(findings);
+  if (findingsError) throw findingsError;
   res.status(201).json({ ...review, findings });
 });
 
