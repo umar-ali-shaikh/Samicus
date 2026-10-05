@@ -12,24 +12,27 @@ export function createFakeSupabase({ tables = {}, defaults = {}, unique = {}, em
   const db = Object.fromEntries(Object.entries(tables).map(([k, v]) => [k, v.map((r) => ({ ...r }))]));
   const table = (name) => (db[name] ||= []);
 
+  function matchOne(row, f) {
+    const v = row[f.col];
+    switch (f.op) {
+      case "eq": return v === f.val;
+      case "neq": return v !== f.val;
+      case "in": return f.val.includes(v);
+      case "is": return f.val === null ? v === null || v === undefined : v === f.val;
+      case "notis": return f.val === null ? v !== null && v !== undefined : v !== f.val;
+      case "notin": return !f.val.includes(v);
+      case "ilike": return typeof v === "string" && new RegExp(`^${f.val.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/%/g, ".*").replace(/_/g, ".")}$`, "i").test(v);
+      case "gte": return v >= f.val;
+      case "lte": return v <= f.val;
+      case "lt": return v < f.val;
+      case "contains": return Array.isArray(v) && f.val.every((x) => v.includes(x));
+      case "or": return f.val.some((sub) => matchOne(row, sub));
+      default: throw new Error(`fake supabase: unsupported op ${f.op}`);
+    }
+  }
+
   function matches(row, filters) {
-    return filters.every((f) => {
-      const v = row[f.col];
-      switch (f.op) {
-        case "eq": return v === f.val;
-        case "neq": return v !== f.val;
-        case "in": return f.val.includes(v);
-        case "is": return f.val === null ? v === null || v === undefined : v === f.val;
-        case "notis": return f.val === null ? v !== null && v !== undefined : v !== f.val;
-        case "notin": return !f.val.includes(v);
-        case "ilike": return typeof v === "string" && new RegExp(`^${f.val.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/%/g, ".*").replace(/_/g, ".")}$`, "i").test(v);
-        case "gte": return v >= f.val;
-        case "lte": return v <= f.val;
-        case "lt": return v < f.val;
-        case "contains": return Array.isArray(v) && f.val.every((x) => v.includes(x));
-        default: throw new Error(`fake supabase: unsupported op ${f.op}`);
-      }
-    });
+    return filters.every((f) => matchOne(row, f));
   }
 
   function splitTopLevel(str) {
@@ -85,6 +88,16 @@ export function createFakeSupabase({ tables = {}, defaults = {}, unique = {}, em
       lte: (col, val) => (state.filters.push({ col, op: "lte", val }), api),
       lt: (col, val) => (state.filters.push({ col, op: "lt", val }), api),
       contains: (col, val) => (state.filters.push({ col, op: "contains", val }), api),
+      // Supabase's `.or("col1.op1.val1,col2.op2.val2")` — only the subset this test double
+      // actually needs (comma-separated col.op.value clauses, no nested and()/or()).
+      or: (filterStr) => {
+        const sub = filterStr.split(",").map((clause) => {
+          const [col, op, ...rest] = clause.split(".");
+          return { col, op, val: rest.join(".") };
+        });
+        state.filters.push({ op: "or", val: sub });
+        return api;
+      },
       order: (col, o = {}) => ((state.order = { col, asc: o.ascending !== false }), api),
       limit: (n) => ((state.limit = n), api),
       single: () => ((state.single = "single"), api),

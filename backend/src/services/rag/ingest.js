@@ -19,7 +19,7 @@ function indianKanoonUrl(tid) {
   return `https://indiankanoon.org/doc/${tid}/`;
 }
 
-async function embedAndStore(chunks, doc) {
+export async function embedAndStore(chunks, doc) {
   const vectors = await embedMany(chunks.map((c) => c.text), "RETRIEVAL_DOCUMENT");
   await ensureCollection(legalCollection(), PAYLOAD_INDEXES);
   await upsertPoints(

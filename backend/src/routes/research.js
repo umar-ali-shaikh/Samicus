@@ -23,6 +23,28 @@ function deriveTitle(text) {
   return t.length > TITLE_MAX ? `${t.slice(0, TITLE_MAX - 1)}…` : t;
 }
 
+// Same normalization the de-dupe migration backfilled existing rows with — lowercase,
+// trimmed, punctuation stripped — so "Kesavananda Bharati v. State of Kerala?" and
+// "kesavananda bharati v state of kerala" collapse onto the same "My Research" card.
+function normalizeQueryText(text) {
+  return text.trim().toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ");
+}
+
+/** Deletes a query's old retrieval/answer rows so a re-run can rebuild them in place. */
+async function clearPriorAnswer(supabase, queryId) {
+  const { error: chunksError } = await supabase.from("research_query_chunks").delete().eq("query_id", queryId);
+  if (chunksError) throw chunksError;
+  const { data: oldAnswers, error: oldAnswersError } = await supabase.from("research_answers").select("id").eq("query_id", queryId);
+  if (oldAnswersError) throw oldAnswersError;
+  const oldAnswerIds = (oldAnswers || []).map((a) => a.id);
+  if (oldAnswerIds.length > 0) {
+    const { error: segError } = await supabase.from("research_answer_segments").delete().in("research_answer_id", oldAnswerIds);
+    if (segError) throw segError;
+    const { error: ansError } = await supabase.from("research_answers").delete().in("id", oldAnswerIds);
+    if (ansError) throw ansError;
+  }
+}
+
 /** Loads a research_queries row the caller may see, or throws a 404 (never a 403 — ids aren't probeable). */
 async function loadOwnedQuery(req, id) {
   const { data: query, error } = await getSupabase().from("research_queries").select("*").eq("id", id).maybeSingle();
@@ -87,23 +109,59 @@ router.post("/research/retrieve", requireAuth, async (req, res) => {
   const accountId = req.body.accountId || (await defaultAccountId(req.user.id));
   await assertAccountMember(req.user.id, accountId);
   const threshold = relevanceThreshold();
-  const [scored, locale] = await Promise.all([retrieve(text, { sourcesEnabled }), detectLanguage(text)]);
+  const normalizedText = normalizeQueryText(text);
+  const [{ fetchedNewSources, results: scored }, locale] = await Promise.all([retrieve(text, { sourcesEnabled }), detectLanguage(text)]);
+  const outcome = scored.some((s) => s.score >= threshold) ? "answered" : "not_found";
 
-  const { data: query, error } = await supabase
+  // Re-running the exact same question (ignoring case/punctuation) updates the existing
+  // "My Research" card in place — new timestamp, a bumped re-run count — instead of piling
+  // up another copy of it.
+  const { data: existing, error: existingError } = await supabase
     .from("research_queries")
-    .insert({
-      account_id: accountId,
-      text,
-      title: deriveTitle(text),
-      locale,
-      sources_enabled: sourcesEnabled || [],
-      threshold,
-      model_version: MODEL_VERSION,
-      outcome: scored.some((s) => s.score >= threshold) ? "answered" : "not_found",
-    })
-    .select()
-    .single();
-  if (error) throw error;
+    .select("*")
+    .eq("account_id", accountId)
+    .eq("normalized_text", normalizedText)
+    .is("superseded_by", null)
+    .maybeSingle();
+  if (existingError) throw existingError;
+
+  let query;
+  if (existing) {
+    await clearPriorAnswer(supabase, existing.id);
+    const { data: updated, error: updateError } = await supabase
+      .from("research_queries")
+      .update({
+        locale,
+        sources_enabled: sourcesEnabled || [],
+        threshold,
+        model_version: MODEL_VERSION,
+        outcome,
+        rerun_count: (existing.rerun_count || 1) + 1,
+      })
+      .eq("id", existing.id)
+      .select()
+      .single();
+    if (updateError) throw updateError;
+    query = updated;
+  } else {
+    const { data: inserted, error } = await supabase
+      .from("research_queries")
+      .insert({
+        account_id: accountId,
+        text,
+        normalized_text: normalizedText,
+        title: deriveTitle(text),
+        locale,
+        sources_enabled: sourcesEnabled || [],
+        threshold,
+        model_version: MODEL_VERSION,
+        outcome,
+      })
+      .select()
+      .single();
+    if (error) throw error;
+    query = inserted;
+  }
 
   if (scored.length > 0) {
     const { error: chunksError } = await supabase
@@ -115,6 +173,7 @@ router.post("/research/retrieve", requireAuth, async (req, res) => {
   res.json({
     retrievalId: query.id,
     threshold,
+    fetchedNewSources,
     chunks: scored.map((s) => ({
       chunkId: s.chunk.id,
       score: s.score,
@@ -268,9 +327,9 @@ router.get("/research/queries", requireAuth, async (req, res) => {
 
   let q = supabase
     .from("research_queries")
-    .select("id, title, text, outcome, pinned_at, tags, locale, created_at")
+    .select("id, title, text, outcome, pinned_at, tags, locale, created_at, updated_at, rerun_count")
     .is("superseded_by", null)
-    .order("created_at", { ascending: false })
+    .order("updated_at", { ascending: false })
     .limit(100);
   if (accountId) q = q.eq("account_id", accountId);
   if (req.query.pinned === "true") q = q.not("pinned_at", "is", null);
@@ -279,23 +338,60 @@ router.get("/research/queries", requireAuth, async (req, res) => {
   const { data: queries, error } = await q;
   if (error) throw error;
 
-  const ids = queries.map((r) => r.id);
+  // caseCount/topCourt must reflect the actual answer actually shown for this query — NOT
+  // every candidate research_query_chunks happened to retrieve (that list includes
+  // below-threshold, uncitable passages kept around only so the UI can show what was
+  // dropped). Reading research_answer_segments instead means a "No match" query can never
+  // also claim "N cases", and the court shown is the one the report actually cites.
+  const answeredIds = queries.filter((r) => r.outcome !== "not_found").map((r) => r.id);
   const caseCount = {};
-  const topCourt = {};
-  if (ids.length > 0) {
-    const { data: chunkRows, error: chunkError } = await supabase
-      .from("research_query_chunks")
-      .select("query_id, score, chunk:corpus_chunks(document:corpus_documents(court))")
-      .in("query_id", ids)
-      .order("score", { ascending: false });
-    if (chunkError) throw chunkError;
-    for (const row of chunkRows) {
-      caseCount[row.query_id] = (caseCount[row.query_id] || 0) + 1;
-      if (!topCourt[row.query_id] && row.chunk?.document?.court) topCourt[row.query_id] = row.chunk.document.court;
+  const courtCounts = {};
+  if (answeredIds.length > 0) {
+    const { data: answers, error: answersError } = await supabase
+      .from("research_answers")
+      .select("id, query_id, created_at")
+      .in("query_id", answeredIds)
+      .order("created_at", { ascending: false });
+    if (answersError) throw answersError;
+    const latestAnswerIdByQuery = new Map();
+    for (const a of answers) if (!latestAnswerIdByQuery.has(a.query_id)) latestAnswerIdByQuery.set(a.query_id, a.id);
+    const queryIdByAnswerId = new Map([...latestAnswerIdByQuery.entries()].map(([queryId, answerId]) => [answerId, queryId]));
+    const answerIds = [...latestAnswerIdByQuery.values()];
+
+    if (answerIds.length > 0) {
+      const { data: segRows, error: segError } = await supabase
+        .from("research_answer_segments")
+        .select("research_answer_id, chunk:corpus_chunks(document:corpus_documents(court))")
+        .in("research_answer_id", answerIds);
+      if (segError) throw segError;
+      for (const row of segRows) {
+        const queryId = queryIdByAnswerId.get(row.research_answer_id);
+        if (!queryId) continue;
+        caseCount[queryId] = (caseCount[queryId] || 0) + 1;
+        const court = row.chunk?.document?.court || null;
+        if (!court) continue;
+        const counts = courtCounts[queryId] || (courtCounts[queryId] = new Map());
+        counts.set(court, (counts.get(court) || 0) + 1);
+      }
     }
   }
 
-  res.json(queries.map((r) => ({ ...r, caseCount: caseCount[r.id] || 0, topCourt: topCourt[r.id] || null })));
+  // The court shown is the one most of the cited cases are actually from, not whichever
+  // chunk happened to be retrieved/scored first.
+  const topCourt = {};
+  for (const [queryId, counts] of Object.entries(courtCounts)) {
+    let best = null, bestCount = 0;
+    for (const [court, count] of counts) if (count > bestCount) { best = court; bestCount = count; }
+    topCourt[queryId] = best;
+  }
+
+  res.json(
+    queries.map((r) => ({
+      ...r,
+      caseCount: r.outcome === "not_found" ? 0 : caseCount[r.id] || 0,
+      topCourt: r.outcome === "not_found" ? null : topCourt[r.id] || null,
+    }))
+  );
 });
 
 router.patch("/research/queries/:id", requireAuth, async (req, res) => {
@@ -342,19 +438,21 @@ router.post("/research/queries/:id/refresh", requireAuth, async (req, res) => {
   const query = await loadOwnedQuery(req, req.params.id);
 
   const threshold = relevanceThreshold();
-  const [scored, locale] = await Promise.all([retrieve(query.text, { sourcesEnabled: query.sources_enabled }), detectLanguage(query.text)]);
+  const [{ results: scored }, locale] = await Promise.all([retrieve(query.text, { sourcesEnabled: query.sources_enabled }), detectLanguage(query.text)]);
 
   const { data: newQuery, error: insertError } = await supabase
     .from("research_queries")
     .insert({
       account_id: query.account_id,
       text: query.text,
+      normalized_text: query.normalized_text || normalizeQueryText(query.text),
       title: query.title || deriveTitle(query.text),
       locale,
       sources_enabled: query.sources_enabled,
       threshold,
       model_version: MODEL_VERSION,
       outcome: scored.some((s) => s.score >= threshold) ? "answered" : "not_found",
+      rerun_count: query.rerun_count || 1,
     })
     .select()
     .single();

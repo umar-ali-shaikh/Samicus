@@ -27,50 +27,90 @@ function KnowledgeBaseStats() {
   );
 }
 
+const PASSAGE_PAGE_SIZE = 5;
+const PASSAGE_COLLAPSE_LEN = 320;
+
+// Splits `text` on (case-insensitive) occurrences of `term` and wraps matches in <mark> —
+// used both for "relevant to what you searched" highlighting and for the search-within
+// box, so there's only one highlighting code path to keep correct.
+function highlightTerm(text, term) {
+  if (!term?.trim()) return text;
+  const escaped = term.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const parts = text.split(new RegExp(`(${escaped})`, "ig"));
+  if (parts.length === 1) return text;
+  return parts.map((part, i) => (i % 2 === 1 ? <mark key={i} style={{ background: "#FDE68A", color: "inherit" }}>{part}</mark> : part));
+}
+
+function PassageText({ text, highlight }) {
+  const [expanded, setExpanded] = useState(false);
+  const isLong = text.length > PASSAGE_COLLAPSE_LEN;
+  const shown = isLong && !expanded ? `${text.slice(0, PASSAGE_COLLAPSE_LEN).trim()}…` : text;
+  return (
+    <>
+      {highlightTerm(shown, highlight)}
+      {isLong && (
+        <button onClick={() => setExpanded((e) => !e)} style={{ all: "unset", cursor: "pointer", display: "block", marginTop: 6, fontSize: 11.5, fontWeight: 600, color: "var(--color-rust)" }}>
+          {expanded ? "Read less ↑" : "Read more ↓"}
+        </button>
+      )}
+    </>
+  );
+}
+
 // Every passage indexed for one document, read in order — shown when a browse-list card is
-// expanded. Verbatim, same extractive guarantee as the rest of this library. Bounded and
-// scrollable — a long judgment can have dozens of chunks, and letting those sprawl the page
-// instead of scrolling inside a fixed box made the whole page unreadable.
+// expanded. Verbatim, same extractive guarantee as the rest of this library. A judgment can
+// have 100+ chunks, so this shows 5 at a time ("Show more"), lets the reader search within
+// the document (which also highlights matches — doubling as "what's relevant to what you
+// typed"), and collapses any individual long passage behind "Read more".
 function DocumentPassages({ documentId }) {
   const chunks = useGet(`/corpus/documents/${documentId}/chunks`, undefined, { staleTime: 60000 });
+  const [search, setSearch] = useState("");
+  const [visibleCount, setVisibleCount] = useState(PASSAGE_PAGE_SIZE);
   if (chunks.isLoading) return <Loading label="Loading indexed passages…" />;
   if (chunks.isError) return <Callout tone="danger">{chunks.error.message}</Callout>;
   if (!chunks.data?.length) return <Callout tone="neutral">No passages indexed for this document.</Callout>;
+
+  const term = search.trim();
+  const filtered = term ? chunks.data.filter((c) => c.text.toLowerCase().includes(term.toLowerCase())) : chunks.data;
+  const visible = filtered.slice(0, visibleCount);
+
   return (
-    <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--color-border)", background: "#FBF8F2", borderRadius: 8, padding: 10, maxHeight: 320, overflowY: "auto" }}>
-      {chunks.data.map((c) => (
-        <div key={c.id} style={{ borderLeft: "3px solid var(--color-gold)", paddingLeft: 10, marginBottom: 8, fontSize: 12.5, lineHeight: 1.45, whiteSpace: "pre-wrap", color: "var(--color-text-muted)" }}>
-          <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--color-label)" }}>{CLASS_LABEL[c.paragraph_class] || c.paragraph_class}</div>
-          {c.text}
+    <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--color-border)", background: "#FBF8F2", borderRadius: 8, padding: 10 }}>
+      <input
+        value={search}
+        onChange={(e) => { setSearch(e.target.value); setVisibleCount(PASSAGE_PAGE_SIZE); }}
+        placeholder={`Search within these ${chunks.data.length} passages…`}
+        style={{ width: "100%", padding: "7px 10px", borderRadius: 8, border: "1px solid var(--color-border)", fontSize: 12, marginBottom: 8, boxSizing: "border-box" }}
+      />
+      {filtered.length === 0 ? (
+        <Callout tone="neutral">No passage matches "{term}".</Callout>
+      ) : (
+        <div style={{ maxHeight: 420, overflowY: "auto" }}>
+          {visible.map((c) => (
+            <div key={c.id} style={{ borderLeft: "3px solid var(--color-gold)", paddingLeft: 10, marginBottom: 8, fontSize: 12.5, lineHeight: 1.45, whiteSpace: "pre-wrap", color: "var(--color-text-muted)" }}>
+              <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--color-label)" }}>{CLASS_LABEL[c.paragraph_class] || c.paragraph_class}</div>
+              <PassageText text={c.text} highlight={term} />
+            </div>
+          ))}
+          {visibleCount < filtered.length && (
+            <Button variant="outline" onClick={() => setVisibleCount((n) => n + PASSAGE_PAGE_SIZE)}>
+              Show more ({filtered.length - visibleCount} left)
+            </Button>
+          )}
         </div>
-      ))}
+      )}
     </div>
   );
 }
 
-// Collapsed by default — this is the shared global knowledge base, not the signed-in user's
-// own research, so it shouldn't dump 29 documents onto the page until someone actually asks
-// to browse it.
 function IndexedLibrary() {
-  const [expanded, setExpanded] = useState(false);
-  const docs = useGet("/corpus/documents", undefined, { staleTime: 60000, enabled: expanded });
+  const docs = useGet("/corpus/documents", undefined, { staleTime: 60000 });
   const [openDocId, setOpenDocId] = useState(null);
-
-  if (!expanded) {
-    return (
-      <Button variant="outline" onClick={() => setExpanded(true)}>
-        Browse the indexed library ↓
-      </Button>
-    );
-  }
   if (docs.isLoading) return <Loading label="Loading the indexed library…" />;
   if (!docs.data?.length) return <Callout tone="neutral">Nothing indexed yet — ask a question in the AI Legal Assistant to start building the library.</Callout>;
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
-        <div style={{ fontSize: 11, fontWeight: 700, color: "var(--color-label)" }}>ALREADY INDEXED · {docs.data.length} document{docs.data.length === 1 ? "" : "s"} · click a document to read its indexed passages</div>
-        <button onClick={() => setExpanded(false)} style={{ all: "unset", cursor: "pointer", fontSize: 12, fontWeight: 600, color: "var(--color-rust)" }}>Hide ↑</button>
-      </div>
+      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--color-label)" }}>ALREADY INDEXED · {docs.data.length} document{docs.data.length === 1 ? "" : "s"} · click a document to read its indexed passages</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {docs.data.map((d) => {
           const open = openDocId === d.id;
@@ -118,11 +158,12 @@ function MyResearchCard({ row, onChanged }) {
         <div style={{ fontWeight: 700, fontSize: 13.5 }}>{row.title || row.text}</div>
       </button>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", fontSize: 11.5, color: "var(--color-text-muted)" }}>
-        <span>{timeAgo(row.created_at)}</span>
+        <span>{timeAgo(row.updated_at || row.created_at)}</span>
         <span>·</span>
         <span>{row.caseCount} case{row.caseCount === 1 ? "" : "s"}</span>
         {row.topCourt && <><span>·</span><span>{row.topCourt}</span></>}
         <Badge tone={row.outcome === "not_found" ? "warning" : "success"}>{row.outcome === "not_found" ? "No match" : row.outcome}</Badge>
+        {row.rerun_count > 1 && <Badge tone="neutral">Re-run ×{row.rerun_count}</Badge>}
         {(row.tags || []).map((t) => <Badge key={t}>{t}</Badge>)}
       </div>
       <div style={{ display: "flex", gap: 8 }}>
@@ -182,7 +223,11 @@ export function ResearchHome() {
             <Pill key={f.value} tone="dark" active={sourcesEnabled.includes(f.value)} onClick={() => toggleSource(f.value)}>{f.label}</Pill>
           ))}
         </div>
-        <div style={{ fontSize: 11.5, color: "#9AA5BC" }}>The library grows as questions are asked here or in the AI Legal Assistant.</div>
+        <div style={{ fontSize: 11.5, color: "#9AA5BC" }}>
+          {run.isPending
+            ? "Searching the indexed library — if nothing matches yet, new sources are fetched and indexed automatically before answering. This can take up to a minute."
+            : "The library grows as questions are asked here or in the AI Legal Assistant."}
+        </div>
       </Card>
 
       {run.isError && <Callout tone="danger">{run.error.message}</Callout>}

@@ -8,9 +8,27 @@ import { SOURCE_LABEL } from "../Research";
 const OUTCOME_TONE = { allowed: "success", dismissed: "danger", partial: "warning", not_stated: "neutral" };
 const CITE_RE = /\[(\d+(?:\s*,\s*\d+)*)\]/g;
 
+// A chip naming exactly where a cited sentence's claim comes from (case, court, paragraph)
+// — the concrete backing for "every sentence is a verbatim passage with its source",
+// shown right next to the sentence rather than requiring a click to find out.
+function SourceChip({ seg }) {
+  if (!seg) return null;
+  const label = [seg.documentTitle, seg.court, seg.sectionLabel].filter(Boolean).join(" · ");
+  const short = seg.documentTitle?.length > 24 ? `${seg.documentTitle.slice(0, 22)}…` : seg.documentTitle;
+  return (
+    <span
+      title={label}
+      style={{ display: "inline-block", fontSize: 9.5, fontWeight: 600, color: "#C9D2E6", background: "rgba(255,255,255,0.1)", borderRadius: 999, padding: "1px 7px", marginLeft: 4, verticalAlign: "middle" }}
+    >
+      {short}{seg.court ? ` · ${seg.court}` : ""}
+    </span>
+  );
+}
+
 // Renders aiSummary text with [n] / [n, m] citation markers turned into clickable numbers
-// that scroll to + flash the matching case card below.
-function SummaryText({ text, onCite }) {
+// that scroll to + flash the matching case card below, plus a source chip (case/court/¶)
+// right next to each one — so the claim's grounding is visible without clicking anything.
+function SummaryText({ text, segments, onCite }) {
   const parts = [];
   let last = 0;
   let match;
@@ -26,6 +44,7 @@ function SummaryText({ text, onCite }) {
             <button onClick={() => onCite(Number(n))} style={{ all: "unset", cursor: "pointer", color: "var(--color-rust)", fontWeight: 700 }}>{n}</button>
           </span>
         ))}]
+        {nums.slice(0, 2).map((n) => <SourceChip key={`chip-${n}`} seg={segments?.[Number(n) - 1]} />)}
       </span>
     );
     last = match.index + match[0].length;
@@ -115,6 +134,7 @@ export function ResearchReport({ searchId }) {
 
   const data = report.data;
   const segments = useMemo(() => data?.segments || [], [data]);
+  const hasSources = data?.outcome !== "not_found" && segments.length > 0;
   const cases = segments.filter((s) => s.source !== "web");
   const articles = segments.filter((s) => s.source === "web");
   const numberOf = (chunkId) => segments.findIndex((s) => s.chunkId === chunkId) + 1;
@@ -156,19 +176,42 @@ export function ResearchReport({ searchId }) {
             </div>
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <Button variant="outline" onClick={() => refresh.mutate()} disabled={refresh.isPending}>{refresh.isPending ? "Refreshing…" : "Refresh"}</Button>
-            <Button variant="outline" onClick={() => exportPdf.mutate()} disabled={exportPdf.isPending}>Export PDF</Button>
-            <Button variant="outline" onClick={() => navigator.clipboard.writeText(data.aiSummary || query.text).then(() => showToast("Copied."))}>Copy</Button>
-            <Button variant="outline" onClick={() => pin.mutate(!query.pinned_at)} disabled={pin.isPending}>{query.pinned_at ? "Unpin" : "Pin"}</Button>
-            <Button onClick={() => chatRef.current?.scrollIntoView({ behavior: "smooth" })}>Ask follow-up</Button>
+            <Button variant="outline" onClick={() => refresh.mutate()} disabled={refresh.isPending}>
+              {refresh.isPending ? "Refreshing…" : hasSources ? "Refresh" : "Search again"}
+            </Button>
+            {hasSources && (
+              <>
+                <Button variant="outline" onClick={() => exportPdf.mutate()} disabled={exportPdf.isPending}>Export PDF</Button>
+                <Button variant="outline" onClick={() => navigator.clipboard.writeText(data.aiSummary || query.text).then(() => showToast("Copied."))}>Copy</Button>
+                <Button variant="outline" onClick={() => pin.mutate(!query.pinned_at)} disabled={pin.isPending}>{query.pinned_at ? "Unpin" : "Pin"}</Button>
+                <Button onClick={() => chatRef.current?.scrollIntoView({ behavior: "smooth" })}>Ask follow-up</Button>
+              </>
+            )}
           </div>
         </div>
       </Card>
 
-      {data.outcome === "not_found" ? (
-        <Callout tone="warning" title="Not in the indexed library">
-          No passage cleared the relevance threshold, or the only matches were a party's arguments (which can't be cited as the law). Try the AI Legal Assistant, or narrow the question.
-        </Callout>
+      {!hasSources ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <Callout tone="warning" title="Not in the indexed library">
+            No passage cleared the relevance threshold, or the only matches were a party's arguments (which can't be cited as the law). The library already tried fetching new sources for this question automatically — it still came up empty.
+          </Callout>
+          <Card style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--color-label)" }}>TRY THIS INSTEAD</div>
+            <Button onClick={() => go("legalassistant", "", { question: query.text })}>Try the AI Legal Assistant →</Button>
+            <div style={{ fontSize: 12.5, color: "var(--color-text-muted)" }}>
+              Suggested rephrasings:
+              <ul style={{ margin: "6px 0 0", paddingLeft: 18 }}>
+                <li>Drop the specific section number and search by topic instead.</li>
+                <li>Search with just the Act name, without the section number.</li>
+                <li>Try a shorter, plainer version of the question.</li>
+              </ul>
+            </div>
+            <Button variant="outline" onClick={() => refresh.mutate()} disabled={refresh.isPending}>
+              {refresh.isPending ? "Fetching…" : "Request this be added to the library"}
+            </Button>
+          </Card>
+        </div>
       ) : (
         <>
           <SegmentedControl
@@ -186,7 +229,7 @@ export function ResearchReport({ searchId }) {
             <Card style={{ background: "var(--color-navy)", color: "#F6F1E8" }}>
               <div style={{ fontSize: 10, fontWeight: 700, color: "#9AA5BC", letterSpacing: "0.05em", marginBottom: 6 }}>AI SUMMARY</div>
               {data.aiSummary ? (
-                <div style={{ fontSize: 14, lineHeight: 1.65 }}><SummaryText text={data.aiSummary} onCite={goToCitation} /></div>
+                <div style={{ fontSize: 14, lineHeight: 1.65 }}><SummaryText text={data.aiSummary} segments={segments} onCite={goToCitation} /></div>
               ) : (
                 <div style={{ fontSize: 13, color: "#9AA5BC" }}>No AI summary for this report — showing the retrieved passages directly.</div>
               )}
@@ -257,13 +300,17 @@ export function ResearchReport({ searchId }) {
         </>
       )}
 
-      <div ref={chatRef}>
-        <FollowUpChat searchId={searchId} locale={query.locale} />
-      </div>
+      {hasSources && (
+        <div ref={chatRef}>
+          <FollowUpChat searchId={searchId} locale={query.locale} />
+        </div>
+      )}
 
-      <div style={{ background: "var(--color-navy)", color: "#F6F1E8", borderRadius: 12, padding: 12, fontSize: 11.5 }}>
-        AI-generated research aid, not legal advice. Every claim is grounded in the sources above — verify with the original judgment before relying on it.
-      </div>
+      {hasSources && (
+        <div style={{ background: "var(--color-navy)", color: "#F6F1E8", borderRadius: 12, padding: 12, fontSize: 11.5 }}>
+          AI-generated research aid, not legal advice. Every claim is grounded in the sources above — verify with the original judgment before relying on it.
+        </div>
+      )}
     </div>
   );
 }

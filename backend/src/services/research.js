@@ -6,10 +6,13 @@
 //      citation resolves by construction (no model can invent one)
 //   5. paragraph-class gate: a party's *arguments* can be shown but never cited as authority.
 import { getSupabase } from "../config/db.js";
-import { retrievePassages, minScore } from "./rag/retrieve.js";
-import { ragEnabled } from "./rag/ingest.js";
+import { retrievePassages, lexicalSearch, minScore } from "./rag/retrieve.js";
+import { ragEnabled, ingestIndianKanoonDoc } from "./rag/ingest.js";
 import { chatCompletion, isOpenRouterConfigured } from "./openRouter.js";
 import { understandQuery } from "./legalQueryUnderstanding.js";
+import { search as searchIndianKanoon, getDocumentRaw, isIndianKanoonConfigured } from "./indianKanoon.js";
+import { rankRelevantDocs } from "./relevanceRanking.js";
+import { expandLegalQuery, extractLexicalTerms, detectCourtIntent } from "../utils/legalAbbrev.js";
 
 export class KnowledgeBaseUnavailableError extends Error {
   constructor() {
@@ -24,6 +27,11 @@ export function relevanceThreshold() {
   return minScore();
 }
 
+// Only these paragraph classes may support an assertion; arguments are shown but never
+// cited as law. A quoted precedent IS the court citing another case as authority, so it
+// belongs here too — it must never be confused with a party's own submission.
+const CITABLE_CLASSES = new Set(["provision", "reasoning", "holding", "directions", "quoted_precedent"]);
+
 // A single long judgment can otherwise fill most/all of the result list with its own
 // passages (it has many internally-similar paragraphs), crowding out every other case on
 // the same topic. Capping how many passages one document contributes keeps results
@@ -31,32 +39,133 @@ export function relevanceThreshold() {
 const MAX_PASSAGES_PER_DOCUMENT = 1;
 const RESULT_LIMIT = 12;
 
+// Diversification used to just keep each document's single highest-scoring passage,
+// whatever its paragraph class. A judgment's petitioner/respondent argument paragraphs
+// often score HIGHEST (they restate the legal question in the asker's own terms more
+// directly than the court's own reasoning does) — so the one slot per document was
+// routinely spent on an argument, silently crowding out that same document's reasoning/
+// holding/provision passage one line below it. answerFromRetrieval then drops arguments
+// as uncitable, and a document that actually had a perfectly good citable passage reads as
+// having contributed nothing at all. Preferring a citable passage per document (when one
+// exists in the candidate pool) fixes this at the source instead of just lowering the bar.
 function diversifyByDocument(passages, { maxPerDoc = MAX_PASSAGES_PER_DOCUMENT, limit = RESULT_LIMIT } = {}) {
-  // Strict cap — no padding back in from documents that already hit their share. Showing
-  // fewer, genuinely distinct cases beats padding the list with a repeat of one judgment.
-  const perDocCount = new Map();
-  const kept = [];
+  const byDoc = new Map();
   for (const p of passages) {
-    const count = perDocCount.get(p.documentId) || 0;
-    if (count >= maxPerDoc) continue;
-    perDocCount.set(p.documentId, count + 1);
-    kept.push(p);
-    if (kept.length >= limit) break;
+    const list = byDoc.get(p.documentId) || [];
+    list.push(p);
+    byDoc.set(p.documentId, list);
   }
-  return kept;
+  const kept = [];
+  for (const list of byDoc.values()) {
+    const citable = list.filter((p) => CITABLE_CLASSES.has(p.paraClass));
+    kept.push(...(citable.length > 0 ? citable : list).slice(0, maxPerDoc));
+  }
+  return kept.sort((a, b) => b.score - a.score).slice(0, limit);
+}
+
+// A question naming a specific court wants passages FROM that court, not whichever
+// document's passage happened to score highest overall — boost (not hard-filter, so an
+// off-court passage can still surface if nothing from the named court cleared the bar).
+const COURT_BOOST = 0.1;
+const COURT_INTENT_SOURCE = { supreme_court: "supreme_court", high_court: "high_court" };
+
+function applyCourtBoost(passages, queryText) {
+  const intent = detectCourtIntent(queryText);
+  if (!intent) return passages;
+  const wantedSource = COURT_INTENT_SOURCE[intent];
+  return passages.map((p) => (p.source === wantedSource ? { ...p, score: Math.min(1, p.score + COURT_BOOST) } : p));
+}
+
+// Hybrid retrieval: dense vector search run over the query AND a few alternate phrasings
+// (section-number/act-name expansion — "125 CrPC" also tried as "Section 125 of the Code
+// of Criminal Procedure", its BNSS renumbering, etc.), merged with a lexical (keyword)
+// fallback that catches an exact section number a dense embedding can blur past. A lexical
+// hit not already found by the vector search is added at the floor (relevance threshold)
+// score rather than a high one — it's included because it's worth considering, not because
+// it's been scored as strongly relevant. A lexical hit confirming an existing vector match
+// gets a small score bump instead (genuine hybrid agreement).
+async function hybridRetrieve(queryText, { limit = RESULT_LIMIT * 4 } = {}) {
+  const variants = expandLegalQuery(queryText);
+  const vectorLists = await Promise.all(variants.map((v) => retrievePassages(v, { limit, threshold: null })));
+  const byId = new Map();
+  for (const list of vectorLists) {
+    for (const p of list) {
+      const existing = byId.get(p.id);
+      if (!existing || p.score > existing.score) byId.set(p.id, p);
+    }
+  }
+
+  const lexicalTerms = extractLexicalTerms(queryText);
+  if (lexicalTerms.length > 0) {
+    try {
+      const lexHits = await lexicalSearch(lexicalTerms, { limit: RESULT_LIMIT * 2 });
+      const floor = minScore();
+      for (const hit of lexHits) {
+        const existing = byId.get(hit.id);
+        if (existing) existing.score = Math.min(1, existing.score + 0.06);
+        else byId.set(hit.id, { ...hit, score: floor });
+      }
+    } catch (err) {
+      console.error("Lexical search failed, continuing with vector results only:", err.message);
+    }
+  }
+
+  return applyCourtBoost([...byId.values()], queryText).sort((a, b) => b.score - a.score);
+}
+
+// Reached only when hybrid retrieval above found nothing citable above the relevance
+// threshold at all — the library actually doesn't have this yet, not just a scoring
+// near-miss. Mirrors legalAssistant.js's Stage 3/6 (live Indian Kanoon search -> rank ->
+// ingest), but AWAITED here (not fire-and-forget) because the research page explicitly
+// promises "the library grows as questions are asked" — the newly-fetched sources must be
+// searchable before this same request answers, not only on some later question.
+const MAX_LIVE_FETCH_DOCS = 3;
+
+async function fetchAndIndexLiveSources(queryText) {
+  if (!isIndianKanoonConfigured() || !ragEnabled()) return { fetched: 0 };
+  try {
+    const intent = detectCourtIntent(queryText);
+    const filters = intent === "supreme_court" ? { court: "supremecourt" } : {};
+    const { docs } = await searchIndianKanoon(queryText, filters, 0, 1);
+    if (!docs?.length) return { fetched: 0 };
+    const ranked = await rankRelevantDocs(queryText, docs, (d) => `${d.title} ${d.headline || ""}`);
+    const top = ranked.map((r) => r.item).slice(0, MAX_LIVE_FETCH_DOCS);
+    const results = await Promise.allSettled(
+      top.map(async (d) => {
+        const full = await getDocumentRaw(d.tid);
+        return ingestIndianKanoonDoc({ tid: d.tid, title: d.title, docsource: d.docsource, html: full.doc });
+      })
+    );
+    const fetched = results.filter((r) => r.status === "fulfilled" && !r.value.skipped).length;
+    return { fetched };
+  } catch (err) {
+    console.error("Live source fetch for an empty research result failed:", err.message);
+    return { fetched: 0 };
+  }
 }
 
 /**
- * @returns {Promise<{ chunk: object, score: number }[]>} best first; includes below-threshold
- *   passages so the UI can show what was kept and what was dropped.
+ * @returns {Promise<{ fetchedNewSources: boolean, results: { chunk: object, score: number }[] }>}
+ *   `results` is best first and includes below-threshold passages so the UI can show what
+ *   was kept and what was dropped.
  */
 export async function retrieve(queryText, { sourcesEnabled } = {}) {
   if (!ragEnabled()) throw new KnowledgeBaseUnavailableError();
-  // Fetch a wider candidate pool than we'll show, so capping passages-per-document still
-  // leaves enough genuinely-relevant results from OTHER cases to fill the result list.
-  const candidates = await retrievePassages(queryText, { limit: RESULT_LIMIT * 4, threshold: null });
+  const threshold = minScore();
+
+  let candidates = await hybridRetrieve(queryText);
+  let fetchedNewSources = false;
+  const hasCitableHit = candidates.some((p) => p.score >= threshold && CITABLE_CLASSES.has(p.paraClass));
+  if (!hasCitableHit) {
+    const { fetched } = await fetchAndIndexLiveSources(queryText);
+    if (fetched > 0) {
+      fetchedNewSources = true;
+      candidates = await hybridRetrieve(queryText);
+    }
+  }
+
   const passages = diversifyByDocument(candidates);
-  return passages
+  const results = passages
     .filter((p) => !sourcesEnabled || sourcesEnabled.length === 0 || sourcesEnabled.includes(p.source))
     .map((p) => ({
       score: Math.round(p.score * 100) / 100,
@@ -65,13 +174,11 @@ export async function retrieve(queryText, { sourcesEnabled } = {}) {
         text: p.text,
         paragraph_class: p.paraClass,
         section_label: p.paraNumber ? `¶ ${p.paraNumber}` : null,
-        document: { id: p.documentId, title: p.title, citation: p.citation, source: p.source, canonical_url: p.url },
+        document: { id: p.documentId, title: p.title, citation: p.citation, court: p.court, source: p.source, canonical_url: p.url },
       },
     }));
+  return { fetchedNewSources, results };
 }
-
-// Only these paragraph classes may support an assertion; arguments are shown but never cited as law.
-const CITABLE_CLASSES = new Set(["provision", "reasoning", "holding", "directions"]);
 
 export async function answerFromRetrieval(retrieved) {
   const threshold = relevanceThreshold();
@@ -134,6 +241,31 @@ function stripCodeFence(text) {
   return match ? match[1].trim() : text.trim();
 }
 
+const CITE_MARKER_RE = /\[(\d+(?:\s*,\s*\d+)*)\]/g;
+
+// The page's promise is "every sentence is a verbatim passage with its source" — the
+// per-passage glosses/caseCards already satisfy that by construction (tied 1:1 to a real
+// chunkId), but the free-form "summary" is model-written prose, and a model can drop the
+// citation marker rule 2 asks for, or cite a passage number that doesn't exist. This is the
+// automated check: split the summary into sentences and keep only ones whose [n] marker(s)
+// resolve to an actual passage in `segments` — any sentence that doesn't cite a real,
+// in-range passage id is dropped rather than shown as if it were grounded.
+function verifySummaryGrounding(summary, segmentCount) {
+  if (!summary) return summary;
+  const sentences = summary.match(/[^.!?]+[.!?]+(?:\s+|$)|[^.!?]+$/g) || [summary];
+  const kept = sentences.filter((sentence) => {
+    const markers = [...sentence.matchAll(CITE_MARKER_RE)];
+    if (markers.length === 0) return false;
+    return markers.every((m) =>
+      m[1]
+        .split(",")
+        .map((n) => Number(n.trim()))
+        .every((n) => Number.isInteger(n) && n >= 1 && n <= segmentCount)
+    );
+  });
+  return kept.length > 0 ? kept.join(" ").trim() : null;
+}
+
 /**
  * One OpenRouter call that produces a strictly-grounded overall summary, a short plain-English
  * gloss per passage, a structured per-case breakdown, and related-search suggestions — a thin,
@@ -190,7 +322,10 @@ export async function generateResearchInsights(question, segments, { language } 
       .filter((s) => typeof s === "string" && s.trim())
       .map((s) => s.trim())
       .slice(0, 6);
-    return { summary: typeof parsed.summary === "string" ? parsed.summary.trim() || null : null, glosses, caseCards, relatedSearches };
+    const rawSummary = typeof parsed.summary === "string" ? parsed.summary.trim() || null : null;
+    const summary = verifySummaryGrounding(rawSummary, segments.length);
+    if (rawSummary && !summary) console.error("Research insights: generated summary had no sentence citing a real passage — dropping it.");
+    return { summary, glosses, caseCards, relatedSearches };
   } catch (err) {
     console.error("Research insights generation failed, showing passages without them:", err.message);
     return empty;

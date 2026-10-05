@@ -655,7 +655,7 @@ create table corpus_chunks (
   char_range integer[],
   section_label text,
   paragraph_class text not null check (paragraph_class in
-    ('provision', 'facts', 'issues', 'petitioner_arguments', 'respondent_arguments', 'reasoning', 'holding', 'directions')),
+    ('provision', 'facts', 'issues', 'petitioner_arguments', 'respondent_arguments', 'reasoning', 'holding', 'directions', 'quoted_precedent')),
   para_number text,
   deep_link text,
   headnote_flag boolean not null default false,
@@ -670,6 +670,8 @@ create table research_queries (
   account_id uuid references accounts(id),
   text text not null,
   title text, -- short label for the "My Research" list — derived from `text`, not re-typed by the user
+  normalized_text text, -- lowercased/punctuation-stripped `text`, used to dedupe re-runs of the same question
+  rerun_count integer not null default 1,
   locale text not null default 'en',
   sources_enabled text[] not null default '{}',
   threshold numeric not null default 0.62,
@@ -684,6 +686,7 @@ create table research_queries (
   updated_at timestamptz not null default now()
 );
 create index research_queries_account_id_idx on research_queries(account_id);
+create index research_queries_account_normalized_idx on research_queries(account_id, normalized_text) where superseded_by is null;
 create trigger research_queries_set_updated_at before update on research_queries for each row execute function set_updated_at();
 
 -- One row per retrieved chunk, with its score and rank.

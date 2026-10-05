@@ -4,10 +4,38 @@
 
 const ENTITIES = { "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"', "&#39;": "'", "&apos;": "'", "&nbsp;": " " };
 
+// Decimal numeric entities (&#39;) were handled here from the start, but HEX numeric
+// entities (&#x27;) — which Indian Kanoon's HTML also emits for the same apostrophe —
+// were not: the old regex only matched `&#(\d+);`, so `&#x27;` fell straight through
+// unmatched and reached the UI as literal "&#x27;" text. Order matters: hex must run
+// before the decimal pattern, since `&#x27;` would otherwise partially satisfy neither.
 export function decodeEntities(text) {
-  return text
+  return String(text ?? "")
     .replace(/&(amp|lt|gt|quot|apos|nbsp|#39);/g, (m) => ENTITIES[m] ?? m)
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
     .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)));
+}
+
+// Indian Kanoon's plain-text/PDF-derived documents carry layout artifacts that are never
+// real content: a lone page number on its own line, and the site's own footer line
+// ("Indian Kanoon - http://indiankanoon.org/doc/12345/") repeated on every page. Both
+// would otherwise survive as their own nonsense "passage" once chunked.
+const PAGE_ARTIFACT_RE = /^(?:page\s*)?\d{1,4}(?:\s*(?:of|\/)\s*\d{1,4})?$|^indian\s*kanoon\b/i;
+
+export function looksLikePageArtifact(text) {
+  return PAGE_ARTIFACT_RE.test(String(text || "").trim());
+}
+
+// PDF-to-text extraction (and some Indian Kanoon plain-text sources) hard-wraps lines at a
+// fixed column, breaking words across a hyphen and sentences across a line break that has
+// nothing to do with the paragraph's real structure. Re-joining these BEFORE paragraph/
+// sentence splitting keeps a sentence that was merely wrapped from being chunked as if it
+// were two separate ones. A genuine paragraph break is a blank line, which this never touches
+// (only single "\n"s are rewritten).
+export function rejoinBrokenLines(text) {
+  return String(text || "")
+    .replace(/([a-zA-Z])-\n([a-zA-Z])/g, "$1$2") // de-hyphenate a word split across the line break
+    .replace(/([a-z,;])\n(?=[a-z(])/g, "$1 "); // a line not ending a sentence: join with a space, not a break
 }
 
 // Some Indian Kanoon documents embed a scanned/OCR'd regional-language annexure whose PDF
@@ -29,7 +57,7 @@ export function looksGarbled(text) {
 }
 
 export function stripTags(html) {
-  return decodeEntities(String(html || "").replace(/<(script|style)[\s\S]*?<\/\1>/gi, " ").replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]+>/g, " "))
+  return rejoinBrokenLines(decodeEntities(String(html || "").replace(/<(script|style)[\s\S]*?<\/\1>/gi, " ").replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]+>/g, " ")))
     .replace(/[ \t\f\v ]+/g, " ")
     .replace(/ ([,.;:)\]])/g, "$1") // a removed tag can leave a stray space before punctuation, e.g. "(<b>Lease</b>," -> "( Lease ,"
     .replace(/([(\[]) /g, "$1")
@@ -54,6 +82,42 @@ export function classFromTitle(title, fallback) {
   return hit ? hit[1] : fallback;
 }
 
+// Many Indian Kanoon documents carry no `title` attribute on most paragraphs (or a generic
+// one the table above can't place) — which used to mean every one of them fell through to
+// `fallbackClass`, in practice "reasoning" for every passage in a judgment no matter whether
+// it was actually a quoted statute, a party's submission, or a quoted precedent. This is a
+// second, content-based pass that only runs when the title attribute gave no confident
+// signal, so a real "Court's Reasoning" title still wins outright. Ordered most to least
+// specific; first match wins. A paragraph matching nothing keeps the caller's fallback —
+// never guess a class the text doesn't actually signal.
+const CONTENT_CLASS_PATTERNS = [
+  [/(?:\((?:19|20)\d{2}\)\s*\d+\s*SCC|\bAIR\s*(?:19|20)\d{2}\b|\bSCC\s*OnLine\b|\(\d{4}\)\s*\d+\s*SCR\b)[\s\S]*["“]/, "quoted_precedent"],
+  [/^(?:section|sec\.?)\s*\d+[a-z]*\b[\s\S]{0,40}(?:reads?(?:\s+as)?|provides?|states?)\s*[:—-]/i, "provision"],
+  [/\b(?:the\s+)?(?:said\s+)?(?:provision|section)\s+(?:reads|is\s+(?:extracted|reproduced|set\s+out))\b/i, "provision"],
+  [/\blearned\s+(?:senior\s+)?counsel\s+(?:appearing\s+)?for\s+the\s+(?:petitioner|appellant|plaintiff|applicant)\b[\s\S]{0,80}\b(?:submit|argu|contend)/i, "petitioner_arguments"],
+  [/\bit\s+(?:was|is)\s+(?:submitted|argued|contended)\s+(?:by|on\s+behalf\s+of)\s+(?:the\s+)?(?:learned\s+(?:senior\s+)?counsel\s+(?:appearing\s+)?for\s+the\s+)?(?:petitioner|appellant|plaintiff|applicant)\b/i, "petitioner_arguments"],
+  [/\blearned\s+(?:senior\s+)?counsel\s+(?:appearing\s+)?for\s+the\s+(?:respondent|defendant|state)\b[\s\S]{0,80}\b(?:submit|argu|contend)/i, "respondent_arguments"],
+  [/\bit\s+(?:was|is)\s+(?:submitted|argued|contended)\s+(?:by|on\s+behalf\s+of)\s+(?:the\s+)?(?:learned\s+(?:senior\s+)?counsel\s+(?:appearing\s+)?for\s+the\s+)?(?:respondent|defendant|state)\b/i, "respondent_arguments"],
+  [/^(?:the\s+)?(?:brief\s+)?facts\s+(?:of\s+the\s+case\s+)?(?:are|is)\b/i, "facts"],
+  [/\b(?:it\s+is\s+)?(?:the\s+)?(?:undisputed\s+|admitted\s+)?case\s+of\s+the\s+(?:petitioner|appellant)\s+that\b/i, "facts"],
+  [/^(?:the\s+)?questions?\s+(?:that\s+)?(?:arise|arises|for\s+(?:consideration|determination))\b/i, "issues"],
+  [/^(?:the\s+)?issues?\s+(?:that\s+)?(?:arise|arises|for\s+(?:consideration|determination)|referred)\b/i, "issues"],
+  [/^whether\b[\s\S]{0,200}\?\s*$/i, "issues"],
+  [/\b(?:is|are)\s+directed\s+to\b/i, "directions"],
+  [/\bthe\s+following\s+directions?\s+(?:is|are)\s+(?:issued|given)\b/i, "directions"],
+  [/\bwe\s+(?:hold|are\s+of\s+the\s+(?:considered\s+)?(?:view|opinion))\s+that\b/i, "holding"],
+  [/\bit\s+is(?:,?\s*therefore,?)?\s+held\s+that\b/i, "holding"],
+  [/\bfor\s+the\s+(?:foregoing|aforesaid|above)\s+reasons\b/i, "holding"],
+  [/\bin\s+the\s+result\b/i, "holding"],
+  [/\baccordingly,?\s+the\s+(?:appeal|petition|writ|suit)\s+is\s+(?:allowed|dismissed|disposed)/i, "holding"],
+];
+
+export function classifyParagraphText(text, currentClass, fallback) {
+  if (currentClass !== fallback) return currentClass; // the title attribute already gave a confident answer
+  const hit = CONTENT_CLASS_PATTERNS.find(([re]) => re.test(text));
+  return hit ? hit[1] : currentClass;
+}
+
 /**
  * @param {string} html
  * @param {{ fallbackClass?: string }} [opts]
@@ -66,15 +130,16 @@ export function htmlToParagraphs(html, { fallbackClass = "reasoning" } = {}) {
   while ((match = re.exec(html || ""))) {
     const attrs = match[2] || "";
     const text = stripTags(match[3]);
-    if (!text || text.length < 3 || looksGarbled(text)) continue;
+    if (!text || text.length < 3 || looksGarbled(text) || looksLikePageArtifact(text)) continue;
     const title = /title\s*=\s*"([^"]*)"/i.exec(attrs)?.[1];
     const id = /id\s*=\s*"p_(\d+)"/i.exec(attrs)?.[1] ?? null;
-    out.push({ text, paraClass: classFromTitle(title, fallbackClass), paraNumber: id });
+    const titleClass = classFromTitle(title, fallbackClass);
+    out.push({ text, paraClass: classifyParagraphText(text, titleClass, fallbackClass), paraNumber: id });
   }
   if (out.length === 0) {
     for (const line of stripTags(html).split(/\n{1,}/)) {
       const t = line.trim();
-      if (t.length >= 3 && !looksGarbled(t)) out.push({ text: t, paraClass: fallbackClass, paraNumber: null });
+      if (t.length >= 3 && !looksGarbled(t) && !looksLikePageArtifact(t)) out.push({ text: t, paraClass: classifyParagraphText(t, fallbackClass, fallbackClass), paraNumber: null });
     }
   }
   return out;
@@ -88,10 +153,13 @@ export function htmlToParagraphs(html, { fallbackClass = "reasoning" } = {}) {
  * @returns {{ text: string, paraClass: string, paraNumber: string|null }[]}
  */
 export function textToParagraphs(text, { fallbackClass = "provision" } = {}) {
-  const normalized = decodeEntities(String(text || "")).trim();
+  const normalized = rejoinBrokenLines(decodeEntities(String(text || ""))).trim();
   const blocks = normalized.split(/\n\s*\n+/).filter((b) => b.trim().length >= 3);
   const lines = blocks.length > 0 ? blocks : normalized.split(/\n+/).filter((l) => l.trim().length >= 3);
-  return lines.filter((l) => !looksGarbled(l)).map((l) => ({ text: l.trim(), paraClass: fallbackClass, paraNumber: null }));
+  return lines
+    .map((l) => l.trim())
+    .filter((l) => !looksGarbled(l) && !looksLikePageArtifact(l))
+    .map((l) => ({ text: l, paraClass: classifyParagraphText(l, fallbackClass, fallbackClass), paraNumber: null }));
 }
 
 function splitLong(text, max) {

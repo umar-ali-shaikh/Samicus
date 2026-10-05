@@ -175,6 +175,7 @@ const PARA_LABEL = {
   reasoning: "court's reasoning",
   holding: "court's holding/conclusion",
   directions: "court's directions",
+  quoted_precedent: "another case quoted as precedent",
 };
 
 function tidFromExternalId(externalId) {

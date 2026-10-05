@@ -39,6 +39,10 @@ function getToken() {
   return token;
 }
 
+export function isIndianKanoonConfigured() {
+  return Boolean(process.env.IK_API_TOKEN);
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }

@@ -3,18 +3,25 @@
 //   npm run rag:reembed-all  force every chunk to be re-embedded (e.g. after switching the
 //                            embedding provider/model — old vectors live in a different,
 //                            incomparable coordinate space and must all be recomputed)
+//   npm run rag:reprocess    re-run entity decoding / page-artifact stripping / paragraph
+//                            reclassification over EXISTING passages (one-off, after a
+//                            chunk.js fix — see services/rag/reprocess.js)
 //   npm run rag:status       show Qdrant / Postgres counts
 import "../config/env.js";
 import { getSupabase } from "../config/db.js";
 import { reindexPending, ragEnabled } from "../services/rag/ingest.js";
 import { indexClauseLibrary } from "../services/rag/clauses.js";
 import { knowledgeBaseStats } from "../services/rag/retrieve.js";
+import { reprocessExistingPassages } from "../services/rag/reprocess.js";
 
 const cmd = process.argv[2];
 
 async function main() {
   if (!ragEnabled()) throw new Error("Set QDRANT_URL and OPENROUTER_API_KEY first.");
-  if (cmd === "reindex" || cmd === "reembed-all") {
+  if (cmd === "reprocess") {
+    const { scanned, textChanged, reclassified, dropped } = await reprocessExistingPassages();
+    console.log(`Scanned ${scanned} passages: ${textChanged} had text cleaned up, ${reclassified} were reclassified, ${dropped} flagged as page artifacts.`);
+  } else if (cmd === "reindex" || cmd === "reembed-all") {
     if (cmd === "reembed-all") {
       // Qdrant upsertPoints writes by chunk id, so clearing embedded_at and re-running the
       // normal "pending" path overwrites each existing point with its new vector in place —
