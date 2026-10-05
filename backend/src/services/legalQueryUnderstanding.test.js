@@ -93,6 +93,38 @@ test("understandQuery() caches identical questions — fetch is only called once
   assert.equal(calls, 1);
 });
 
+test("understandQuery() returns multiple expanded searchQueries covering different legal angles", async (t) => {
+  t.mock.method(globalThis, "fetch", async () =>
+    llmResponse(
+      JSON.stringify({
+        searchQueries: [
+          "Code on Wages 2019 unpaid wages",
+          "Payment of Wages Act employer non-payment",
+          "Industrial Disputes Act termination without notice",
+        ],
+        topic: "wages / labour",
+        language: "hinglish",
+        speakerRole: "accused",
+        isEmergency: false,
+        emergencyReason: null,
+      })
+    )
+  );
+
+  const result = await understandQuery("mera malik 3 mahine se pagar nahi diya, ab bolta hai kaam pe mat aana");
+  assert.equal(result.searchQueries.length, 3);
+  assert.equal(result.searchQuery, result.searchQueries[0]);
+  assert.equal(result.speakerRole, "accused");
+});
+
+test("understandQuery() detects a relative (not the accused) is speaking about someone else's arrest, via the keyword net even if parsing fails", async (t) => {
+  t.mock.method(globalThis, "fetch", async () => llmResponse("not json"));
+
+  const result = await understandQuery("police kal raat mere bete ko utha ke le gaye, koi kagaj nahi diya");
+  assert.equal(result.parseFallback, true);
+  assert.equal(result.speakerRole, "relative_or_witness");
+});
+
 test("missing OPENROUTER_API_KEY still returns a usable fallback (no OpenRouterAuthError thrown)", async (t) => {
   const saved = process.env.OPENROUTER_API_KEY;
   delete process.env.OPENROUTER_API_KEY;

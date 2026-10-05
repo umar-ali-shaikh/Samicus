@@ -38,6 +38,8 @@ import { rankRelevantDocs } from "./relevanceRanking.js";
 import { ragEnabled, ingestIndianKanoonDoc, ingestWebDoc } from "./rag/ingest.js";
 import { retrievePassages } from "./rag/retrieve.js";
 import { searchTavily as callTavily, isTavilyConfigured } from "./tavily.js";
+import { CODE_CROSSWALK_REFERENCE, citesOnlyRepealedCode } from "../utils/legalAbbrev.js";
+import { isOpenRouterConfigured } from "./openRouter.js";
 
 export { OpenRouterAuthError, OpenRouterApiError };
 export { IndianKanoonAuthError, IndianKanoonApiError } from "./indianKanoon.js";
@@ -62,8 +64,52 @@ export const DISCLAIMER =
 const EMERGENCY_MESSAGE =
   "This looks like it may be a time-sensitive or urgent situation (for example: an arrest, being in custody, an FIR just filed, an immediate threat, or a court deadline in the next day or two). Please contact a qualified lawyer, a legal aid service, or the relevant authority (police / court) immediately — do not rely only on this tool.";
 
-const INSUFFICIENT_EVIDENCE_NOTE =
-  "The available sources found for this question are insufficient to ground a reliable answer. Try rephrasing with more specific legal terms (e.g. the relevant Act/Section, or more concrete facts), or consult a qualified Indian lawyer for guidance specific to your situation.";
+// Fixed (non-LLM), reviewed-once rights checklist for when someone is asking about a
+// RELATIVE OR FRIEND currently in police custody — a materially different situation from
+// the person arrested asking for themselves, and one the model was giving only generic
+// "if you are arrested" advice for before this existed. Same reliability reasoning as
+// EMERGENCY_MESSAGE: safety-critical content must never depend on the model remembering to
+// say it, so this is always prepended server-side when the condition is detected, never
+// generated per-request.
+const CUSTODY_RELATIVE_RIGHTS = [
+  "You (the family/friend) have the right to be told the grounds of the arrest and where the person is being held — Article 22(1) of the Constitution.",
+  "The police must prepare an arrest memo (time, place, grounds of arrest) and it should be given to a family member.",
+  "A relative or friend must be informed of the arrest and the place of custody — this is required under the D.K. Basu guidelines and BNSS.",
+  "The arrested person must be produced before a Magistrate within 24 hours of arrest (not counting travel time) — Article 22(2) of the Constitution, BNSS Section 58 (old CrPC Section 57).",
+  "The arrested person has the right to meet and consult a lawyer of their choice.",
+  "If the police refuse to share information or refuse to let the family meet the person, you can make a written complaint to the Station House Officer's senior, the Superintendent of Police (SP), or the local Magistrate.",
+  "If no one will tell you where the person is being held, you (or any relative) can file a Habeas Corpus petition in the High Court asking the court to produce the person and explain the detention.",
+];
+
+const CUSTODY_HELPLINES = [
+  { name: "Police emergency", contact: "112", whenToUse: "Call if you believe the arrest/detention itself is unlawful or urgent help is needed right now." },
+  { name: "NALSA free legal aid", contact: "15100", whenToUse: "Free lawyers for anyone who cannot afford one, including for someone in custody." },
+  { name: "District Legal Services Authority (DLSA)", contact: null, whenToUse: "Visit or call your district's DLSA office for a free lawyer and help filing a Habeas Corpus petition." },
+];
+
+// Fixed boilerplate, not LLM-generated — a document a non-lawyer might actually copy and
+// send should never risk a hallucinated clause/date/amount. Filled in with the person's own
+// facts; the "which Act" line stays generic on purpose, since the exact Act differs by state.
+function rentDepositLegalNoticeTemplate() {
+  return [
+    "LEGAL NOTICE — [To be sent by Registered Post / Speed Post, and keep a copy + the postal receipt]",
+    "",
+    "To: [Landlord's full name and address]",
+    "From: [Your full name and address]",
+    "Date: [Date]",
+    "",
+    "Subject: Demand for refund of security deposit of Rs. [amount]",
+    "",
+    "Sir/Madam,",
+    "1. I was your tenant at [property address] under a [written/oral] tenancy agreement dated [date], and I paid a security deposit of Rs. [amount] on [date].",
+    "2. I vacated the premises on [date] and handed back vacant possession, with no outstanding dues on my part.",
+    "3. Despite my request(s) on [date(s)], you have failed to refund my security deposit.",
+    "4. You are hereby called upon to refund Rs. [amount] within 15 days of receiving this notice, failing which I shall be constrained to approach the Rent Authority / civil court / Lok Adalat / consumer forum (as applicable under your state's Rent Control Act or the Model Tenancy Act, 2021) for recovery of the said amount along with interest and costs, without further notice.",
+    "",
+    "Yours faithfully,",
+    "[Your signature and name]",
+  ].join("\n");
+}
 
 function stripHtml(html) {
   return (html || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
@@ -213,6 +259,8 @@ You will be given a user's legal question and a numbered list of evidence excerp
 
 1. Ground every substantive claim ONLY in the numbered evidence provided. Never use outside knowledge to state a law, section number, case name, citation, date, or court holding that is not present in the evidence.
 2. Never invent or guess at a law, section, judgment, case name, citation, date, or court decision. If the evidence doesn't contain it, do not mention it.
+2a. Since 1 July 2024, the Bharatiya Nyaya Sanhita (BNS), Bharatiya Nagarik Suraksha Sanhita (BNSS) and Bharatiya Sakshya Adhiniyam (BSA) replaced the Indian Penal Code (IPC), Code of Criminal Procedure (CrPC) and Indian Evidence Act. Whenever the evidence cites one of the old codes, ALWAYS give the current section alongside it in the same sentence, e.g. "BNSS Section 528 (old CrPC Section 482)" — never cite only the repealed code. Known mappings (old -> current): ${CODE_CROSSWALK_REFERENCE}. If the evidence names an old-code section not in this list, still say "(old CrPC/IPC/Evidence Act — check the current BNSS/BNS/BSA section)" rather than silently citing only the old one.
+2b. Never write an internal/system label verbatim into a user-facing field — e.g. never write phrases like "FIR filed against user", "evidence item", "source type: rag/indian_kanoon/web", or any other note-to-self phrasing a drafter of this prompt would write. Write only in plain, natural language addressed to the person asking.
 3. Every item in applicableLaws, caseLaw, yourRights, immediateActions and stepByStep that states a law, section, right, citation, or legal consequence must carry a sourceId (or sourceIds) that is one of the evidence numbers given to you below (e.g. "1" or "2") — never cite a number that wasn't actually given to you, and never leave a legal claim without one. The one exception is generic practical safety cautions (see rule 7d) — those don't state a law, so no sourceId is needed for them.
 4. Never guarantee a legal outcome (e.g. never say "you will win" or "the court will rule in your favor"). Describe what the law/precedent says, not what will happen to the user.
 5. Never present an unsupported legal conclusion as settled fact — if the evidence is ambiguous, thin, or only partially on point, say so plainly in "gaps" rather than inventing specificity to fill a gap.
@@ -249,18 +297,124 @@ Output STRICT JSON only (no markdown fences, no commentary before or after), mat
 }
 
 Field meanings:
-- summary: 2-3 sentences — what the situation is legally and the bottom line. Null only if the evidence supports nothing at all.
+- summary: 2-3 sentences — what the situation is legally and the bottom line. End EVERY sentence that states a specific claim with the evidence number(s) it's based on, e.g. "...void under Section 27 [2]." (a purely transitional sentence with no claim of its own doesn't need one). Null only if the evidence supports nothing at all.
 - immediateActions: the most urgent action(s) first, each with why it matters and its sourceIds — SPECIFIC to this person's situation (e.g. "ask for a written copy of the FIR/notice", "note down the FIR number, police station, and officer's name"), not a restatement of "get a lawyer" (that belongs in stepByStep only, per rule 7e). Empty if nothing is urgent.
 - stepByStep: concrete, lawful next steps in order (1, 2, 3...), each with where to go, documents needed, and any time limit, grounded in evidence where possible, plus generic safety cautions per rule 7d where relevant. Exactly ONE step (anywhere in the order, wherever it naturally fits — not necessarily first) consults a qualified Indian lawyer for anything serious, urgent, criminal, financial, family, property, or litigation-related — phrase it as needing a lawyer and getting one safely (ask for the fee in writing, take a receipt for every payment, a genuine lawyer never guarantees an outcome or asks for money to pay off police/a judge, ask for a copy of every document filed and the case number/next date), never as optional. Every OTHER step must be a distinct, substantive action grounded in the evidence (e.g. the actual procedure for anticipatory bail, what an FIR-quashing petition needs, what to do at the police station) — not a second way of saying "talk to a lawyer".
 - yourRights: the SPECIFIC legal rights this person has in this situation, per the evidence (e.g. right to know the grounds of arrest, right against self-incrimination, right to be produced before a magistrate within 24 hours, right to apply for bail/anticipatory bail, right to free legal aid if they cannot afford a lawyer) — not a generic "right to consult a lawyer" entry (that belongs in stepByStep only, per rule 7e).
 - applicableLaws: the relevant Act/Section(s) and what they mean in plain words, per the evidence.
 - caseLaw: AT MOST the 2-3 judgments in the evidence most directly on point for the user's exact situation — never list every case that merely appears in the evidence. Pick the ones that best match the facts asked about; drop the rest, even if they're relevant to the general topic.
 - whereToGetHelp: contacts/services relevant to this situation found in the evidence (e.g. a forum/authority named in a statute, or a web result's helpline/portal) — do not invent phone numbers or organisations not present in the evidence.
-- gaps: ONLY facts about the user's own situation that are missing and would change the advice (e.g. "whether a charge sheet has been filed", "whether you are named in the FIR") — these belong here, not in followUpQuestions AND gaps both. Do NOT use gaps to hedge on well-established law that IS in the evidence (a section number, what it covers, a settled principle) — if the evidence states it, say it plainly and confidently in applicableLaws/stepByStep/yourRights instead of disclaiming it here. Do NOT pad gaps with "the evidence doesn't give the full judgment text" or similar meta-commentary about the evidence itself — only missing facts about the user's situation belong here. Keep this to at most 2-3 items. Empty is normal and fine, not a failure.
-- followUpQuestions: max 3 questions whose answers would materially change the advice.
-- confidence: "high" only if every applicableLaws item is backed by evidence actually given above; "low" if gaps contains anything central to the question; "medium" otherwise.
+- gaps: at most 2-3 SIMPLE QUESTIONS, phrased directly to the user (e.g. "Kya aapke paas charge sheet ki copy hai?", "Has a charge sheet been filed against you?"), asking ONLY about facts about the user's own situation that are missing and would change the advice. These are shown to the user as "a few questions for you" — so phrase them as something you're asking THEM, not as a dry note about what the sources lack. Do NOT use gaps to hedge on well-established law that IS in the evidence (a section number, what it covers, a settled principle) — if the evidence states it, say it plainly and confidently in applicableLaws/stepByStep/yourRights instead of disclaiming it here. Do NOT pad gaps with "the evidence doesn't give the full judgment text" or similar meta-commentary about the evidence itself — only questions about the user's own situation belong here. Empty is normal and fine, not a failure.
+- followUpQuestions: max 3 DIFFERENT follow-up questions the USER could tap to ask next (not questions directed at the user) — related things they might want to know next, distinct from the gaps questions above.
+- confidence: "high" only if every applicableLaws item is backed by evidence actually given above AND at least 3 DIFFERENT evidence sources agree/support the answer; "low" if gaps contains anything central to the question; "medium" otherwise. (The server double-checks this and will lower it if fewer than 3 sources actually support the answer, so do not inflate it.)
 
 Empty arrays are allowed; invented content is not.`;
+
+// Reached when Stages 2-4 together found NO evidence at all. The old behavior stopped
+// here with a bare "insufficient sources, try adding an Act/Section" card — useless for a
+// layperson who by definition doesn't know the Act/Section (that's what they're asking).
+// This generates a clearly-labelled, SAFE, generic answer from the model's own general
+// knowledge of well-established Indian law instead — never a dead end for a common problem.
+const GENERAL_GUIDANCE_SYSTEM_PROMPT = `You are "${APP_NAME}", an AI legal-information assistant for India, used by ordinary people (often low-literacy) describing their problem in their own words. You are NOT a lawyer.
+
+No specific case law or statute excerpt was found for this exact question. Using your own general knowledge of WELL-ESTABLISHED Indian law, give safe, generic, practically useful guidance for this kind of problem. This is explicitly ungrounded guidance (clearly labelled as such to the user elsewhere in the app) — so:
+1. You MAY confidently name well-known Acts/schemes by name — this is common knowledge, not a citation you need a source for. Examples by topic (use these as a guide, adapt to the actual facts):
+   - Unpaid wages/salary by an employer: Code on Wages 2019, Payment of Wages Act 1936, Industrial Disputes Act 1947 (if dismissed too); authority: the local Labour Commissioner's office, or file online via the Shram Suvidha / Samadhan portal; documents: salary slips, bank statements, appointment letter, attendance records, WhatsApp messages from the employer, witnesses.
+   - Landlord won't return security deposit: the State's Rent Control Act, or the Model Tenancy Act 2021 (where adopted); a summary suit under Order XXXVII of the Code of Civil Procedure (CPC) for a clear money claim; Lok Adalat for quick settlement; consumer forum if a service deficiency is also involved; documents: rent agreement, payment receipts/bank transfers, photos of the property, WhatsApp/SMS with the landlord.
+   - A spouse/family member hits or threatens: Protection of Women from Domestic Violence Act 2005 (civil protection/residence/maintenance orders), Section 85 BNS (old IPC Section 498A, cruelty by husband/relatives) for a criminal complaint; authority: the local Protection Officer, the Women's helpline 181, or the nearest police station; documents: medical reports, photos, messages, witnesses.
+   - Arrested / FIR registered: BNSS arrest procedure (old CrPC) — right to know grounds of arrest, produced before a Magistrate within 24 hours, right to a lawyer; anticipatory bail under BNSS Section 482 (old CrPC Section 438).
+2. Do NOT invent a specific section number, case name, date, or citation you are not confident is real and well-known — if unsure of an exact section number, name the Act without guessing a number.
+3. Never guarantee an outcome. Use measured language ("the law generally allows", "you can usually approach").
+4. Write for someone with little or no formal education: simple everyday words, short sentences (15-20 words max), explain any unavoidable term (FIR, vakil, affidavit) in the same sentence, roughly a class-5 reading level.
+5. Write EVERY field in the user's own language AND SCRIPT exactly as instructed below (told to you as "language") — never switch languages/scripts mid-answer, never default to English just because these instructions are in English:
+   - "hindi"/"marathi" -> Devanagari script only. "urdu" -> Perso-Arabic script only. "hinglish"/"marathlish" -> Hindi/Marathi meaning in Roman/Latin letters ONLY (Devanagari forbidden). "english"/"unknown" -> English.
+6. Since 1 July 2024, BNS/BNSS/BSA replaced IPC/CrPC/Evidence Act — if you name an old-code section, also give its current BNS/BNSS/BSA section in the same breath. Reference mappings: ${CODE_CROSSWALK_REFERENCE}.
+7. Always give a free legal aid contact (NALSA 15100, or the District Legal Services Authority).
+8. Never write an internal/system label into a user-facing field (e.g. never write "no evidence found", "general guidance mode", or similar meta-commentary) — write directly and naturally to the person.
+
+Output STRICT JSON only (no markdown fences, no commentary), matching exactly:
+{ "summary": string, "authority": string|null, "documentsToCollect": [string], "nextStep": string|null, "legalAidContact": string|null, "applicableLaws": [ { "act": string, "plainMeaning": string } ], "followUpQuestions": [string] }
+
+Field meanings:
+- summary: 2-3 plain sentences on what kind of problem this is and the general path forward. Never claim this is from a specific case or exact section.
+- authority: the specific office/forum/person this person should approach first (e.g. "the Labour Commissioner's office", "the local Protection Officer").
+- documentsToCollect: 3-5 concrete things to gather as evidence.
+- nextStep: ONE clear, concrete next action.
+- legalAidContact: a free legal aid contact — always fill this in (e.g. "NALSA helpline 15100").
+- applicableLaws: 1-3 well-known Acts likely to apply, named confidently, with a one-line plain-word meaning — no fabricated section numbers.
+- followUpQuestions: 1-2 simple questions that would help give more specific guidance (phrased as things to ask the user).`;
+
+function buildGeneralGuidanceMessages(question, topic, language) {
+  const lang = language || "unknown";
+  return [
+    { role: "system", content: GENERAL_GUIDANCE_SYSTEM_PROMPT },
+    {
+      role: "user",
+      content:
+        `User question (topic: ${topic}, language: ${lang}): ${question}` +
+        `\n\n---\nReminder: write every field in "${lang}" per rule 5 above — plain, simple words, roughly a class-5 reading level.`,
+    },
+  ];
+}
+
+const GeneralGuidanceSchema = z.object({
+  summary: z.string().nullable().optional(),
+  authority: z.string().nullable().optional(),
+  documentsToCollect: z.array(z.string()).optional(),
+  nextStep: z.string().nullable().optional(),
+  legalAidContact: z.string().nullable().optional(),
+  applicableLaws: z.array(z.object({ act: z.string(), plainMeaning: z.string() })).optional(),
+  followUpQuestions: z.array(z.string()).optional(),
+});
+
+// Maps the general-guidance shape onto the SAME sections shape the rest of the app
+// already knows how to render (stepByStep/whereToGetHelp/applicableLaws/followUpQuestions)
+// — so the frontend needs only one extra flag (groundedInEvidence) to show the right label,
+// not a parallel rendering path.
+function generalGuidanceToSections(data) {
+  const stepByStep = data.nextStep
+    ? [{ order: 1, action: data.nextStep, where: data.authority || null, documentsNeeded: data.documentsToCollect || [], timeLimit: null, sourceIds: [] }]
+    : [];
+  return {
+    ...emptyAnswerShape(),
+    summary: data.summary || null,
+    stepByStep,
+    whereToGetHelp: [
+      { name: "Free legal aid (NALSA / DLSA)", contact: data.legalAidContact || "NALSA helpline 15100", whenToUse: "Free legal help if you can't afford a lawyer.", sourceIds: [] },
+    ],
+    applicableLaws: (data.applicableLaws || []).map((l) => ({ act: l.act, section: null, plainMeaning: l.plainMeaning, sourceId: null, sourceUrl: null })),
+    followUpQuestions: (data.followUpQuestions || []).slice(0, 2),
+    confidence: "low", // always — this is explicitly ungrounded, never model-inflatable
+    groundedInEvidence: false,
+  };
+}
+
+function staticGeneralGuidanceFallback() {
+  return generalGuidanceToSections({
+    summary: "This question could not be matched to a specific cited source, but here is general guidance for this kind of problem.",
+    authority: "A qualified Indian lawyer or your nearest District Legal Services Authority (DLSA)",
+    documentsToCollect: ["Any documents related to your situation (agreements, messages, receipts, photos, witnesses)"],
+    nextStep: "Contact your District Legal Services Authority (DLSA) or a lawyer for free help with the next step.",
+    legalAidContact: "NALSA helpline 15100",
+    applicableLaws: [],
+    followUpQuestions: [],
+  });
+}
+
+/** @returns {Promise<{outcome: "general_guidance", sections: object, rawAnswer: null}>} */
+async function generateGeneralGuidance(question, topic, language) {
+  if (!isOpenRouterConfigured()) return { outcome: "general_guidance", sections: staticGeneralGuidanceFallback(), rawAnswer: null };
+  try {
+    const raw = await chatCompletion(buildGeneralGuidanceMessages(question, topic, language), { jsonMode: true });
+    const candidate = extractJson(raw);
+    const validated = GeneralGuidanceSchema.safeParse(candidate);
+    if (!validated.success) throw new Error("Malformed general-guidance response shape");
+    return { outcome: "general_guidance", sections: generalGuidanceToSections(validated.data), rawAnswer: null };
+  } catch (err) {
+    console.error("General-guidance generation failed, using the static fallback:", err.message);
+    return { outcome: "general_guidance", sections: staticGeneralGuidanceFallback(), rawAnswer: null };
+  }
+}
 
 function buildMessages(question, topic, evidence, language, isEmergency) {
   const context = evidence.map((e) => `[${e.index}] ${e.title} (${e.docsource})\n${e.text}`).join("\n\n");
@@ -299,6 +453,18 @@ function withEmergencyImmediateAction(sections, emergency) {
   };
 }
 
+// Prepends the fixed custody-relative rights/helplines (see CUSTODY_RELATIVE_RIGHTS above)
+// ahead of whatever the model produced — same non-negotiable, server-constructed posture as
+// withEmergencyImmediateAction, and applied in the same places (every outcome branch).
+function withCustodyRights(sections, custody) {
+  if (!custody) return sections;
+  return {
+    ...sections,
+    yourRights: [...CUSTODY_RELATIVE_RIGHTS.map((right) => ({ right, sourceIds: [] })), ...(sections.yourRights || [])],
+    whereToGetHelp: [...CUSTODY_HELPLINES.map((h) => ({ ...h, sourceIds: [] })), ...(sections.whereToGetHelp || [])],
+  };
+}
+
 function emptyAnswerShape() {
   return {
     summary: null,
@@ -311,6 +477,7 @@ function emptyAnswerShape() {
     gaps: [],
     followUpQuestions: [],
     confidence: "low",
+    groundedInEvidence: true,
   };
 }
 
@@ -384,17 +551,73 @@ function dedupeSources(evidence) {
   return out;
 }
 
+// Every field that can legitimately carry a sourceId/sourceIds pointing at the evidence list.
+const EVIDENCE_REFERENCING_FIELDS = ["immediateActions", "stepByStep", "yourRights", "applicableLaws", "caseLaw", "whereToGetHelp"];
+
+function citedEvidenceIndexes(sections) {
+  const indexes = new Set();
+  for (const field of EVIDENCE_REFERENCING_FIELDS) {
+    for (const item of sections[field] || []) {
+      const ids = item.sourceIds || (item.sourceId ? [item.sourceId] : []);
+      for (const id of ids) if (id) indexes.add(String(id));
+    }
+  }
+  // The summary's own [n]/[n, m] citation markers count as "cited" too.
+  for (const m of String(sections.summary || "").matchAll(/\[(\d+(?:\s*,\s*\d+)*)\]/g)) {
+    for (const n of m[1].split(",")) indexes.add(n.trim());
+  }
+  return indexes;
+}
+
+// "High" confidence must mean something a user can trust — at least 3 distinct sources
+// actually backing the answer, not just the model's own say-so. Also trims `sources` down
+// to ones actually cited somewhere in the body: a source that was retrieved but never used
+// to support anything shown to the user doesn't belong in a "sources" list implying it was.
+function enforceGroundingDiscipline(sections, evidence) {
+  const cited = citedEvidenceIndexes(sections);
+  const confidence = sections.confidence === "high" && cited.size < 3 ? "medium" : sections.confidence;
+  return { sections: { ...sections, confidence }, citedEvidence: evidence.filter((e) => cited.has(String(e.index))) };
+}
+
+function sectionsText(sections) {
+  const parts = [sections.summary];
+  for (const a of sections.applicableLaws || []) parts.push(a.act, a.section, a.plainMeaning);
+  for (const c of sections.caseLaw || []) parts.push(c.caseName, c.whatItMeansForYou);
+  for (const r of sections.yourRights || []) parts.push(r.right);
+  for (const s of sections.stepByStep || []) parts.push(s.action);
+  for (const a of sections.immediateActions || []) parts.push(a.step, a.why);
+  return parts.filter(Boolean).join(" ");
+}
+
+// A rent/tenancy deposit dispute is the one scenario this app ships a fixed legal-notice
+// template for (see rentDepositLegalNoticeTemplate above) — a document someone might
+// actually send should never risk a hallucinated clause, so it's boilerplate, not generated,
+// and only attached when the facts actually match (both "deposit" AND a landlord/tenant/rent
+// context — a consumer-goods deposit dispute getting a tenancy notice would be worse than none).
+const DEPOSIT_RE = /\bdeposit\b/i;
+const TENANCY_RE = /\b(rent|landlord|tenant|kiraya|makan\s*malik|ghar\s*malik)\b/i;
+
+function maybeAttachLegalNoticeTemplate(sections, topic, question) {
+  const text = `${topic} ${question}`;
+  if (!DEPOSIT_RE.test(text) || !TENANCY_RE.test(text)) return sections;
+  return { ...sections, legalNoticeTemplate: rentDepositLegalNoticeTemplate() };
+}
+
 // ========================= STAGE 1: Understand =========================================
 async function understand(question) {
   const understanding = await understandQuery(question);
+  const custody = understanding.isEmergency && understanding.speakerRole === "relative_or_witness";
   return {
     searchQuery: understanding.searchQuery,
+    searchQueries: understanding.searchQueries?.length ? understanding.searchQueries : [understanding.searchQuery],
     topic: understanding.topic,
     language: understanding.language,
+    speakerRole: understanding.speakerRole,
     emergency: {
       flag: understanding.isEmergency,
       reason: understanding.emergencyReason,
       message: understanding.isEmergency ? EMERGENCY_MESSAGE : null,
+      custodyOfRelative: custody,
     },
   };
 }
@@ -414,27 +637,44 @@ async function searchRag(searchQuery) {
   return { passages, confident };
 }
 
+// A layperson's colloquial question ("malik ne pagar nahi diya") expands (Stage 1) into
+// several distinct legal angles (Code on Wages, Payment of Wages Act, Industrial Disputes
+// Act, Labour Commissioner complaint…) — a single Indian Kanoon search under the ORIGINAL
+// wording would miss all of them, since none of those Act names appear in the raw question.
+// Only the PRIMARY query pays for the extra doctypes:laws search (cost control — every
+// query here is a billed call); the rest run a general search only.
+const MAX_SEARCH_QUERIES_FANNED_OUT = 3;
+
 // ========================= STAGE 3: Indian Kanoon fallback ==============================
-/** @returns {Promise<{docs: object[]}>} ranked, zero-relevance hits already dropped */
-async function searchIndianKanoon(searchQuery, filters, topN) {
+/**
+ * @param {string[]} searchQueries - the primary query first, then alternate legal-angle
+ *   expansions (see legalQueryUnderstanding.js) — fanned out and merged, not just the first one.
+ * @returns {Promise<{docs: object[]}>} ranked, zero-relevance hits already dropped
+ */
+async function searchIndianKanoon(searchQueries, filters, topN) {
+  const queries = searchQueries.slice(0, MAX_SEARCH_QUERIES_FANNED_OUT);
+  const [primary, ...rest] = queries;
   let generalDocs = [];
   let lawsDocs = [];
   try {
-    const [{ docs }, lawsResult] = await Promise.all([
-      search(searchQuery, filters, 0, 1),
+    const [{ docs: primaryDocs }, lawsResult, ...restResults] = await Promise.all([
+      search(primary, filters, 0, 1),
       // Best-effort: a real auth/token problem will also surface via the call above
       // (same token, same failure mode), so a failure here is safe to swallow rather
       // than sinking the whole stage over an enhancement search.
-      search(searchQuery, { ...filters, court: "laws" }, 0, 1).catch(() => ({ docs: [] })),
+      search(primary, { ...filters, court: "laws" }, 0, 1).catch(() => ({ docs: [] })),
+      ...rest.map((q) => search(q, filters, 0, 1).catch(() => ({ docs: [] }))),
     ]);
-    generalDocs = docs || [];
+    const byTid = new Map();
+    for (const d of [...primaryDocs, ...restResults.flatMap((r) => r.docs || [])]) byTid.set(d.tid, d);
+    generalDocs = [...byTid.values()];
     lawsDocs = lawsResult.docs || [];
   } catch (err) {
     console.error("Indian Kanoon search failed, moving to the next stage:", err.message);
     return { docs: [] };
   }
 
-  // Score each candidate pool by relevance to the query — OpenRouter embeddings when
+  // Score each candidate pool by relevance to the PRIMARY query — OpenRouter embeddings when
   // OPENROUTER_API_KEY is configured (a real semantic match, which catches a
   // paraphrased/conversational question that shares no exact keywords with the
   // right statute/judgment), local TF-IDF otherwise (see relevanceRanking.js) — and
@@ -442,8 +682,8 @@ async function searchIndianKanoon(searchQuery, filters, topN) {
   // sources beats padding with noise.
   const docText = (d) => `${d.title} ${stripHtml(d.headline)}`;
   const [rankedLaw, rankedGeneral] = await Promise.all([
-    rankRelevantDocs(searchQuery, lawsDocs, docText),
-    rankRelevantDocs(searchQuery, generalDocs, docText),
+    rankRelevantDocs(primary, lawsDocs, docText),
+    rankRelevantDocs(primary, generalDocs, docText),
   ]);
 
   const lawTop = rankedLaw.map((x) => x.item).slice(0, LAWS_TOP_N);
@@ -555,12 +795,14 @@ function learnIntoRag({ ikDocs, webResults }) {
  * @param {import("./indianKanoonFilters.js").CaseLawFilters} [filters]
  * @param {number} [topN=5]
  * @returns {Promise<{
- *   outcome: "no_evidence"|"answered"|"unparsed",
- *   understanding: {searchQuery: string, topic: string, language: string},
- *   emergency: {flag: boolean, reason: string|null, message: string|null},
+ *   outcome: "general_guidance"|"answered"|"unparsed",
+ *   understanding: {searchQuery: string, topic: string, language: string, speakerRole: string},
+ *   emergency: {flag: boolean, reason: string|null, message: string|null, custodyOfRelative: boolean},
  *   sections: object,
  *   rawAnswer: string|null,
  *   sources: Array<{tid: number|null, title: string, docsource: string, url: string, sourceType: string}>,
+ *   evidenceIndex: Record<string, {title: string, docsource: string, url: string, sourceType: string}>,
+ *   lawCurrencyWarning: boolean,
  *   evidenceOrigin: {rag: number, indianKanoon: number, web: number},
  *   disclaimer: string
  * }>}
@@ -570,26 +812,38 @@ export async function answerLegalQuestion(question, filters = {}, topN = DEFAULT
 
   return cache.getOrSet(cacheKey, ANSWER_TTL_MS, async () => {
     // Stage 1
-    const { searchQuery, topic, language, emergency } = await understand(question);
+    const { searchQuery, searchQueries, topic, language, speakerRole, emergency } = await understand(question);
 
     // Stage 2
     const { passages, confident } = await searchRag(searchQuery);
 
     // Stage 3 (skipped once stage 2 is confident)
-    const ikDocs = confident ? [] : (await searchIndianKanoon(searchQuery, filters, topN)).docs;
+    const ikDocs = confident ? [] : (await searchIndianKanoon(searchQueries, filters, topN)).docs;
 
     // Stage 4 (skipped once stage 2 is confident, or stage 2+3 combined are already enough)
     const combinedCount = passages.length + ikDocs.length;
     const webResults = confident || combinedCount >= MIN_EVIDENCE_TO_SKIP_WEB ? [] : (await searchTavily(searchQuery)).results;
 
+    const understanding = { searchQuery, topic, language, speakerRole };
+
     if (passages.length === 0 && ikDocs.length === 0 && webResults.length === 0) {
+      // No cited source exists for this question — but a common problem (unpaid wages, a
+      // deposit dispute, domestic violence, an arrest) must never dead-end on an unhelpful
+      // "insufficient sources" card. Give safe, clearly-labelled general guidance instead
+      // (see generateGeneralGuidance) — never silently empty.
+      const { outcome, sections: generatedSections } = await generateGeneralGuidance(question, topic, language);
+      let sections = withEmergencyImmediateAction(generatedSections, emergency);
+      sections = withCustodyRights(sections, emergency.custodyOfRelative);
+      sections = maybeAttachLegalNoticeTemplate(sections, topic, question);
       return {
-        outcome: "no_evidence",
-        understanding: { searchQuery, topic, language },
+        outcome,
+        understanding,
         emergency,
-        sections: withEmergencyImmediateAction({ ...emptyAnswerShape(), gaps: [INSUFFICIENT_EVIDENCE_NOTE] }, emergency),
+        sections,
         rawAnswer: null,
         sources: [],
+        evidenceIndex: {},
+        lawCurrencyWarning: citesOnlyRepealedCode(sectionsText(sections)),
         evidenceOrigin: { rag: 0, indianKanoon: 0, web: 0 },
         disclaimer: DISCLAIMER,
       };
@@ -598,15 +852,20 @@ export async function answerLegalQuestion(question, filters = {}, topN = DEFAULT
     // Stage 5
     const evidence = await buildEvidence({ passages, ikDocs, webResults }, searchQuery);
     const { outcome, sections: generatedSections, rawAnswer } = await generateAnswer(question, topic, evidence, language, emergency.flag);
-    const sections = withEmergencyImmediateAction(generatedSections, emergency);
+    const { sections: disciplinedSections, citedEvidence } = enforceGroundingDiscipline(generatedSections, evidence);
+    let sections = withEmergencyImmediateAction(disciplinedSections, emergency);
+    sections = withCustodyRights(sections, emergency.custodyOfRelative);
+    sections = maybeAttachLegalNoticeTemplate(sections, topic, question);
 
     const response = {
       outcome,
-      understanding: { searchQuery, topic, language },
+      understanding,
       emergency,
       sections,
       rawAnswer,
-      sources: dedupeSources(evidence),
+      sources: dedupeSources(citedEvidence),
+      evidenceIndex: Object.fromEntries(evidence.map((e) => [String(e.index), { title: e.title, docsource: e.docsource, url: e.url, sourceType: e.sourceType }])),
+      lawCurrencyWarning: citesOnlyRepealedCode(sectionsText(sections)),
       evidenceOrigin: { rag: passages.length, indianKanoon: ikDocs.length, web: webResults.length },
       retrieval: { mode: passages.length > 0 ? "knowledge_base" : "live_search", passages: passages.length, servedFromKnowledgeBase: confident },
       disclaimer: DISCLAIMER,

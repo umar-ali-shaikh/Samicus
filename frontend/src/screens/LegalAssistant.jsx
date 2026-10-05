@@ -2,7 +2,7 @@
 import { askLegalAssistant, getLegalAssistantSession } from "../api/legalAssistantClient";
 import { useAuth } from "../auth/AuthProvider";
 import { useUI } from "../state/UIState";
-import { Card, Button, Badge, Callout, EmptyState } from "../components/ui";
+import { Card, Button, Badge, Callout } from "../components/ui";
 
 // Conversational AI Legal Assistant ("Vidhira") — distinct from the Case law search
 // screen (which is a faceted research tool for browsing judgments directly). This
@@ -34,14 +34,6 @@ const UI_STRINGS = {
     mr: "वेळ-संवेदनशील",
     marathlish: "Vel-samvedansheel",
     ur: "وقت کی نزاکت والا",
-  },
-  insufficientSources: {
-    en: "Insufficient sources",
-    hi: "अपर्याप्त स्रोत",
-    hinglish: "Paryapt sources nahi mile",
-    mr: "अपुरे स्रोत",
-    marathlish: "Puresa strot nahi",
-    ur: "ناکافی ذرائع",
   },
   unparsedWarning: {
     en: "The assistant's response couldn't be split into structured sections — shown below as a summary.",
@@ -91,13 +83,13 @@ const UI_STRINGS = {
     hi: [
       "शांत रहें।",
       "गिरफ़्तारी या कार्रवाई का कारण विनम्रता से पूछें — हो सके तो लिखित में माँगें।",
-      "तुरंत किसी परिवारजन या भरोसेमंद व्यक्ति को सूचित करें।",
+      "तुरंत किसी परिजन या भरोसेमंद व्यक्ति को सूचित करें।",
       "अभी किसी वकील या निःशुल्क कानूनी सहायता (Legal Services Authority) से संपर्क करें — केवल इस टूल पर निर्भर न रहें।",
     ],
     hinglish: [
       "Shaant rahein.",
       "Giraftari ya karrawai ka kaaran vinamrata se poochein — ho sake to likhit mein maangein.",
-      "Turant kisi parivarjan ya bharosemand vyakti ko suchit karein.",
+      "Turant kisi parijan ya bharosemand vyakti ko suchit karein.",
       "Abhi kisi vakil ya nishulk legal aid (Legal Services Authority) se sampark karein — sirf is tool par bharosa na karein.",
     ],
     mr: [
@@ -184,7 +176,7 @@ const UI_STRINGS = {
     en: "Where to get help", hi: "मदद कहाँ से लें", hinglish: "Madad kahan se milegi", mr: "मदत कुठे मिळेल", marathlish: "Madad kuthe milel", ur: "مدد کہاں سے ملے گی",
   },
   gapsTitle: {
-    en: "Not covered by available sources", hi: "उपलब्ध स्रोतों में शामिल नहीं", hinglish: "Available sources mein cover nahi hua", mr: "उपलब्ध स्रोतांमध्ये समाविष्ट नाही", marathlish: "Uplabdh strotanmadhye samavisht nahi", ur: "دستیاب ذرائع میں شامل نہیں",
+    en: "A few questions for you", hi: "आपसे कुछ सवाल", hinglish: "Aapse kuch sawal", mr: "तुम्हाला काही प्रश्न", marathlish: "Tumhala kahi prashna", ur: "آپ سے کچھ سوالات",
   },
   followUpTitle: {
     en: "This could change the advice", hi: "इससे सलाह बदल सकती है", hinglish: "Isse salah badal sakti hai", mr: "यामुळे सल्ला बदलू शकतो", marathlish: "Yamule salla badlu shakto", ur: "اس سے مشورہ بدل سکتا ہے",
@@ -197,6 +189,38 @@ const UI_STRINGS = {
     en: "Documents needed", hi: "ज़रूरी दस्तावेज़", hinglish: "Zaroori documents", mr: "आवश्यक कागदपत्रे", marathlish: "Avashyak kagadpatre", ur: "ضروری دستاویزات",
   },
   timeLimitLabel: { en: "Deadline", hi: "समय-सीमा", hinglish: "Deadline", mr: "अंतिम मुदत", marathlish: "Antim mudat", ur: "آخری تاریخ" },
+  // Issue 2: the label shown when an answer is NOT grounded in a specific cited source —
+  // safe generic guidance from general legal knowledge instead.
+  generalGuidanceLabel: {
+    en: "General guidance (not from a cited judgment)",
+    hi: "सामान्य जानकारी (किसी निर्णय से उद्धृत नहीं)",
+    hinglish: "General guidance (kisi judgment se cited nahi)",
+    mr: "सामान्य माहिती (कोणत्याही निकालावरून उद्धृत नाही)",
+    marathlish: "Samanya mahiti (konatyahi nikalavarun quote keleli nahi)",
+    ur: "عمومی رہنمائی (کسی فیصلے سے منسوب نہیں)",
+  },
+  lawCurrencyWarning: {
+    en: "This may reference an old law (IPC/CrPC) — since 1 July 2024 it is BNS/BNSS/BSA. Please also check the current section.",
+    hi: "यह पुराने कानून (IPC/CrPC) का संदर्भ हो सकता है — 1 जुलाई 2024 से यह BNS/BNSS/BSA है। कृपया मौजूदा धारा भी देखें।",
+    hinglish: "Yeh purane kanoon (IPC/CrPC) ka reference ho sakta hai — 1 July 2024 se yeh BNS/BNSS/BSA hai. Current section bhi check kar lein.",
+    mr: "हा जुन्या कायद्याचा (IPC/CrPC) संदर्भ असू शकतो — 1 जुलै 2024 पासून तो BNS/BNSS/BSA आहे. कृपया सध्याचे कलम देखील पाहा.",
+    marathlish: "Ha junya kaydyacha (IPC/CrPC) sandarbh asu shakto — 1 July 2024 pasun to BNS/BNSS/BSA aahe. Current kalam pan check kara.",
+    ur: "یہ پرانے قانون (IPC/CrPC) کا حوالہ ہو سکتا ہے — 1 جولائی 2024 سے یہ BNS/BNSS/BSA ہے۔ براہ کرم موجودہ سیکشن بھی دیکھیں۔",
+  },
+  // Issue 9: the 3-line top summary.
+  yourRightLine: { en: "Your right", hi: "आपका हक़", hinglish: "Aapka haq", mr: "तुमचा हक्क", marathlish: "Tumcha hakk", ur: "آپ کا حق" },
+  doNowLine: { en: "Do now", hi: "अभी क्या करें", hinglish: "Abhi kya karein", mr: "आता काय करा", marathlish: "Ata kay kara", ur: "ابھی کیا کریں" },
+  whereToGoLine: { en: "Where to go", hi: "कहाँ जाएँ", hinglish: "Kahan jaayein", mr: "कुठे जायचे", marathlish: "Kuthe jayche", ur: "کہاں جائیں" },
+  freeLegalAid: { en: "Free legal aid", hi: "मुफ़्त कानूनी मदद", hinglish: "Free legal aid", mr: "मोफत कायदेशीर मदत", marathlish: "Free legal aid", ur: "مفت قانونی مدد" },
+  talkToLawyer: { en: "Talk to a lawyer", hi: "वकील से बात करें", hinglish: "Vakil se baat karein", mr: "वकिलाशी बोला", marathlish: "Vakilashi bola", ur: "وکیل سے بات کریں" },
+  callNow: { en: "Call now", hi: "अभी कॉल करें", hinglish: "Abhi call karein", mr: "आता कॉल करा", marathlish: "Ata call kara", ur: "ابھی کال کریں" },
+  readAloud: { en: "Read aloud", hi: "आवाज़ में सुनें", hinglish: "Awaaz mein sunein", mr: "आवाजात ऐका", marathlish: "Awajat aika", ur: "آواز میں سنیں" },
+  stop: { en: "Stop", hi: "रोकें", hinglish: "Rokein", mr: "थांबवा", marathlish: "Thamba", ur: "روکیں" },
+  more: { en: "More", hi: "और जानें", hinglish: "Aur jaanein", mr: "अधिक पहा", marathlish: "Adhik baga", ur: "مزید" },
+  less: { en: "Less", hi: "कम दिखाएँ", hinglish: "Kam dikhaein", mr: "कमी दाखवा", marathlish: "Kami dakhva", ur: "کم دکھائیں" },
+  legalNoticeTitle: { en: "Ready legal notice", hi: "तैयार कानूनी नोटिस", hinglish: "Ready legal notice", mr: "तयार कायदेशीर नोटीस", marathlish: "Taiyar legal notice", ur: "تیار قانونی نوٹس" },
+  copy: { en: "Copy", hi: "कॉपी करें", hinglish: "Copy karein", mr: "कॉपी करा", marathlish: "Copy kara", ur: "کاپی کریں" },
+  copied: { en: "Copied", hi: "कॉपी हो गया", hinglish: "Copy ho gaya", mr: "कॉपी झाले", marathlish: "Copy zhala", ur: "کاپی ہو گیا" },
 };
 
 const CONFIDENCE_WORDS = {
@@ -226,34 +250,156 @@ function t(strings, script) {
   return strings[script] || strings.en;
 }
 
+// For Web Speech APIs (TTS + voice input), which want a BCP-47 locale, not our internal
+// 6-way script key.
+const SPEECH_LOCALE = { hi: "hi-IN", mr: "mr-IN", ur: "ur-PK", hinglish: "en-IN", marathlish: "en-IN", en: "en-IN" };
+
+// A phone-number-shaped contact (e.g. "112", "15100", "+91 11 2345 6789") becomes a tap-to-
+// call link; anything else (an office name, a URL) is shown as plain text.
+function TelLink({ contact, children }) {
+  if (!contact) return null;
+  const digits = contact.replace(/[\s-]/g, "");
+  if (!/^\+?\d{3,15}$/.test(digits)) return <>{children ?? contact}</>;
+  return <a href={`tel:${digits}`} style={{ color: "inherit", fontWeight: 700 }}>{children ?? contact}</a>;
+}
+
+// Issue 9: collapses what used to be shown as the AI-mistake note AND the full legal
+// disclaimer, every single time, into one short line with a "more" toggle for the full text.
+function DisclaimerLine({ script }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <Callout tone="neutral" style={{ marginTop: 14 }}>
+      <div>
+        {t(UI_STRINGS.aiMistakeNote, script)}{" "}
+        <button onClick={() => setExpanded((e) => !e)} style={{ all: "unset", cursor: "pointer", fontWeight: 700, textDecoration: "underline" }}>
+          {expanded ? t(UI_STRINGS.less, script) : t(UI_STRINGS.more, script)}
+        </button>
+      </div>
+      {expanded && <div style={{ marginTop: 6 }}>{t(UI_STRINGS.disclaimer, script)}</div>}
+    </Callout>
+  );
+}
+
+// Issue 9: a one-tap "Free legal aid" (NALSA 15100) and "Talk to a lawyer" (opens Find a
+// lawyer) row, available on every answer — not just when an emergency is detected.
+function QuickActions({ script }) {
+  const { go } = useUI();
+  return (
+    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+      <a href="tel:15100" style={{ textDecoration: "none" }}>
+        <Button variant="outline">📞 {t(UI_STRINGS.freeLegalAid, script)} (15100)</Button>
+      </a>
+      <Button variant="outline" onClick={() => go("find")}>👩‍⚖️ {t(UI_STRINGS.talkToLawyer, script)}</Button>
+    </div>
+  );
+}
+
+// Issue 9: a 3-line skim summary at the very top — the single most load-bearing right,
+// the single most load-bearing next action, and where to go — pulled from whatever the
+// structured sections already have (no extra backend field needed).
+function TopSummary({ sections, script }) {
+  const right = sections.yourRights?.[0]?.right || sections.applicableLaws?.[0]?.plainMeaning || null;
+  const doNow = sections.immediateActions?.[0]?.step || sections.stepByStep?.[0]?.action || null;
+  const help = sections.whereToGetHelp?.[0] || null;
+  const whereToGo = help ? [help.name, help.contact].filter(Boolean).join(" — ") : sections.stepByStep?.[0]?.where || null;
+  if (!right && !doNow && !whereToGo) return null;
+  return (
+    <div style={{ background: "#FDF3DC", borderRadius: 10, padding: 10, marginBottom: 12, fontSize: 13, lineHeight: 1.7 }}>
+      {right && <div><strong>{t(UI_STRINGS.yourRightLine, script)}:</strong> {right}</div>}
+      {doNow && <div><strong>{t(UI_STRINGS.doNowLine, script)}:</strong> {doNow}</div>}
+      {whereToGo && <div><strong>{t(UI_STRINGS.whereToGoLine, script)}:</strong> {whereToGo}</div>}
+    </div>
+  );
+}
+
+// Issue 9: reads a block of text aloud via the browser's own speech synthesis — no backend
+// call, works offline once the voice is installed. Silently does nothing if unsupported.
+function ReadAloudButton({ text, script }) {
+  const [speaking, setSpeaking] = useState(false);
+  if (typeof window === "undefined" || !window.speechSynthesis || !text) return null;
+  function toggle() {
+    if (speaking) {
+      window.speechSynthesis.cancel();
+      setSpeaking(false);
+      return;
+    }
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.lang = SPEECH_LOCALE[script] || "en-IN";
+    utter.onend = () => setSpeaking(false);
+    utter.onerror = () => setSpeaking(false);
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utter);
+    setSpeaking(true);
+  }
+  return (
+    <Button variant="outline" onClick={toggle}>
+      {speaking ? `⏹ ${t(UI_STRINGS.stop, script)}` : `🔊 ${t(UI_STRINGS.readAloud, script)}`}
+    </Button>
+  );
+}
+
+const CITE_MARKER_RE = /\[(\d+(?:\s*,\s*\d+)*)\]/g;
+
+// Issue 8: "show which sentence comes from which source" — renders the summary's own
+// [n]/[n,m] citation markers (the generation prompt now requires one per claim-bearing
+// sentence) as a small chip naming that source, using the index->source map the server
+// sends alongside the answer (evidenceIndex) — independent of which sources survived the
+// "only cited sources are listed" trim at the bottom, so a chip always resolves.
+function SummaryWithCitations({ text, evidenceIndex }) {
+  if (!evidenceIndex || Object.keys(evidenceIndex).length === 0) return <>{text}</>;
+  const parts = [];
+  let last = 0;
+  let match;
+  const re = new RegExp(CITE_MARKER_RE);
+  while ((match = re.exec(text))) {
+    if (match.index > last) parts.push(text.slice(last, match.index));
+    const nums = match[1].split(",").map((n) => n.trim());
+    parts.push(
+      <span key={match.index}>
+        [{nums.join(", ")}]
+        {nums.map((n) => {
+          const src = evidenceIndex[n];
+          if (!src) return null;
+          const short = src.title?.length > 26 ? `${src.title.slice(0, 24)}…` : src.title;
+          return (
+            <span key={n} title={`${src.title} (${src.docsource})`} style={{ display: "inline-block", fontSize: 10, fontWeight: 600, color: "var(--color-text-muted)", background: "#F0ECE2", borderRadius: 999, padding: "1px 7px", marginInlineStart: 4 }}>
+              {short}
+            </span>
+          );
+        })}
+      </span>
+    );
+    last = match.index + match[0].length;
+  }
+  if (last < text.length) parts.push(text.slice(last));
+  return <>{parts}</>;
+}
+
+// Issue 5: a ready-to-send legal notice (fixed boilerplate from the server, filled with
+// placeholders — never LLM-generated prose, since a document someone might actually copy
+// and send should never risk a hallucinated clause).
+function LegalNoticeTemplate({ text, script }) {
+  const { showToast } = useUI();
+  return (
+    <Callout tone="neutral" title={t(UI_STRINGS.legalNoticeTitle, script)} style={{ marginTop: 14 }}>
+      <pre style={{ whiteSpace: "pre-wrap", fontFamily: "inherit", fontSize: 12.5, margin: "0 0 8px" }}>{text}</pre>
+      <Button variant="outline" onClick={() => navigator.clipboard.writeText(text).then(() => showToast(t(UI_STRINGS.copied, script)))}>
+        {t(UI_STRINGS.copy, script)}
+      </Button>
+    </Callout>
+  );
+}
+
 function AnswerCard({ turn, onAsk }) {
+  const { go } = useUI();
   const { result } = turn;
   if (!result) return null;
 
   const script = pickScript(result);
   const dir = script === "ur" ? "rtl" : "ltr";
   const emergencyChecklist = result.emergency?.flag ? t(UI_STRINGS.emergencyChecklist, script) : null;
-  const disclaimer = t(UI_STRINGS.disclaimer, script);
   const sections = result.sections || {};
-
-  if (result.outcome === "no_evidence") {
-    return (
-      <Card dir={dir}>
-        {result.emergency?.flag && (
-          <Callout tone="danger" title={t(UI_STRINGS.timeSensitive, script)} style={{ marginBottom: 12 }}>
-            <ol style={{ margin: 0, paddingInlineStart: 18 }}>
-              {emergencyChecklist.map((step, i) => <li key={i}>{step}</li>)}
-            </ol>
-          </Callout>
-        )}
-        <EmptyState title={t(UI_STRINGS.insufficientSources, script)} body={sections.gaps?.[0]} />
-        <Callout tone="neutral" style={{ marginTop: 12 }}>
-          <div style={{ fontWeight: 700, marginBottom: 4 }}>{t(UI_STRINGS.aiMistakeNote, script)}</div>
-          {disclaimer}
-        </Callout>
-      </Card>
-    );
-  }
+  const groundedInEvidence = sections.groundedInEvidence !== false; // undefined (older cached answers) counts as grounded
 
   const stepByStep = [...(sections.stepByStep || [])].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
   const showLawyerSafety = stepByStep.length > 0 || sections.immediateActions?.length > 0;
@@ -262,9 +408,30 @@ function AnswerCard({ turn, onAsk }) {
     <Card dir={dir}>
       {result.emergency?.flag && (
         <Callout tone="danger" title={t(UI_STRINGS.timeSensitive, script)} style={{ marginBottom: 12 }}>
-          <ol style={{ margin: 0, paddingInlineStart: 18 }}>
+          <ol style={{ margin: "0 0 10px", paddingInlineStart: 18 }}>
             {emergencyChecklist.map((step, i) => <li key={i}>{step}</li>)}
           </ol>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <a href="tel:112" style={{ textDecoration: "none" }}><Button variant="outline">📞 112</Button></a>
+            <a href="tel:15100" style={{ textDecoration: "none" }}><Button variant="outline">📞 NALSA 15100</Button></a>
+            <Button variant="outline" onClick={() => onAsk("Mere district ka DLSA office kahan hai?")}>🏛 DLSA</Button>
+            <Button onClick={() => go("find")}>👩‍⚖️ {t(UI_STRINGS.talkToLawyer, script)}</Button>
+          </div>
+        </Callout>
+      )}
+
+      <QuickActions script={script} />
+      <TopSummary sections={sections} script={script} />
+
+      {!groundedInEvidence && (
+        <Callout tone="warning" style={{ marginBottom: 12 }}>
+          {t(UI_STRINGS.generalGuidanceLabel, script)}
+        </Callout>
+      )}
+
+      {result.lawCurrencyWarning && (
+        <Callout tone="warning" style={{ marginBottom: 12 }}>
+          {t(UI_STRINGS.lawCurrencyWarning, script)}
         </Callout>
       )}
 
@@ -282,7 +449,16 @@ function AnswerCard({ turn, onAsk }) {
         </div>
       )}
 
-      {sections.summary && <div style={{ fontSize: 14, lineHeight: 1.6, marginBottom: 14, whiteSpace: "pre-wrap" }}>{sections.summary}</div>}
+      {sections.summary && (
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 14, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
+            <SummaryWithCitations text={sections.summary} evidenceIndex={result.evidenceIndex} />
+          </div>
+          <div style={{ marginTop: 8 }}>
+            <ReadAloudButton text={sections.summary} script={script} />
+          </div>
+        </div>
+      )}
 
       {sections.gaps?.length > 0 && (
         <Callout tone="warning" title={t(UI_STRINGS.gapsTitle, script)} style={{ marginBottom: 12 }}>
@@ -391,7 +567,7 @@ function AnswerCard({ turn, onAsk }) {
               {sections.whereToGetHelp.map((h, i) => (
                 <li key={i}>
                   <strong>{h.name}</strong>
-                  {h.contact ? ` — ${h.contact}` : ""}
+                  {h.contact ? <> — <TelLink contact={h.contact} /></> : ""}
                   {h.whenToUse && <div style={{ fontSize: 12, color: "var(--color-text-muted)" }}>{h.whenToUse}</div>}
                 </li>
               ))}
@@ -459,10 +635,9 @@ function AnswerCard({ turn, onAsk }) {
         </div>
       )}
 
-      <Callout tone="neutral" style={{ marginTop: 14 }}>
-        <div style={{ fontWeight: 700, marginBottom: 4 }}>{t(UI_STRINGS.aiMistakeNote, script)}</div>
-        {disclaimer}
-      </Callout>
+      {sections.legalNoticeTemplate && <LegalNoticeTemplate text={sections.legalNoticeTemplate} script={script} />}
+
+      <DisclaimerLine script={script} />
     </Card>
   );
 }
@@ -482,6 +657,39 @@ function getOrCreateSessionId(userId, { fresh = false } = {}) {
   } catch {
     return crypto.randomUUID(); // localStorage unavailable (private mode) — chat works, just doesn't persist across reloads
   }
+}
+
+// Issue 9: voice input for the question box — browser-native speech-to-text, no backend
+// call. Silently hidden if the browser doesn't support it (Web Speech API is not
+// universal), rather than showing a button that would just fail.
+function VoiceInputButton({ onResult }) {
+  const [listening, setListening] = useState(false);
+  const recognitionRef = useRef(null);
+  const Recognition = typeof window !== "undefined" ? window.SpeechRecognition || window.webkitSpeechRecognition : null;
+  if (!Recognition) return null;
+
+  function toggle() {
+    if (listening) {
+      recognitionRef.current?.stop();
+      return;
+    }
+    const recognition = new Recognition();
+    recognition.lang = "en-IN"; // works reasonably for Hinglish/Hindi speech in practice
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+    recognition.onresult = (e) => onResult(e.results?.[0]?.[0]?.transcript || "");
+    recognition.onend = () => setListening(false);
+    recognition.onerror = () => setListening(false);
+    recognitionRef.current = recognition;
+    recognition.start();
+    setListening(true);
+  }
+
+  return (
+    <Button type="button" variant="outline" onClick={toggle} title="Voice input">
+      {listening ? "⏹" : "🎤"}
+    </Button>
+  );
 }
 
 export function LegalAssistant() {
@@ -556,11 +764,13 @@ export function LegalAssistant() {
         </div>
       </div>
 
-      <Callout tone="warning" title="Not a substitute for a lawyer">
-        Vidhira gives general legal information, not legal advice — it never guarantees outcomes and can't replace a
-        qualified Indian lawyer. For arrests, violence, or urgent deadlines, contact a lawyer or the relevant authority
-        immediately.
-      </Callout>
+      {turns.length === 0 && (
+        <Callout tone="warning" title="Not a substitute for a lawyer">
+          Vidhira gives general legal information, not legal advice — it never guarantees outcomes and can't replace a
+          qualified Indian lawyer. For arrests, violence, or urgent deadlines, contact a lawyer or the relevant authority
+          immediately.
+        </Callout>
+      )}
 
       {turns.length === 0 && (
         <Card>
@@ -621,6 +831,7 @@ export function LegalAssistant() {
           placeholder="e.g. Mujhe FIR ke baare mein jaanna hai…"
           style={{ flex: 1, padding: 12, borderRadius: 10, border: "1px solid var(--color-border)" }}
         />
+        <VoiceInputButton onResult={(text) => text && setInput((cur) => (cur ? `${cur} ${text}` : text))} />
         <Button type="submit" disabled={loading || !input.trim()}>{loading ? "Asking…" : "Ask"}</Button>
       </form>
     </div>

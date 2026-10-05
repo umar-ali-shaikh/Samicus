@@ -56,7 +56,7 @@ export async function overview() {
     count("intake_requests", (q) => q.gte("created_at", since(14)).lt("created_at", since(7))),
     count("intake_requests", (q) => q.eq("kind", "urgent").gte("created_at", since(30))),
     count("legal_assistant_turns", (q) => q.gte("created_at", since(30))),
-    count("legal_assistant_turns", (q) => q.gte("created_at", since(30)).eq("result->>outcome", "no_evidence")),
+    count("legal_assistant_turns", (q) => q.gte("created_at", since(30)).eq("result->>outcome", "general_guidance")),
     count("research_queries", (q) => q.gte("created_at", since(30))),
     count("users"),
     count("users", (q) => q.gte("last_login_at", since(30))),
@@ -171,7 +171,7 @@ export async function services() {
 
   const paidConsults = consultations.filter((c) => c.paid_at);
   const out = [
-    line("AI legal assistant", turns.length, turns.length, turns.filter((t) => t.outcome === "answered").length, turns.filter((t) => t.outcome === "no_evidence").length, 0, null),
+    line("AI legal assistant", turns.length, turns.length, turns.filter((t) => t.outcome === "answered").length, turns.filter((t) => t.outcome === "general_guidance").length, 0, null),
     line("Advocate consultations", consultations.length, consultations.filter((c) => c.state !== "cancelled").length, consultations.filter((c) => ["completed", "notes_published"].includes(c.state)).length, consultations.filter((c) => c.state === "cancelled").length, sum(paidConsults.map((c) => c.fee_total)), avg(consultations.filter((c) => c.csat_rating).map((c) => c.csat_rating))),
     line("Document drafting", drafts.length, drafts.length, drafts.filter((d) => d.status !== "draft").length, drafts.filter((d) => d.status === "draft").length, 0, null),
     line("Contract review", reviews.length, reviews.length, reviews.filter((r) => r.status === "done").length, reviews.filter((r) => r.status === "failed").length, 0, null),
@@ -324,7 +324,7 @@ export async function ai() {
   ]);
   const total = turns.length;
   const answered = turns.filter((t) => t.outcome === "answered").length;
-  const none = turns.filter((t) => t.outcome === "no_evidence");
+  const none = turns.filter((t) => t.outcome === "general_guidance");
   const unparsed = turns.filter((t) => t.outcome === "unparsed").length;
   const emergencies = turns.filter((t) => t.emergency?.flag).length;
   const gaps = new Map();
@@ -338,7 +338,7 @@ export async function ai() {
     kpis: [
       { label: "Assistant questions (90d)", value: total },
       { label: "Answered with sources", value: answered, note: pct(answered, total) === null ? null : `${pct(answered, total)}%` },
-      { label: "Not enough sources", value: none.length, note: pct(none.length, total) === null ? null : `${pct(none.length, total)}%` },
+      { label: "General guidance only (no cited source)", value: none.length, note: pct(none.length, total) === null ? null : `${pct(none.length, total)}%` },
       { label: "Unstructured answers", value: unparsed },
       { label: "Emergency-flagged", value: emergencies },
       { label: "Research queries", value: researchTotal },
