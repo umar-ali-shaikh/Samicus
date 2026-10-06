@@ -1,5 +1,5 @@
 // Thin fetch wrapper for the server's conversational legal assistant route
-// (backend/src/routes/legalAssistant.js). See frontend/src/api/caseLawClient.js for the
+// (apps/api/src/routes/legalAssistant.js). See frontend/src/api/caseLawClient.js for the
 // sibling case-law-search client this pipeline is built alongside.
 
 import { api } from "../lib/api";

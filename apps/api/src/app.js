@@ -6,6 +6,7 @@ import helmet from "helmet";
 import morgan from "morgan";
 import rateLimit from "express-rate-limit";
 import { HttpError } from "./services/access.js";
+import { getSupabase } from "./config/db.js";
 
 import authRoutes from "./routes/auth.js";
 import accountsRoutes from "./routes/accounts.js";
@@ -32,7 +33,7 @@ import complaintsRoutes from "./routes/complaints.js";
 import legalAssistantRoutes from "./routes/legalAssistant.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const CLIENT_DIST = path.join(__dirname, "../../frontend/dist");
+const CLIENT_DIST = path.join(__dirname, "../../../frontend/dist");
 
 export function createApp() {
   const app = express();
@@ -78,6 +79,19 @@ export function createApp() {
   app.use(morgan(process.env.NODE_ENV === "production" ? "combined" : "dev"));
 
   app.get("/api/health", (req, res) => res.json({ ok: true }));
+
+  // Liveness: process is up, no dependency checks. Readiness: DB is actually reachable.
+  // Unauthenticated and unmounted under /api by design — orchestrators probe these directly.
+  app.get("/healthz", (req, res) => res.json({ ok: true }));
+  app.get("/readyz", async (req, res) => {
+    try {
+      const { error } = await getSupabase().from("plans").select("id", { head: true, count: "exact" });
+      if (error) throw error;
+      res.json({ ok: true });
+    } catch {
+      res.status(503).json({ ok: false, error: "Database unreachable" });
+    }
+  });
 
   // Coarse per-IP backstop; individual routes add tighter per-user limits where money or abuse is at stake.
   app.use(

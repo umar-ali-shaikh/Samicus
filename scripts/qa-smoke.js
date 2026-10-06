@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 // Live QA smoke test for the Vidhira Live QA Report (5 Oct 2026) fixes.
 //
-// This complements — never replaces — the deterministic backend test suite
-// (`npm test -w backend`, 186 tests, LLM calls mocked). This script makes REAL requests
-// against a running backend (and, for the overflow check, a real Chromium against the
+// This complements — never replaces — the deterministic API test suite
+// (`npm test -w apps/api`, 188 tests, LLM calls mocked). This script makes REAL requests
+// against a running API (and, for the overflow check, a real Chromium against the
 // frontend) so the fixes are also verified end-to-end, including real OpenRouter/Indian
 // Kanoon calls where a QA_SMOKE_TOKEN is supplied.
 //
@@ -11,7 +11,7 @@
 //   node scripts/qa-smoke.js
 //
 // Requires:
-//   - the backend running on localhost:4000 (npm run dev -w backend, or dev:full)
+//   - the API running on localhost:4000 (npm run dev -w apps/api, or dev:full)
 //
 // Optional but needed for the AUTHENTICATED checks (the majority — anything that asks the
 // AI Assistant a question, searches case law, touches /me, etc.) — without it those checks
@@ -21,7 +21,7 @@
 //                      JSON.parse(localStorage.getItem(Object.keys(localStorage).find(k=>k.includes('auth-token')))).access_token
 //
 // Optional, for the 360/375/414px responsive-overflow check (Playwright against a real
-// Chromium, reusing frontend/e2e's stubbed-API approach — no backend/auth needed for this
+// Chromium, reusing frontend/e2e's stubbed-API approach — no apps/api/auth needed for this
 // part, since it's a pure CSS/layout check):
 //   PLAYWRIGHT_MODULE   defaults to "playwright" (npm i -D playwright in frontend/ first)
 //   CHROMIUM_PATH       defaults to the path frontend/e2e/smoke.mjs already uses
@@ -118,8 +118,8 @@ async function phase0() {
 // ============================================================================================
 // Phase 1 — P0 (critical). These make real OpenRouter/Indian Kanoon calls — costs money,
 // subject to the 20/15min askLimiter — kept to one representative call per bug, not every
-// language variant (those are covered exhaustively and deterministically by the backend
-// unit tests instead: npm test -w backend).
+// language variant (those are covered exhaustively and deterministically by the API
+// unit tests instead: npm test -w apps/api).
 // ============================================================================================
 async function askAssistant(question, sessionId) {
   return api("POST", "/legal-assistant/ask", { question, sessionId });
@@ -376,7 +376,7 @@ async function main() {
     await phase3();
     await phase4();
   } else {
-    console.log("\nBackend is not reachable — skipping all live API checks. Start it with `npm run dev -w backend` or `npm run dev:full`.");
+    console.log("\nAPI is not reachable — skipping all live API checks. Start it with `npm run dev -w apps/api` or `npm run dev:full`.");
   }
   await responsiveOverflowCheck();
 

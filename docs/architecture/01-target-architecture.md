@@ -29,7 +29,7 @@ sequenceDiagram
 
     Note over B,N: Browser never calls Express directly
     B->>N: Request page / Server Action / BFF route
-    N->>N: middleware.ts refreshes session (@supabase/ssr, HttpOnly cookie)
+    N->>N: proxy.ts refreshes session (@supabase/ssr, HttpOnly cookie) — Next 16 renamed middleware.ts to proxy.ts
     N->>E: fetch via typed server-side apiClient<br/>Authorization: Bearer <token>, X-Request-Id
     E->>E: verify JWT locally via JWKS (jose)<br/>require verified email
     E->>S: load app user + role (OUR DB, not token claims)
@@ -137,7 +137,7 @@ Properties this diagram must satisfy (acceptance criterion #6):
 flowchart TD
     M["packages/contracts/src/routes.ts<br/>(path, roles, nav label/icon, feature flag)<br/>— single source of truth"]
     M --> NM[Next nav menus / sidebar components]
-    M --> MW[apps/web middleware.ts — coarse role gate]
+    M --> MW[apps/web proxy.ts — coarse role gate]
     M --> LH[Link helpers — typed route params]
     M --> RM[apps/api requireRole — role manifest cross-check]
     M --> SCRIPT["CI script: 'route has no Zod validation or policy check' — must report empty"]

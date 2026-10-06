@@ -1,5 +1,5 @@
-﻿{
-  "name": "vidhira-backend",
+{
+  "name": "@vidhira/api",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -10,6 +10,7 @@
     "seed:research-examples": "node src/seed/researchExamples.js",
     "seed:demo-advocates": "node src/seed/demoAdvocates.js",
     "test": "node --experimental-test-module-mocks --test",
+    "typecheck": "tsc --noEmit",
     "rag:reindex": "node src/utils/rag.js reindex",
     "rag:reembed-all": "node src/utils/rag.js reembed-all",
     "rag:reprocess": "node src/utils/rag.js reprocess",
@@ -18,6 +19,7 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.117.2",
+    "@vidhira/contracts": "*",
     "cors": "^2.8.5",
     "docx": "^9.8.1",
     "dotenv": "^16.4.5",
@@ -28,12 +30,16 @@
     "morgan": "^1.10.0",
     "multer": "^2.0.0",
     "pdfkit": "^0.20.2",
+    "pino": "^10.4.0",
     "sanitize-html": "^2.13.1",
     "unpdf": "^1.8.1",
     "zod": "^4.6.5"
   },
   "devDependencies": {
-    "nodemon": "^3.1.14"
+    "nodemon": "^3.1.14",
+    "pino-pretty": "^13.2.0",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3"
   },
   "description": "Vidhira API — Express + Supabase (Postgres, Auth, Storage) + Qdrant"
 }

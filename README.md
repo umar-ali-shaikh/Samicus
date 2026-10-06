@@ -19,7 +19,7 @@ document templates with their clause library).
 | Legal sources | **Indian Kanoon** API | Paid per call — the knowledge base avoids repeat calls |
 | Payments | **Razorpay** (optional) | Pay-per-transaction; the UI says so honestly when it is off |
 | Video | **Jitsi Meet** | No account needed |
-| App | React 19 + Vite (`frontend/`), Node 20+ / Express 5 (`backend/`), npm workspaces | One process serves both |
+| App | React 19 + Vite (`frontend/`), Node 20+ / Express 5 (`apps/api/`), npm workspaces | One process serves both |
 
 MongoDB is intentionally not used — see [docs/RAG.md](docs/RAG.md).
 
@@ -48,13 +48,13 @@ See **[docs/SETUP.md](docs/SETUP.md)** for Supabase, Google OAuth, Qdrant and de
 ```bash
 npm install
 cp .env.example .env   # single shared file: SUPABASE_*, QDRANT_*, OPENROUTER_API_KEY, IK_API_TOKEN, VITE_*
-# run backend/src/db/schema.sql once in the Supabase SQL editor
+# run apps/api/src/db/schema.sql once in the Supabase SQL editor
 npm run dev:full                         # API :4000 + web :5173
 ```
 
 ```bash
 npm run build && npm run start           # single-process production run (PORT, default 4000)
-npm test -w backend                      # API + RAG tests
+npm test -w apps/api                     # API + RAG tests
 npm run e2e -w frontend                  # browser tests, see frontend/e2e/README.md
 ```
 
@@ -62,13 +62,13 @@ npm run e2e -w frontend                  # browser tests, see frontend/e2e/READM
 
 ```
 frontend/   React app — auth/, screens/, modals/, api/ (react-query hooks), lib/ (api + supabase clients)
-backend/
+apps/api/
   src/routes/            HTTP handlers (every route authorises; ids from the client are never trusted)
   src/services/          access.js (authorization helpers), slots, matching, drafting, contract review, analytics
   src/services/rag/      qdrant.js, chunk.js, ingest.js, retrieve.js, clauses.js
   src/db/                schema.sql (fresh install) + migrations/ (upgrades, incl. RLS lock-down)
   src/test/              in-memory Supabase stand-in used by the route + RAG tests
-docs/       SETUP.md, RAG.md, legal-assistant-spec.md
+docs/       SETUP.md, RAG.md, legal-assistant-spec.md, architecture/ (migration docs)
 ```
 
 ## Honest limits

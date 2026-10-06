@@ -1,0 +1,7 @@
+node_modules
+dist
+.next
+coverage
+package-lock.json
+frontend/dist
+docs/architecture/00-inventory.md

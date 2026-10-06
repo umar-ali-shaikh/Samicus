@@ -1,4 +1,4 @@
-// Case-law proxy routes (backend/src/routes/indianKanoon.js). Sign-in required — every call
+// Case-law proxy routes (apps/api/src/routes/indianKanoon.js). Sign-in required — every call
 // there costs real money — so these go through the authenticated API client.
 import { api } from "../lib/api";
 
