@@ -13,12 +13,19 @@ const linkStyle = {
 export function NoAdvocatesFallback({ accountId, practiceAreaId, title = "No advocate is available right now" }) {
   const [notified, setNotified] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
 
   async function notify() {
     setBusy(true);
+    setError(null);
     try {
       await api.post("/advocates/notify-when-available", { accountId, practiceAreaId });
       setNotified(true);
+    } catch (err) {
+      // Previously swallowed entirely: the button just reset to its original label with no
+      // indication anything went wrong, so a server error looked identical to never having
+      // clicked it at all.
+      setError(err.message || "Something went wrong — please try again.");
     } finally {
       setBusy(false);
     }
@@ -36,6 +43,8 @@ export function NoAdvocatesFallback({ accountId, practiceAreaId, title = "No adv
         <a href="tel:15100" style={linkStyle}>📞 Free legal aid (NALSA) — 15100</a>
         <a href="https://nalsa.gov.in/dlsa" target="_blank" rel="noopener noreferrer" style={linkStyle}>🏛 Find your DLSA office ↗</a>
       </div>
+      {notified && <Callout tone="success">We'll notify you ✓ — you'll hear from us the moment an advocate is available.</Callout>}
+      {error && <Callout tone="danger">{error}</Callout>}
       <Button variant="outline" onClick={notify} disabled={busy || notified}>
         {notified ? "We'll notify you ✓" : busy ? "Saving…" : "Notify me when an advocate is available"}
       </Button>

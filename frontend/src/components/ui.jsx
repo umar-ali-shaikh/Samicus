@@ -57,6 +57,11 @@ export function Pill({ active, onClick, children, tone = "default" }) {
         fontWeight: 600,
         cursor: "pointer",
         whiteSpace: "nowrap",
+        minHeight: 44,
+        minWidth: 44,
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
       }}
     >
       {children}
@@ -101,6 +106,11 @@ export function Button({ variant = "primary", children, style, ...rest }) {
         fontSize: 13.5,
         fontWeight: 600,
         cursor: "pointer",
+        minHeight: 44,
+        minWidth: 44,
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
         ...style,
       }}
       {...rest}

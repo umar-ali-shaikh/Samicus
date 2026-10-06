@@ -6,6 +6,15 @@ test("stripTags removes markup and decodes entities", () => {
   assert.equal(stripTags("<p>Smith &amp; Co. said &quot;no&quot;</p><br>Next"), "Smith & Co. said \"no\"\nNext");
 });
 
+// ---- P3-3: a null end date left as literal "to None" in source text reads as "to present" ----
+test("stripTags() rewrites a null-end-date artifact ('to None') as 'to present'", () => {
+  assert.equal(stripTags("<p>Justice X served from 2015 to None.</p>"), "Justice X served from 2015 to present.");
+});
+
+test("stripTags() leaves a genuine 'to <year>' date range untouched", () => {
+  assert.equal(stripTags("<p>Justice X served from 2015 to 2020.</p>"), "Justice X served from 2015 to 2020.");
+});
+
 test("htmlToParagraphs reads Indian Kanoon structural titles", () => {
   const html = `<p id="p_1" title="Fact">The appellant was dismissed.</p>
     <p id="p_2" title="Issue">Whether the dismissal was valid?</p>

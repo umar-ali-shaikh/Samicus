@@ -179,7 +179,7 @@ async function seedDraftingTemplates() {
         { key: "recipientAddress", label: "Recipient address", placeholder: "Recipient Address", wide: true },
         { key: "factsReason", label: "What happened (facts/reason for this notice)", placeholder: "Briefly describe what happened and why you are sending this notice", wide: true, required: true },
         { key: "demandAction", label: "Demand", placeholder: "pay the outstanding amount of Rs. 1,00,000", wide: true, required: true },
-        { key: "noticePeriodDays", label: "Notice period (days)", placeholder: "15" },
+        { key: "noticePeriodDays", label: "Notice period (days)", placeholder: "15", default: "15" },
       ],
       draft_fee: 0, review_fee: 1499,
     }

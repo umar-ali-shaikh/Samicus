@@ -1,10 +1,12 @@
 ﻿import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../auth/AuthProvider";
+import { TAB_ALIASES } from "../shell/navConfig";
 
 const UIContext = createContext(null);
 
 function readHash() {
-  const [tab = "", ...rest] = window.location.hash.replace(/^#\/?/, "").split("/");
+  const [rawTab = "", ...rest] = window.location.hash.replace(/^#\/?/, "").split("/");
+  const tab = TAB_ALIASES[rawTab] || rawTab;
   return { tab, param: rest.join("/") || "" };
 }
 
@@ -29,7 +31,13 @@ export function UIProvider({ children }) {
   const timer = useRef(null);
 
   useEffect(() => {
-    const onHash = () => setRoute(readHash());
+    // go() below already scrolls to top for in-app navigation — this covers the hash
+    // changing WITHOUT going through go() (browser Back/Forward, or a hand-typed/pasted
+    // #hash URL), which previously left the scroll position wherever it was on the old page.
+    const onHash = () => {
+      setRoute(readHash());
+      window.scrollTo?.(0, 0);
+    };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, []);

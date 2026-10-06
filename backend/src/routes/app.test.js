@@ -96,6 +96,30 @@ test("an allow-listed verified email becomes admin; nobody can self-assign a rol
   assert.equal(forbidden.status, 403);
 });
 
+// ---- P2-6: PATCH /me rejects a garbage phone number instead of silently storing it ----
+test("PATCH /me rejects a non-numeric phone value", async () => {
+  const res = await call("PATCH", "/me", { token: "tok-alice", body: { phone: "abc123" } });
+  assert.equal(res.status, 400);
+  assert.match(res.body.error, /phone/i);
+});
+
+test("PATCH /me accepts a valid Indian mobile number, with or without +91 and spacing", async () => {
+  const res1 = await call("PATCH", "/me", { token: "tok-alice", body: { phone: "9876543210" } });
+  assert.equal(res1.status, 200);
+  assert.equal(res1.body.user.phone, "9876543210");
+
+  const res2 = await call("PATCH", "/me", { token: "tok-alice", body: { phone: "+91 98765 43210" } });
+  assert.equal(res2.status, 200);
+  assert.equal(res2.body.user.phone, "+919876543210");
+});
+
+test("PATCH /me clears the phone when sent an empty string", async () => {
+  await call("PATCH", "/me", { token: "tok-alice", body: { phone: "9876543210" } });
+  const res = await call("PATCH", "/me", { token: "tok-alice", body: { phone: "" } });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.user.phone, null);
+});
+
 test("signing in with Google links to an existing email/password user instead of duplicating", async () => {
   fake.db.users.push({ id: "u-legacy", email: "legacy@example.com", full_name: "Legacy", auth_id: null, role: "client" });
   fake.db.account_members.push({ id: "m-legacy", account_id: "acc-legacy", user_id: "u-legacy", role: "owner", accepted_at: "2026-01-01" });

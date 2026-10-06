@@ -35,7 +35,7 @@ function LanguageMenu() {
         aria-label="Language"
         aria-haspopup="true"
         aria-expanded={open}
-        style={{ background: "#182338", border: "1px solid #2A3854", borderRadius: 9, padding: "7px 12px", fontSize: 12, fontWeight: 600, color: "#F6F1E8", cursor: "pointer", minWidth: 44, minHeight: 36 }}
+        style={{ background: "#182338", border: "1px solid #2A3854", borderRadius: 9, padding: "7px 12px", fontSize: 12, fontWeight: 600, color: "#F6F1E8", cursor: "pointer", minWidth: 44, minHeight: 44 }}
       >
         {current[1]}
       </button>
@@ -71,7 +71,11 @@ function ProfileMenu() {
   const view = viewFor(user, actAsClient);
   return (
     <div style={{ position: "relative" }}>
-      <button onClick={() => setOpen((o) => !o)} aria-label="Account menu" style={{ background: "none", border: "none", padding: 0, cursor: "pointer", lineHeight: 0 }}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        aria-label="Account menu"
+        style={{ background: "none", border: "none", padding: 0, cursor: "pointer", lineHeight: 0, minWidth: 44, minHeight: 44, display: "inline-flex", alignItems: "center", justifyContent: "center" }}
+      >
         {user?.avatar_url
           ? <img src={user.avatar_url} alt="" referrerPolicy="no-referrer" width={32} height={32} style={{ borderRadius: 11 }} />
           : <AvatarTile initials={initials(user?.full_name)} size={32} />}
@@ -91,23 +95,42 @@ function ProfileMenu() {
   );
 }
 
+// Below 414px the Brand + full-width search input + LanguageMenu + ProfileMenu no longer
+// fit the row at all (measured overflow: 13px at 375px, 26px at 360px), clipping/hiding the
+// avatar. The search input collapses into a 44x44 icon button at this width instead of
+// trying to shrink further — it already has nowhere left to shrink to.
+const NARROW_BREAKPOINT = 414;
+
 function TopBar() {
   const { user } = useAuth();
   const { actAsClient, go } = useUI();
   const isMobile = useIsMobile();
+  const isNarrow = useIsMobile(NARROW_BREAKPOINT);
   const view = viewFor(user, actAsClient);
+  const showsAsk = view === "client" || view === "lawyer";
   return (
-    <div style={{ display: "flex", gap: 14, alignItems: "center", justifyContent: "space-between", padding: isMobile ? "10px 14px" : "12px 22px", background: "#0B1220", color: "#F6F1E8", position: "sticky", top: 0, zIndex: 40 }}>
+    <div style={{ display: "flex", gap: isNarrow ? 8 : 14, alignItems: "center", justifyContent: "space-between", padding: isMobile ? "10px 14px" : "12px 22px", background: "#0B1220", color: "#F6F1E8", position: "sticky", top: 0, zIndex: 40 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 11, flex: "none" }}>
         <Brand light />
         {!isMobile && <span style={{ fontSize: 10, color: "#8A94A8", letterSpacing: "0.05em" }}>RESEARCH · DRAFT · REVIEW · COMPLY · RESOLVE</span>}
       </div>
-      {(view === "client" || view === "lawyer") && (
-        <input
-          placeholder="Ask Vidhira a legal question…"
-          onKeyDown={(e) => { if (e.key === "Enter" && e.target.value.trim()) { go("legalassistant", "", { question: e.target.value.trim() }); e.target.value = ""; } }}
-          style={{ flex: 1, minWidth: 100, maxWidth: 420, padding: "9px 14px", borderRadius: 999, border: "1px solid #2A3854", background: "#182338", color: "#F6F1E8", fontSize: 12.5 }}
-        />
+      {showsAsk && (
+        isNarrow ? (
+          <button
+            onClick={() => go("legalassistant")}
+            aria-label="Ask Vidhira a legal question"
+            title="Ask Vidhira a legal question"
+            style={{ flex: "none", minWidth: 44, minHeight: 44, borderRadius: 999, border: "1px solid #2A3854", background: "#182338", color: "#F6F1E8", fontSize: 16, cursor: "pointer" }}
+          >
+            🔍
+          </button>
+        ) : (
+          <input
+            placeholder="Ask Vidhira a legal question…"
+            onKeyDown={(e) => { if (e.key === "Enter" && e.target.value.trim()) { go("legalassistant", "", { question: e.target.value.trim() }); e.target.value = ""; } }}
+            style={{ flex: 1, minWidth: 100, maxWidth: 420, padding: "9px 14px", borderRadius: 999, border: "1px solid #2A3854", background: "#182338", color: "#F6F1E8", fontSize: 12.5 }}
+          />
+        )
       )}
       <div style={{ display: "flex", gap: 10, alignItems: "center", flex: "none" }}>
         <LanguageMenu />

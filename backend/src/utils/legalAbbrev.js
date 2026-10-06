@@ -85,6 +85,67 @@ export function citesOnlyRepealedCode(text) {
   return REPEALED_CODE_RE.test(s) && !NEW_CODE_RE.test(s);
 }
 
+// P3-2: the Act names a layperson's problem actually turns on, each with its correct
+// enactment year — the same "give the model a trusted lookup table, then verify
+// independently rather than trusting recall" pattern as SECTION_CROSSWALK/
+// CODE_CROSSWALK_REFERENCE above. A model naming "the Payment of Wages Act" with no year,
+// or the wrong year, is a common small-model failure mode that's cheap to catch
+// deterministically instead of hoping the model remembers correctly.
+export const ACT_YEARS = {
+  "payment of wages act": 1936,
+  "code on wages": 2019,
+  "industrial disputes act": 1947,
+  "minimum wages act": 1948,
+  "protection of women from domestic violence act": 2005,
+  "negotiable instruments act": 1881,
+  "indian penal code": 1860,
+  "code of criminal procedure": 1973,
+  "indian evidence act": 1872,
+  "bharatiya nyaya sanhita": 2023,
+  "bharatiya nagarik suraksha sanhita": 2023,
+  "bharatiya sakshya adhiniyam": 2023,
+  "indian contract act": 1872,
+  "consumer protection act": 2019,
+  "model tenancy act": 2021,
+  "motor vehicles act": 1988,
+  "hindu marriage act": 1955,
+  "companies act": 2013,
+  "information technology act": 2000,
+  "right to information act": 2005,
+  "code of civil procedure": 1908,
+};
+
+// Formatted for embedding directly in an LLM prompt, same purpose as
+// CODE_CROSSWALK_REFERENCE — the model always has the correct year in front of it rather
+// than relying on training-data recall, which is exactly where a small/free model drifts.
+export const ACT_YEAR_REFERENCE = Object.entries(ACT_YEARS)
+  .map(([name, year]) => `${name.replace(/\b\w/g, (c) => c.toUpperCase())} ${year}`)
+  .join("; ");
+
+// One regex per known Act, matched case-insensitively against the Act's name with an
+// OPTIONAL trailing year — captures whether a year immediately follows (allowing a comma,
+// "of", or nothing in between, e.g. "Payment of Wages Act, 1936" / "Payment of Wages Act of
+// 1936" / "Payment of Wages Act 1936"). Built lazily (not at module scope) so a change to
+// ACT_YEARS doesn't need a second hand-maintained list in sync with it.
+function actMentionRegexes() {
+  return Object.entries(ACT_YEARS).map(([name, year]) => ({
+    name,
+    year,
+    re: new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b(?!\\s*(?:,?\\s*(?:of\\s+)?${year}\\b))`, "i"),
+  }));
+}
+
+/**
+ * True when `text` names a well-known Act (from ACT_YEARS) without its correct year
+ * appearing right after it — e.g. "the Payment of Wages Act" with no "1936" anywhere nearby,
+ * or a wrong year attached. Mirrors citesOnlyRepealedCode's "verify independently, never
+ * trust the model's own recall" posture.
+ */
+export function citesActWithoutYear(text) {
+  const s = String(text || "");
+  return actMentionRegexes().some(({ re }) => re.test(s));
+}
+
 const SECTION_RE = /\bsection\s*(\d+[a-z]?)\b|\bsec\.?\s*(\d+[a-z]?)\b|\b(\d+[a-z]?)\s*(crpc|cr\.p\.c|ipc|bnss|bns|cpc)\b/gi;
 
 function findActKey(text) {

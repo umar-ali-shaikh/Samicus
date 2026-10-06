@@ -7,7 +7,7 @@ import { provisionUser } from "../services/auth/provision.js";
 
 // A user lookup per request would add a Supabase round trip to every call, so identities
 // are cached briefly. Short enough that a disabled/deleted account stops working fast.
-const IDENTITY_TTL_MS = 30 * 1000;
+const IDENTITY_TTL_MS = 5 * 1000;
 const IDENTITY_CACHE_MAX = 5000;
 const identityCache = new Map(); // token -> { user, expiresAt }
 

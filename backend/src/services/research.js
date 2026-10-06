@@ -12,6 +12,7 @@ import { chatCompletion, isOpenRouterConfigured } from "./openRouter.js";
 import { understandQuery } from "./legalQueryUnderstanding.js";
 import { search as searchIndianKanoon, getDocumentRaw, isIndianKanoonConfigured } from "./indianKanoon.js";
 import { rankRelevantDocs } from "./relevanceRanking.js";
+import { rankWithScores } from "../utils/tfidf.js";
 import { expandLegalQuery, extractLexicalTerms, detectCourtIntent } from "../utils/legalAbbrev.js";
 
 export class KnowledgeBaseUnavailableError extends Error {
@@ -144,6 +145,13 @@ async function fetchAndIndexLiveSources(queryText) {
   }
 }
 
+// The corpus is English (Indian Kanoon judgments/bare acts) — a Hindi/Marathi/Urdu/Hinglish/
+// Marathlish question embeds much further from it than its English legal-concept equivalent
+// does, and retrieving on the raw non-English text alone is what let "talak ke baad patni ko
+// kharcha milega kya" come back not_found while the same question in English didn't.
+const NON_ENGLISH_LANGUAGES = new Set(["hindi", "marathi", "urdu", "hinglish", "marathlish"]);
+const MAX_TRANSLATED_QUERIES = 3;
+
 /**
  * @returns {Promise<{ fetchedNewSources: boolean, results: { chunk: object, score: number }[] }>}
  *   `results` is best first and includes below-threshold passages so the UI can show what
@@ -154,6 +162,28 @@ export async function retrieve(queryText, { sourcesEnabled } = {}) {
   const threshold = minScore();
 
   let candidates = await hybridRetrieve(queryText);
+
+  // Stage 1's own searchQueries (already produced for the AI Assistant's retrieval, same
+  // translation step) give the English-term version of a non-English question almost for
+  // free — merge its hits in, don't replace the original-language retrieval with it (a
+  // code-mixed question can still match the raw text too).
+  try {
+    const understanding = await understandQuery(queryText);
+    if (NON_ENGLISH_LANGUAGES.has(understanding.language) && understanding.searchQueries?.length) {
+      const translatedLists = await Promise.all(
+        understanding.searchQueries.slice(0, MAX_TRANSLATED_QUERIES).map((q) => hybridRetrieve(q))
+      );
+      const byId = new Map(candidates.map((p) => [p.id, p]));
+      for (const p of translatedLists.flat()) {
+        const existing = byId.get(p.id);
+        if (!existing || p.score > existing.score) byId.set(p.id, p);
+      }
+      candidates = [...byId.values()].sort((a, b) => b.score - a.score);
+    }
+  } catch (err) {
+    console.error("Research translated-query retrieval failed, continuing with the original-language query only:", err.message);
+  }
+
   let fetchedNewSources = false;
   const hasCitableHit = candidates.some((p) => p.score >= threshold && CITABLE_CLASSES.has(p.paraClass));
   if (!hasCitableHit) {
@@ -180,7 +210,25 @@ export async function retrieve(queryText, { sourcesEnabled } = {}) {
   return { fetchedNewSources, results };
 }
 
-export async function answerFromRetrieval(retrieved) {
+// Secondary relevance gate (independent of the retrieval score that got a passage into the
+// pool at all, and of the paragraph-class gate above): a passage must ALSO clear its own
+// re-rank (embedding similarity via rankRelevantDocs — a different, independent check than
+// whatever scored it into the pool — falling back to TF-IDF when embeddings aren't
+// configured) AND share at least one real word with the query (rankWithScores > 0, the
+// key-concept/section overlap check). This is what catches "Can a wife claim maintenance
+// under Section 125 CrPC after divorce?" pulling back anticipatory-bail/insurance/table-of-
+// contents passages that merely live in the same embedding neighbourhood as "CrPC" — those
+// share no real vocabulary with "maintenance"/"divorce"/"125" and fail the overlap check.
+async function applyRelevanceGate(queryText, citable) {
+  if (citable.length === 0) return citable;
+  const getText = (r) => `${r.chunk.document?.title || ""} ${r.chunk.text}`;
+  const reranked = await rankRelevantDocs(queryText, citable, getText);
+  const rerankedIds = new Set(reranked.map((r) => r.item.chunk.id));
+  const termOverlapIds = new Set(rankWithScores(queryText, citable, getText).filter((r) => r.score > 0).map((r) => r.item.chunk.id));
+  return citable.filter((r) => rerankedIds.has(r.chunk.id) && termOverlapIds.has(r.chunk.id));
+}
+
+export async function answerFromRetrieval(queryText, retrieved) {
   const threshold = relevanceThreshold();
   const kept = retrieved.filter((r) => r.score >= threshold);
   const discardedCount = retrieved.length - kept.length;
@@ -195,7 +243,15 @@ export async function answerFromRetrieval(retrieved) {
     return { outcome: "not_found", segments: [], discardedCount, unsupportedSpanCount: 0 };
   }
 
-  const segments = citable.map((r) => ({
+  const relevant = await applyRelevanceGate(queryText, citable);
+  const totalDiscarded = discardedCount + (citable.length - relevant.length);
+  if (relevant.length === 0) {
+    // Everything retrieved was off-topic for the actual question — an honest "not in the
+    // indexed library" beats presenting an irrelevant answer with false confidence.
+    return { outcome: "not_found", segments: [], discardedCount: totalDiscarded, unsupportedSpanCount: 0 };
+  }
+
+  const segments = relevant.map((r) => ({
     text: r.chunk.text,
     chunkId: r.chunk.id,
     score: r.score,
@@ -207,8 +263,26 @@ export async function answerFromRetrieval(retrieved) {
     url: r.chunk.document?.canonical_url,
   }));
 
-  const outcome = citable.length < kept.length || discardedCount > 0 ? "partial" : "answered";
-  return { outcome, segments, discardedCount, unsupportedSpanCount: 0 };
+  const outcome = relevant.length < kept.length || totalDiscarded > 0 ? "partial" : "answered";
+  return { outcome, segments, discardedCount: totalDiscarded, unsupportedSpanCount: 0 };
+}
+
+// Best-effort, deterministic check for one specific failure mode: the query names ONE case
+// by name (an "X v. Y" pattern) but every retrieved/cited segment is actually about a
+// different case entirely — the kind of mismatch embeddings can produce between two cases
+// discussing closely related doctrine (e.g. asking about Kesavananda Bharati and getting
+// I.R. Coelho back). A false negative here (the note doesn't fire) is the safe failure mode
+// — this never claims a mismatch that isn't real, it only ever stays silent.
+const CASE_NAME_RE = /\b([A-Z][A-Za-z.&'-]+(?:\s+[A-Z][A-Za-z.&'-]+){0,4})\s+(?:v\.?s?\.?|versus)\s+([A-Z][A-Za-z.&'-]+(?:\s+[A-Z][A-Za-z.&'-]+){0,4})/;
+
+export function caseMismatchNote(queryText, segments) {
+  const m = CASE_NAME_RE.exec(queryText || "");
+  if (!m) return null;
+  const askedParty = m[1].trim();
+  if (!askedParty) return null;
+  const titles = segments.map((s) => s.documentTitle || "").join(" | ").toLowerCase();
+  if (titles.includes(askedParty.toLowerCase())) return null;
+  return `Note: none of the cited sources could confirm "${askedParty}" — this answer relies on a different case than the one you asked about.`;
 }
 
 const OUTCOME_VALUES = ["allowed", "dismissed", "partial", "not_stated"];

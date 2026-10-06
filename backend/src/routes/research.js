@@ -9,6 +9,7 @@ import {
   findRelatedCases,
   detectLanguage,
   answerFollowUp,
+  caseMismatchNote,
 } from "../services/research.js";
 import { renderResearchReportPdf } from "../services/draftRender.js";
 import { assertAccountMember, defaultAccountId, HttpError } from "../services/access.js";
@@ -64,7 +65,7 @@ async function loadOwnedQuery(req, id) {
  */
 async function buildAndPersistAnswer(supabase, query, scored, locale) {
   if (scored.length === 0) return { outcome: "not_found", discardedCount: 0 };
-  const result = await answerFromRetrieval(scored);
+  const result = await answerFromRetrieval(query.text, scored);
   if (result.outcome === "not_found") return { outcome: "not_found", discardedCount: result.discardedCount };
 
   const { data: answer, error: answerError } = await supabase
@@ -92,13 +93,30 @@ async function buildAndPersistAnswer(supabase, query, scored, locale) {
   for (const seg of result.segments) {
     caseCards[seg.chunkId] = { ...(insights.caseCards[seg.chunkId] || {}), gloss: insights.glosses[seg.chunkId] || null };
   }
+  // A case-name mismatch is safety-relevant (telling the user their answer is grounded in a
+  // DIFFERENT case than the one they asked about), so it's a server-constructed prefix,
+  // never left to the model's own summary to mention or omit.
+  const mismatchNote = caseMismatchNote(query.text, result.segments);
+  const summary = mismatchNote ? `${mismatchNote} ${insights.summary || ""}`.trim() : insights.summary;
   const { error: updateError } = await supabase
     .from("research_answers")
-    .update({ summary: insights.summary, case_cards: caseCards, related_searches: insights.relatedSearches, related_case_ids: relatedCaseIds })
+    .update({ summary, case_cards: caseCards, related_searches: insights.relatedSearches, related_case_ids: relatedCaseIds })
     .eq("id", answer.id);
   if (updateError) throw updateError;
 
   return { outcome: result.outcome, discardedCount: result.discardedCount };
+}
+
+// outcome is persisted onto research_queries right after it's actually known (build time),
+// in every case (answered/partial/not_found) — previously only the not_found case patched
+// it back, so a query inserted as "answered" (from the raw retrieval score alone, before the
+// paragraph-class/relevance gates run) that downgraded to "partial" during build never had
+// research_queries.outcome corrected, and the My Research list / report read the stale value.
+async function buildPersistAndSyncOutcome(supabase, query, scored, locale) {
+  const { outcome, discardedCount } = await buildAndPersistAnswer(supabase, query, scored, locale);
+  const { error: updateError } = await supabase.from("research_queries").update({ outcome }).eq("id", query.id);
+  if (updateError) throw updateError;
+  return { outcome, discardedCount };
 }
 
 // Step 1: retrieve — a separate callable step, so the client sees retrieval before any answer exists.
@@ -202,11 +220,7 @@ router.post("/research/answer", requireAuth, async (req, res) => {
   if (chunksError) throw chunksError;
   const scored = queryChunks.map((qc) => ({ chunk: qc.chunk, score: qc.score }));
 
-  const { outcome, discardedCount } = await buildAndPersistAnswer(supabase, query, scored, query.locale);
-  if (outcome === "not_found") {
-    const { error: updateError } = await supabase.from("research_queries").update({ outcome: "not_found" }).eq("id", query.id);
-    if (updateError) throw updateError;
-  }
+  await buildPersistAndSyncOutcome(supabase, query, scored, query.locale);
 
   // Re-fetch the just-built report in its saved shape so this response and a later
   // GET /research/queries/:id/report are byte-identical — one code path for both.
@@ -468,7 +482,7 @@ router.post("/research/queries/:id/refresh", requireAuth, async (req, res) => {
   const { error: supersedeError } = await supabase.from("research_queries").update({ superseded_by: newQuery.id }).eq("id", query.id);
   if (supersedeError) throw supersedeError;
 
-  await buildAndPersistAnswer(supabase, newQuery, scored, locale);
+  await buildPersistAndSyncOutcome(supabase, newQuery, scored, locale);
   res.json({ searchId: newQuery.id });
 });
 

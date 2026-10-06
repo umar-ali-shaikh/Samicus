@@ -118,7 +118,7 @@ function FollowUpChat({ searchId, locale }) {
 }
 
 export function ResearchReport({ searchId }) {
-  const { go, showToast } = useUI();
+  const { go, showToast, setResearchQuestion } = useUI();
   const [tab, setTab] = useState("summary");
   const [highlightChunk, setHighlightChunk] = useState(null);
   const segmentRefs = useRef({});
@@ -168,7 +168,7 @@ export function ResearchReport({ searchId }) {
       <Card style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
           <div>
-            <button onClick={() => go("research")} style={{ all: "unset", cursor: "pointer", fontSize: 12, color: "var(--color-text-muted)", marginBottom: 6, display: "block" }}>← Research library</button>
+            <button onClick={() => { setResearchQuestion(""); go("research"); }} style={{ all: "unset", cursor: "pointer", fontSize: 12, color: "var(--color-text-muted)", marginBottom: 6, display: "block" }}>← Research library</button>
             <div style={{ fontFamily: "var(--font-serif)", fontSize: 22 }}>{query.title || query.text}</div>
             <div style={{ fontSize: 11.5, color: "var(--color-text-muted)", marginTop: 4 }}>
               {new Date(query.created_at).toLocaleDateString("en-IN", { year: "numeric", month: "long", day: "numeric" })}

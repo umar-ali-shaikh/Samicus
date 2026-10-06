@@ -5,7 +5,7 @@ import { useConfig, useGet, useMut } from "../api/hooks";
 import { api } from "../lib/api";
 import { Card, Pill, Badge, Button, Callout, EmptyState, Loading, QueryBoundary } from "../components/ui";
 import { PageHeader } from "../components/PageHeader";
-import { Field, Select, TextInput, inputStyle } from "../components/forms";
+import { Field, Select, TextInput, inputStyle, useFormValidation } from "../components/forms";
 import { fmtDate } from "../lib/format";
 
 const FAVOR_TONE = { drafter: "success", counterparty: "danger", balanced: "neutral" };
@@ -62,6 +62,7 @@ export function Review() {
   const [counterparty, setCounterparty] = useState("");
   const [file, setFile] = useState(null);
   const [current, setCurrent] = useState(null);
+  const { errors, registerField, validate, clearError } = useFormValidation();
 
   const run = useMut(async () => {
     const form = new FormData();
@@ -74,6 +75,14 @@ export function Review() {
   const open = useMut((id) => api.get(`/contract-reviews/${id}`), { onSuccess: setCurrent });
 
   const disabled = config.data && !config.data.research.enabled;
+
+  function submitReview() {
+    const ok = validate([
+      ["contractType", !contractType, "Select what kind of contract this is."],
+      ["file", !file, "Choose a contract file to upload."],
+    ]);
+    if (ok) run.mutate();
+  }
   return (
     <div style={{ maxWidth: 820, display: "flex", flexDirection: "column", gap: 16 }}>
       <PageHeader title="Contract review" subtitle="Upload a contract and see how each clause compares with a balanced baseline from our clause library. This is not a legal opinion." />
@@ -88,10 +97,21 @@ export function Review() {
       ) : (
         <>
           <Card style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <Select label="What kind of contract is it?" value={contractType} onChange={(e) => setContractType(e.target.value)} placeholder="Select…" options={(templates.data || []).map((t) => [t.category, t.name])} hint="We can only compare against contract types in our clause library." />
+            <Select
+              ref={registerField("contractType")}
+              label="What kind of contract is it?"
+              value={contractType}
+              onChange={(e) => { setContractType(e.target.value); clearError("contractType"); }}
+              placeholder="Select…"
+              options={(templates.data || []).map((t) => [t.category, t.name])}
+              hint="We can only compare against contract types in our clause library."
+              error={errors.contractType}
+            />
             <TextInput label="Other party (optional)" value={counterparty} onChange={(e) => setCounterparty(e.target.value)} />
-            <Field label="Contract file (PDF with selectable text, DOCX or TXT · 25 MB max)"><input type="file" accept=".pdf,.docx,.txt" onChange={(e) => setFile(e.target.files?.[0] || null)} style={inputStyle} /></Field>
-            <Button onClick={() => run.mutate()} disabled={!contractType || !file || run.isPending || disabled || !activeAccount}>{run.isPending ? "Reading and comparing clauses…" : "Review contract"}</Button>
+            <Field label="Contract file (PDF with selectable text, DOCX or TXT · 25 MB max)" error={errors.file}>
+              <input ref={registerField("file")} type="file" accept=".pdf,.docx,.txt" onChange={(e) => { setFile(e.target.files?.[0] || null); clearError("file"); }} style={inputStyle} />
+            </Field>
+            <Button onClick={submitReview} disabled={run.isPending || disabled || !activeAccount}>{run.isPending ? "Reading and comparing clauses…" : "Review contract"}</Button>
             {run.isPending && <div style={{ fontSize: 12, color: "var(--color-text-muted)" }}>This can take up to a minute for long contracts.</div>}
           </Card>
           <div>

@@ -8,8 +8,15 @@ file storage), a **Qdrant** cluster (vector search) and a **Google Cloud** OAuth
 1. Create a project at <https://supabase.com>. Note **Project URL**, the **anon (public) key** and the
    **service_role key** (Project Settings → API). The service-role key is server-only.
 2. SQL editor → paste and run `backend/src/db/schema.sql` once (fresh project).
-   *Upgrading an older Vidhira database?* Run `backend/src/db/migrations/001_supabase_auth.sql`, then
-   `002_security.sql`, then `003_web_source.sql` (adds the 'web' source for the Tavily fallback below).
+   *Upgrading an older Vidhira database?* Run every file in `backend/src/db/migrations/` **in order**
+   that you haven't already applied: `001_supabase_auth.sql`, `002_security.sql`, `003_web_source.sql`
+   (adds the 'web' source for the Tavily fallback below), `004_research_library_v2.sql` (research
+   library pin/tag/follow-up chat), `005_research_fixes.sql` (paragraph classes + dedupe), and
+   `006_notify_requests.sql` (the "notify me when an advocate is available" table). All are
+   idempotent (`if not exists` / `add column if not exists`) — safe to re-run.
+   The server logs a startup warning naming any of these tables it can't find (see
+   `backend/src/index.js`'s `EXPECTED_MIGRATION_TABLES` check), so check the server logs after
+   upgrading if a feature 500s.
    The schema ends by enabling row-level security with no policies: the public anon key can read
    nothing, so every request must go through the API.
 3. **Authentication → Providers**

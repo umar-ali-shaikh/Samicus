@@ -10,7 +10,7 @@ import { CLASS_LABEL, SOURCE_LABEL } from "../Research";
 // with paragraph numbers and, when arrived at from a report, highlights the paragraphs that
 // report actually cited.
 export function JudgmentReader({ docId }) {
-  const { go, takeHandoff } = useUI();
+  const { go, takeHandoff, setResearchQuestion } = useUI();
   const [citedChunkIds] = useState(() => takeHandoff("research")?.citedChunkIds || []);
   const citedSet = new Set(citedChunkIds);
   const doc = useGet(`/corpus/documents/${docId}`);
@@ -31,7 +31,7 @@ export function JudgmentReader({ docId }) {
   return (
     <div style={{ display: "flex", gap: 18, alignItems: "flex-start", flexWrap: "wrap" }}>
       <div style={{ flex: "2 1 520px", minWidth: 0, display: "flex", flexDirection: "column", gap: 10 }}>
-        <button onClick={() => go("research")} style={{ all: "unset", cursor: "pointer", fontSize: 12, color: "var(--color-text-muted)" }}>← Research library</button>
+        <button onClick={() => { setResearchQuestion(""); go("research"); }} style={{ all: "unset", cursor: "pointer", fontSize: 12, color: "var(--color-text-muted)" }}>← Research library</button>
         <div style={{ fontFamily: "var(--font-serif)", fontSize: 22 }}>{doc.data.title}</div>
         <div style={{ fontSize: 11.5, color: "var(--color-text-muted)" }}>
           {[SOURCE_LABEL[doc.data.source] || doc.data.source, doc.data.court, doc.data.citation].filter(Boolean).join(" · ")}

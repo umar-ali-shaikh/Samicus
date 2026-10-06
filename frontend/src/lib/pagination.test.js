@@ -29,3 +29,17 @@ test("paginationInfo's last (short) page has no next and a range that stops at `
   assert.equal(info.rangeEnd, 25);
   assert.equal(info.hasNext, false);
 });
+
+// ---- P1-6: `found` arriving as a string (clean, or still Indian Kanoon's raw range shape
+// if the backend parse somehow didn't run) must never produce NaN/garbage pagination ----
+test("paginationInfo accepts a clean numeric string the same as a number", () => {
+  const info = paginationInfo("9836", 0, PAGE_SIZE);
+  assert.equal(info.rangeStart, 1);
+  assert.equal(info.rangeEnd, 10);
+  assert.equal(info.totalPages, 984);
+});
+
+test("paginationInfo degrades a still-unparsed range string ('1 - 10 of 9836') to the safe zero/disabled state, never NaN", () => {
+  const info = paginationInfo("1 - 10 of 9836", 0, PAGE_SIZE);
+  assert.deepEqual(info, { rangeStart: 0, rangeEnd: 0, totalPages: 0, hasPrev: false, hasNext: false });
+});

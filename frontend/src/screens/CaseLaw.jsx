@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { searchCaseLaw, getCase, getAiAnswer } from "../api/caseLawClient";
 import { Card, Button, Badge, Callout, EmptyState } from "../components/ui";
 import { paginationInfo, PAGE_SIZE } from "../lib/pagination";
+import { stripHtmlTags } from "../lib/format";
 
 const COURTS = [
   { value: "", label: "Any court" },
@@ -182,7 +183,7 @@ export function CaseLaw() {
               <div style={{ fontWeight: 700, fontSize: 12, marginBottom: 6 }}>Sources</div>
               <ol style={{ fontSize: 12, color: "var(--color-text-muted)", paddingLeft: 18 }}>
                 {aiAnswer.sources.map((s) => (
-                  <li key={s.tid} style={{ cursor: "pointer" }} onClick={() => openCase(s.tid)}>{s.title} <span style={{ opacity: 0.7 }}>({s.docsource})</span></li>
+                  <li key={s.tid} style={{ cursor: "pointer" }} onClick={() => openCase(s.tid)}>{stripHtmlTags(s.title)} <span style={{ opacity: 0.7 }}>({s.docsource})</span></li>
                 ))}
               </ol>
             </div>
@@ -204,7 +205,7 @@ export function CaseLaw() {
         {results?.docs.map((doc) => (
           <Card key={doc.tid} style={{ cursor: "pointer" }} onClick={() => openCase(doc.tid)}>
             <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
-              <div style={{ fontWeight: 700 }}>{doc.title}</div>
+              <div style={{ fontWeight: 700 }}>{stripHtmlTags(doc.title)}</div>
               <Badge>{doc.docsource}</Badge>
             </div>
             {/* doc.headline is sanitized server-side (backend/src/utils/sanitizeHtml.js) before it ever reaches the client. */}
@@ -231,7 +232,7 @@ export function CaseLaw() {
       {selectedDoc && (
         <Card ref={docRef}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
-            <div style={{ fontFamily: "var(--font-serif)", fontSize: 18 }}>{selectedDoc.title}</div>
+            <div style={{ fontFamily: "var(--font-serif)", fontSize: 18 }}>{stripHtmlTags(selectedDoc.title)}</div>
             <Button variant="outline" onClick={() => setSelectedDoc(null)}>Close</Button>
           </div>
           {/* selectedDoc.doc is sanitized server-side before it ever reaches the client. */}

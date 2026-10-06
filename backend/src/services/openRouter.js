@@ -52,9 +52,10 @@ function getToken() {
   return token;
 }
 
-async function callModel(model, messages, jsonMode, token) {
+async function callModel(model, messages, { jsonMode, maxTokens } = {}, token) {
   const body = { model, messages };
   if (jsonMode) body.response_format = { type: "json_object" };
+  if (maxTokens) body.max_tokens = maxTokens;
 
   // Everything from the network call through parsing the body lives in one try/catch —
   // the AbortSignal timeout can fire just as easily while the body is still streaming in
@@ -78,7 +79,16 @@ async function callModel(model, messages, jsonMode, token) {
 
     increment("openrouter");
     const data = await res.json();
-    return data.choices?.[0]?.message?.content?.trim() || "";
+    const choice = data.choices?.[0];
+    const finishReason = choice?.finish_reason || null;
+    // A response cut off mid-JSON (finish_reason "length") is exactly how a validated-
+    // but-empty answer happens (salvageFields recovers summary/confidence from the start
+    // of the object, but the array fields later in the JSON never arrived) — logged here,
+    // at the one place every call site shares, rather than re-derived per caller.
+    if (finishReason === "length") {
+      console.warn(`OpenRouter: response truncated (finish_reason=length) for model ${model} — consider raising max_tokens.`);
+    }
+    return { content: choice?.message?.content?.trim() || "", finishReason, model };
   } catch (err) {
     if (err instanceof OpenRouterAuthError || err instanceof OpenRouterApiError) throw err;
     // Network failure, or the timeout signal firing mid-response (headers already in,
@@ -90,12 +100,15 @@ async function callModel(model, messages, jsonMode, token) {
 
 /**
  * @param {Array<{role: string, content: string}>} messages
- * @param {{model?: string, jsonMode?: boolean}} [opts] - jsonMode asks the model to return
- *   a JSON object; not every free model honours response_format, so callers must still
- *   parse defensively.
- * @returns {Promise<string>} the raw assistant message content.
+ * @param {{model?: string, jsonMode?: boolean, maxTokens?: number}} [opts] - jsonMode asks
+ *   the model to return a JSON object; not every free model honours response_format, so
+ *   callers must still parse defensively. maxTokens raises the output cap above whatever
+ *   the provider defaults to — non-Latin scripts (Devanagari, Perso-Arabic) take materially
+ *   more tokens per character of meaning than English/Roman script, so callers generating
+ *   long structured JSON in those scripts should pass a higher value.
+ * @returns {Promise<{content: string, finishReason: string|null, model: string}>}
  */
-export async function chatCompletion(messages, opts = {}) {
+export async function chatCompletionWithMeta(messages, opts = {}) {
   const token = getToken(); // outside the try/catch: a missing key is a config error, not a network failure
   const primary = opts.model || process.env.OPENROUTER_MODEL || DEFAULT_MODEL;
   // Only chain through fallbacks when the caller didn't pin an explicit model.
@@ -104,7 +117,7 @@ export async function chatCompletion(messages, opts = {}) {
   let lastErr;
   for (const model of chain) {
     try {
-      return await callModel(model, messages, opts.jsonMode, token);
+      return await callModel(model, messages, opts, token);
     } catch (err) {
       lastErr = err;
       // Only a genuine auth failure (bad/missing key) is account-wide and will recur
@@ -116,4 +129,15 @@ export async function chatCompletion(messages, opts = {}) {
     }
   }
   throw lastErr;
+}
+
+/**
+ * @param {Array<{role: string, content: string}>} messages
+ * @param {{model?: string, jsonMode?: boolean, maxTokens?: number}} [opts]
+ * @returns {Promise<string>} the raw assistant message content — see chatCompletionWithMeta
+ *   for finish_reason/model when a caller needs to detect truncation.
+ */
+export async function chatCompletion(messages, opts = {}) {
+  const { content } = await chatCompletionWithMeta(messages, opts);
+  return content;
 }

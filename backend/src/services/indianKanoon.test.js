@@ -60,6 +60,56 @@ test("search() sends the right path/headers and sanitizes headline HTML", async 
   assert.match(result.docs[0].headline, /bail/);
 });
 
+// ---- P1-3: Indian Kanoon wraps its matched search term in <b> inside `title` too, same as
+// `headline` — but every consumer (CaseLaw.jsx, the AI Assistant's sources list) renders
+// `title` as plain text, so the literal "<b>"/"</b>" characters must never survive here.
+test("search() strips <b> highlight markup out of doc titles entirely (rendered as plain text downstream, not HTML)", async (t) => {
+  t.mock.method(globalThis, "fetch", async () =>
+    jsonResponse(200, {
+      found: 1,
+      docs: [{ tid: 456, title: "State of Punjab vs <b>Baldev</b> Singh", headline: "bail granted", docsource: "Supreme Court", docsize: 5 }],
+      categories: [],
+    })
+  );
+
+  const result = await search("bail", {}, 0);
+  assert.equal(result.docs[0].title, "State of Punjab vs Baldev Singh");
+});
+
+test("getDocument() strips <b> highlight markup out of the title", async (t) => {
+  t.mock.method(globalThis, "fetch", async () =>
+    jsonResponse(200, { doc: "<p>judgment text</p>", title: "<b>Golikari</b> v Century", citeList: [], citedbyList: [] })
+  );
+
+  const result = await getDocument("1");
+  assert.equal(result.title, "Golikari v Century");
+});
+
+// ---- P1-6: Indian Kanoon's `found` is sometimes a range string ("1 - 10 of 9836"), not a
+// plain number — every downstream numeric comparison (pagination.js's `found > PAGE_SIZE`,
+// CaseLaw.jsx's "0 results" text) must never see that raw string.
+test("search() parses a range-string `found` ('1 - 10 of 9836') into the real total as a number", async (t) => {
+  t.mock.method(globalThis, "fetch", async () => jsonResponse(200, { found: "1 - 10 of 9,836", docs: [], categories: [] }));
+
+  const result = await search("cheque bounce section 138", {}, 0);
+  assert.equal(result.found, 9836);
+  assert.equal(typeof result.found, "number");
+});
+
+test("search() leaves an already-numeric `found` untouched", async (t) => {
+  t.mock.method(globalThis, "fetch", async () => jsonResponse(200, { found: 3, docs: [], categories: [] }));
+
+  const result = await search("cheque bounce", {}, 0);
+  assert.equal(result.found, 3);
+});
+
+test("search() defaults a missing/unparseable `found` to 0", async (t) => {
+  t.mock.method(globalThis, "fetch", async () => jsonResponse(200, { docs: [], categories: [] }));
+
+  const result = await search("nothing", {}, 0);
+  assert.equal(result.found, 0);
+});
+
 test("search() caches identical requests — fetch is only called once", async (t) => {
   let calls = 0;
   t.mock.method(globalThis, "fetch", async () => {

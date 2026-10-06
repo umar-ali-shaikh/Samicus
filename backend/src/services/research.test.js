@@ -81,10 +81,12 @@ after(() => {
   globalThis.fetch = realFetch;
   for (const [k, v] of Object.entries(env)) v === undefined ? delete process.env[k] : (process.env[k] = v);
 });
-beforeEach(() => {
+beforeEach(async () => {
   qdrantCollections = {};
   for (const k of Object.keys(fake.db)) fake.db[k] = [];
   globalThis.fetch = stubFetch();
+  const { __resetCacheForTests } = await import("./legalQueryUnderstanding.js");
+  __resetCacheForTests();
 });
 
 test("retrieve() prefers a document's citable passage over its own higher-scoring party argument", async () => {
@@ -149,4 +151,114 @@ test("retrieve() fetches and indexes a live source when the library has nothing 
   assert.ok(results.some((r) => r.chunk.document.title === "Freshly Found Case"), "the newly-fetched source must be searchable in the same call, not just a later one");
 
   delete process.env.IK_API_TOKEN;
+});
+
+// ---- P0-5: a secondary relevance gate before marking a research result "answered" ----
+test("answerFromRetrieval() drops passages unrelated to the actual question, returning not_found rather than a false-confidence answer", async () => {
+  const { answerFromRetrieval } = await import("./research.js");
+  const retrieved = [
+    {
+      score: 0.9,
+      chunk: {
+        id: "c1",
+        text: "The court granted anticipatory bail under Section 438 CrPC after considering the gravity of the economic offence alleged against the accused.",
+        paragraph_class: "holding",
+        document: { id: "d1", title: "State v Accused (Anticipatory Bail)", citation: null, court: "high_court", source: "high_court", canonical_url: null },
+      },
+    },
+    {
+      score: 0.85,
+      chunk: {
+        id: "c2",
+        text: "This Table of Contents lists the chapters of the Parsi Marriage and Divorce Act including registration of marriage and grounds for divorce.",
+        paragraph_class: "provision",
+        document: { id: "d2", title: "Parsi Marriage and Divorce Act", citation: null, court: null, source: "central_act", canonical_url: null },
+      },
+    },
+  ];
+
+  const result = await answerFromRetrieval("Can a wife claim maintenance under Section 125 CrPC after divorce?", retrieved);
+  assert.equal(result.outcome, "not_found");
+  assert.equal(result.segments.length, 0);
+});
+
+test("answerFromRetrieval() keeps the genuinely relevant passage and marks the result partial when a co-retrieved passage fails the relevance gate", async () => {
+  const { answerFromRetrieval } = await import("./research.js");
+  const retrieved = [
+    {
+      score: 0.9,
+      chunk: {
+        id: "c1",
+        text: "Under Section 125 of the Code of Criminal Procedure, a wife is entitled to claim maintenance from her husband after divorce if she is unable to maintain herself.",
+        paragraph_class: "provision",
+        document: { id: "d1", title: "Section 125 CrPC Maintenance", citation: null, court: null, source: "central_act", canonical_url: null },
+      },
+    },
+    {
+      score: 0.85,
+      chunk: {
+        id: "c2",
+        text: "The court granted anticipatory bail under Section 438 CrPC after considering the gravity of the economic offence alleged against the accused.",
+        paragraph_class: "holding",
+        document: { id: "d2", title: "State v Accused (Anticipatory Bail)", citation: null, court: "high_court", source: "high_court", canonical_url: null },
+      },
+    },
+  ];
+
+  const result = await answerFromRetrieval("Can a wife claim maintenance under Section 125 CrPC after divorce?", retrieved);
+  assert.equal(result.outcome, "partial");
+  assert.equal(result.segments.length, 1);
+  assert.equal(result.segments[0].documentTitle, "Section 125 CrPC Maintenance");
+});
+
+test("retrieve() also searches using the English-translated query for a Hinglish question, merging in a hit the raw text alone would barely score", async () => {
+  const { ingestIndianKanoonDoc } = await import("./rag/ingest.js");
+  const { retrieve } = await import("./research.js");
+
+  await ingestIndianKanoonDoc({
+    tid: 50,
+    title: "Wife v Husband (Maintenance)",
+    docsource: "Supreme Court of India",
+    html: `<p id="p_1" title="Court's Reasoning">wife maintenance rights divorce section 125 petition allowed</p>`,
+  });
+
+  globalThis.fetch = stubFetch((u) => {
+    if (u.startsWith("https://openrouter.ai/api/v1/chat/completions")) {
+      return json(200, {
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                searchQueries: ["wife maintenance rights divorce section 125"],
+                topic: "maintenance",
+                language: "hinglish",
+                isEmergency: false,
+                emergencyReason: null,
+              }),
+            },
+          },
+        ],
+      });
+    }
+    return null;
+  });
+
+  const { results } = await retrieve("talak ke baad patni ko kharcha milega kya");
+  const hit = results.find((r) => r.chunk.document.title === "Wife v Husband (Maintenance)");
+  assert.ok(hit, "the English-translated query must surface the case the raw Hinglish text shares no vocabulary with");
+  assert.ok(hit.score > 0.5, "the translated-query retrieval must score it as a real match, not near-zero from the raw Hinglish text alone");
+});
+
+test("caseMismatchNote() flags when the cited sources are about a different case than the one named in the query", async () => {
+  const { caseMismatchNote } = await import("./research.js");
+  const segments = [{ documentTitle: "I.R. Coelho v State of Tamil Nadu" }];
+  const note = caseMismatchNote("What did the Supreme Court hold in Kesavananda Bharati v State of Kerala?", segments);
+  assert.match(note, /Kesavananda Bharati/);
+});
+
+test("caseMismatchNote() stays silent when the asked-about case is actually among the cited sources", async () => {
+  const { caseMismatchNote } = await import("./research.js");
+  const segments = [{ documentTitle: "Kesavananda Bharati v State of Kerala" }];
+  const note = caseMismatchNote("What did the Supreme Court hold in Kesavananda Bharati v State of Kerala?", segments);
+  assert.equal(note, null);
 });

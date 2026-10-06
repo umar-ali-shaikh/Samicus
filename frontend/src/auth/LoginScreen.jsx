@@ -2,7 +2,9 @@
 import { useAuth } from "./AuthProvider";
 import { AuthLayout } from "./AuthLayout";
 import { Button, Callout } from "../components/ui";
-import { Field, inputStyle } from "../components/forms";
+import { Field, inputStyle, useFormValidation } from "../components/forms";
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function GoogleMark() {
   return (
@@ -22,7 +24,12 @@ export function LoginScreen() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+  const [showPassword, setShowPassword] = useState(false);
+  const { errors, registerField, validate, clearError } = useFormValidation();
+  const set = (k) => (e) => {
+    setForm((f) => ({ ...f, [k]: e.target.value }));
+    clearError(k);
+  };
 
   async function run(fn) {
     setBusy(true);
@@ -33,12 +40,24 @@ export function LoginScreen() {
 
   const submit = (e) => {
     e.preventDefault();
-    if (mode === "forgot") return run(async () => { await auth.forgotPassword(form.email.trim()); setNotice("If an account exists for that email, a reset link is on its way."); });
+    if (mode === "forgot") {
+      if (!validate([["email", !EMAIL_RE.test(form.email.trim()), "Enter a valid email address."]])) return;
+      return run(async () => { await auth.forgotPassword(form.email.trim()); setNotice("If an account exists for that email, a reset link is on its way."); });
+    }
     if (mode === "signup") {
-      if (form.name.trim().length < 2) return setError("Please enter your full name.");
-      if (form.password.length < 8) return setError("Use a password of at least 8 characters.");
+      const ok = validate([
+        ["name", form.name.trim().length < 2, "Please enter your full name."],
+        ["email", !EMAIL_RE.test(form.email.trim()), "Enter a valid email address."],
+        ["password", form.password.length < 8, "Use a password of at least 8 characters."],
+      ]);
+      if (!ok) return;
       return run(() => auth.signUp({ name: form.name.trim(), email: form.email.trim(), password: form.password }));
     }
+    const ok = validate([
+      ["email", !EMAIL_RE.test(form.email.trim()), "Enter a valid email address."],
+      ["password", !form.password, "Enter your password."],
+    ]);
+    if (!ok) return;
     return run(() => auth.signIn({ email: form.email.trim(), password: form.password }));
   };
 
@@ -74,16 +93,53 @@ export function LoginScreen() {
       )}
 
       <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 12 }} noValidate>
-        {mode === "signup" && <Field label="Full name"><input value={form.name} onChange={set("name")} autoComplete="name" style={inputStyle} /></Field>}
-        <Field label="Email"><input type="email" value={form.email} onChange={set("email")} autoComplete="email" required style={inputStyle} /></Field>
-        {mode !== "forgot" && (
-          <Field label="Password" hint={mode === "signup" ? "At least 8 characters" : undefined}>
-            <input type="password" value={form.password} onChange={set("password")} autoComplete={mode === "signup" ? "new-password" : "current-password"} required style={inputStyle} />
+        {mode === "signup" && (
+          <Field label="Full name" error={errors.name}>
+            <input ref={registerField("name")} value={form.name} onChange={set("name")} autoComplete="name" style={inputStyle} />
           </Field>
+        )}
+        <Field label="Email" error={errors.email}>
+          <input ref={registerField("email")} type="email" value={form.email} onChange={set("email")} autoComplete="email" required style={inputStyle} />
+        </Field>
+        {mode !== "forgot" && (
+          <label style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: "var(--color-text-muted)" }}>Password</span>
+            <div style={{ position: "relative" }}>
+              <input
+                ref={registerField("password")}
+                type={showPassword ? "text" : "password"}
+                value={form.password}
+                onChange={set("password")}
+                autoComplete={mode === "signup" ? "new-password" : "current-password"}
+                required
+                aria-invalid={errors.password ? "true" : undefined}
+                aria-describedby={errors.password ? "login-password-error" : undefined}
+                style={{ ...(errors.password ? { ...inputStyle, borderColor: "#C0392B" } : inputStyle), paddingRight: 48 }}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((s) => !s)}
+                aria-label={showPassword ? "Hide password" : "Show password"}
+                aria-pressed={showPassword}
+                style={{
+                  position: "absolute", right: 4, top: "50%", transform: "translateY(-50%)",
+                  background: "none", border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600,
+                  color: "var(--color-text-muted)", padding: "8px 10px", minHeight: 36,
+                }}
+              >
+                {showPassword ? "Hide" : "Show"}
+              </button>
+            </div>
+            {errors.password ? (
+              <span id="login-password-error" role="alert" style={{ fontSize: 11.5, color: "#C0392B", fontWeight: 600 }}>{errors.password}</span>
+            ) : mode === "signup" ? (
+              <span style={{ fontSize: 11, color: "var(--color-label)" }}>At least 8 characters</span>
+            ) : null}
+          </label>
         )}
         {error && <Callout tone="danger">{error}</Callout>}
         {notice && <Callout tone="success">{notice}</Callout>}
-        <Button type="submit" disabled={busy || !form.email} style={{ opacity: busy ? 0.7 : 1 }}>
+        <Button type="submit" disabled={busy} style={{ opacity: busy ? 0.7 : 1 }}>
           {busy ? "Please wait…" : { signin: "Sign in", signup: "Create account", forgot: "Send reset link" }[mode]}
         </Button>
         {mode === "signin" && (

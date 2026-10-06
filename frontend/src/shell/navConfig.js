@@ -57,6 +57,11 @@ export const FOUNDER_NAV = [
 
 export const FOUNDER_TABS = new Set(["founder", "fdemand", "fservices", "ffunnel", "frevenue", "fcorp", "fadv", "fai", "fcomplaints"]);
 
+// Old/alternate hash spellings that should resolve to their current tab instead of
+// TabRouter falling through to a blank screen (see TabRouter's Screen-undefined -> null
+// case) — e.g. a bookmarked or externally-linked #asklearn should land on "Ask & learn".
+export const TAB_ALIASES = { asklearn: "learn" };
+
 export const DEFAULT_TAB = { client: "home", lawyer: "lawyer", admin: "admin", founder: "founder" };
 
 export function viewFor(user, actAsClient) {

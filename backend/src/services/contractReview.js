@@ -60,6 +60,20 @@ export const RED_FLAG_RULES = [
     note: "This clause lets only one party appoint the arbitrator, instead of a neutral or mutually agreed process.",
     whyItMatters: "An arbitrator appointed unilaterally by the other side is less likely to be neutral — fair arbitration clauses usually let both sides agree on the arbitrator or name a neutral institution.",
   },
+  {
+    id: "structural_repairs_burden",
+    title: "Structural repairs pushed onto you",
+    test: /structural\s+repairs?[\s\S]{0,100}?(?:shall\s+be\s+)?(?:the\s+)?(?:sole\s+)?responsibility\s+of[\s\S]{0,40}?(?:the\s+)?(?:tenant|lessee|licensee|occupant)|(?:tenant|lessee|licensee|occupant)[\s\S]{0,60}?(?:shall\s+be\s+)?(?:solely\s+)?responsible[\s\S]{0,60}?structural\s+repairs?/i,
+    note: "This clause makes you (the tenant) responsible for structural repairs to the building, not just everyday wear and tear.",
+    whyItMatters: "Structural repairs — the building's walls, roof, or foundation — are normally the landlord's responsibility as the owner. Shifting that cost onto the tenant is unusual and can be very expensive.",
+  },
+  {
+    id: "one_sided_lock_in",
+    title: "Lock-in binds only you",
+    test: /lock-?in\s+period[\s\S]{0,150}?(?:landlord|licensor|lessor|owner)\s+may\s+terminate[\s\S]{0,40}?(?:at\s+any\s+time|anytime)|(?:landlord|licensor|lessor|owner)\s+may\s+terminate[\s\S]{0,40}?(?:at\s+any\s+time|anytime)[\s\S]{0,150}?lock-?in\s+period/i,
+    note: "This clause locks you into the agreement for a fixed period with no early exit, while the other party can end it at any time.",
+    whyItMatters: "A lock-in period should normally bind both sides equally, or have a clear justification — a one-sided lock-in traps you in the agreement while the other party keeps full flexibility to walk away.",
+  },
 ];
 
 /** @returns {{ id: string, title: string, note: string, whyItMatters: string }[]} every red-flag rule this clause's text matches */

@@ -62,6 +62,26 @@ function Editor({ templateId, draft, onBack }) {
   const commit = (patch) => save.mutate(patch);
   const missingFields = (t?.field_schema || []).filter((f) => f.required && !String(fields[f.key] || "").trim()).map((f) => f.label);
 
+  // A field_schema entry can carry a genuine usable default (e.g. noticePeriodDays: "15"),
+  // distinct from `placeholder` (illustrative example text like "Your Name" that should
+  // never be auto-filled as if it were a real value). Applied once per template load, only
+  // into fields that are still genuinely empty — a user who deliberately clears it afterward
+  // isn't overridden again.
+  useEffect(() => {
+    if (!t?.field_schema) return;
+    setFields((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const f of t.field_schema) {
+        if (f.default !== undefined && !String(next[f.key] || "").trim()) {
+          next[f.key] = f.default;
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [t]);
+
   if (template.isPending) return <Loading />;
   if (template.isError) return <Callout tone="danger">{template.error.message}</Callout>;
   void activeAccount;

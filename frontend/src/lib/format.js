@@ -1,5 +1,12 @@
 export const inr = (n) => (n === null || n === undefined || Number.isNaN(Number(n)) ? "—" : `₹${Number(n).toLocaleString("en-IN")}`);
 
+// Defense-in-depth for plain-text titles (Indian Kanoon case titles, rendered as {title}
+// text everywhere, never dangerouslySetInnerHTML): the backend already strips the <b>
+// Indian Kanoon wraps its matched search term in before a title ever reaches the API
+// response (services/indianKanoon.js), but a title cached/ingested before that fix shipped
+// can still carry it — this is the client-side backstop, reused wherever a title is shown.
+export const stripHtmlTags = (text) => String(text ?? "").replace(/<[^>]+>/g, "").trim();
+
 export function fmtDate(d, opts = { day: "numeric", month: "short", year: "numeric" }) {
   if (!d) return "—";
   return new Date(d).toLocaleDateString("en-IN", opts);

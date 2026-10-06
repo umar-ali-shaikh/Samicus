@@ -56,11 +56,20 @@ export function looksGarbled(text) {
   return hits / s.length > GARBLED_SCRIPT_RATIO;
 }
 
+// P3-3: Indian Kanoon's own source text occasionally carries a null end date left
+// unformatted for an ongoing/open-ended period (a judge's tenure, an amendment's validity, a
+// bench composition) e.g. "...served from 2015 to None." The null was never resolved to
+// "present" before being embedded in the document text on their end; readable English never
+// says "to None", so it's rewritten the same way looksLikePageArtifact/looksGarbled above
+// clean up other known source-text artifacts, not left for the user to puzzle over.
+const NULL_END_DATE_RE = new RegExp(String.raw`\bto\s+None\b`, "gi");
+
 export function stripTags(html) {
   return rejoinBrokenLines(decodeEntities(String(html || "").replace(/<(script|style)[\s\S]*?<\/\1>/gi, " ").replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]+>/g, " ")))
-    .replace(/[ \t\f\v ]+/g, " ")
+    .replace(/[ \t\f\v ]+/g, " ")
     .replace(/ ([,.;:)\]])/g, "$1") // a removed tag can leave a stray space before punctuation, e.g. "(<b>Lease</b>," -> "( Lease ,"
     .replace(/([(\[]) /g, "$1")
+    .replace(NULL_END_DATE_RE, "to present")
     .replace(/\s*\n\s*/g, "\n")
     .trim();
 }

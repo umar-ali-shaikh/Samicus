@@ -3,6 +3,7 @@ import { askLegalAssistant, getLegalAssistantSession } from "../api/legalAssista
 import { useAuth } from "../auth/AuthProvider";
 import { useUI } from "../state/UIState";
 import { Card, Button, Badge, Callout } from "../components/ui";
+import { stripHtmlTags } from "../lib/format";
 
 // Conversational AI Legal Assistant ("Vidhira") — distinct from the Case law search
 // screen (which is a faceted research tool for browsing judgments directly). This
@@ -43,7 +44,7 @@ const UI_STRINGS = {
     marathlish: "Assistant cha javab structured sections madhe vibhagata aala nahi — mhanun khali saransh mhanun dakhavla aahe.",
     ur: "معاون کے جواب کو منظم حصوں میں تقسیم نہیں کیا جا سکا — اس لیے اسے نیچے خلاصے کے طور پر دکھایا گیا ہے۔",
   },
-  sources: { en: "Sources", hi: "स्रोत", hinglish: "Sources", mr: "स्रोत", marathlish: "Strot", ur: "ذرائع" },
+  sources: { en: "Sources", hi: "स्रोत", hinglish: "Strot", mr: "स्रोत", marathlish: "Strot", ur: "ذرائع" },
   fallbackNextSteps: {
     en: "Practical next steps: consult a qualified Indian lawyer for guidance specific to your situation, and keep any documents (FIR, notice, agreement, etc.) related to the matter ready to show them.",
     hi: "व्यावहारिक अगले कदम: अपनी स्थिति के अनुसार सलाह के लिए किसी योग्य भारतीय वकील से संपर्क करें, और मामले से जुड़े दस्तावेज़ (FIR, नोटिस, एग्रीमेंट आदि) उन्हें दिखाने के लिए तैयार रखें।",
@@ -161,7 +162,7 @@ const UI_STRINGS = {
     en: "Immediate actions", hi: "तत्काल कदम", hinglish: "Turant uthaye jaane wale kadam", mr: "तातडीची पावले", marathlish: "Tatdichi paavale", ur: "فوری اقدامات",
   },
   stepByStep: {
-    en: "Step-by-step", hi: "चरण दर चरण", hinglish: "Step by step", mr: "टप्प्याटप्प्याने", marathlish: "Tappa-tappyane", ur: "مرحلہ وار",
+    en: "Step-by-step", hi: "चरण दर चरण", hinglish: "Charan dar charan", mr: "टप्प्याटप्प्याने", marathlish: "Tappa-tappyane", ur: "مرحلہ وار",
   },
   yourRights: {
     en: "Your rights", hi: "आपके अधिकार", hinglish: "Aapke rights", mr: "तुमचे हक्क", marathlish: "Tumche hakk", ur: "آپ کے حقوق",
@@ -182,7 +183,7 @@ const UI_STRINGS = {
     en: "This could change the advice", hi: "इससे सलाह बदल सकती है", hinglish: "Isse salah badal sakti hai", mr: "यामुळे सल्ला बदलू शकतो", marathlish: "Yamule salla badlu shakto", ur: "اس سے مشورہ بدل سکتا ہے",
   },
   confidenceLabel: {
-    en: "Confidence", hi: "विश्वसनीयता", hinglish: "Confidence", mr: "विश्वासार्हता", marathlish: "Confidence", ur: "اعتماد",
+    en: "Confidence", hi: "विश्वसनीयता", hinglish: "Vishwasniyata", mr: "विश्वासार्हता", marathlish: "Vishwasarhata", ur: "اعتماد",
   },
   whereLabel: { en: "Where", hi: "कहाँ", hinglish: "Kahan", mr: "कुठे", marathlish: "Kuthe", ur: "کہاں" },
   documentsLabel: {
@@ -207,6 +208,14 @@ const UI_STRINGS = {
     marathlish: "Ha junya kaydyacha (IPC/CrPC) sandarbh asu shakto — 1 July 2024 pasun to BNS/BNSS/BSA aahe. Current kalam pan check kara.",
     ur: "یہ پرانے قانون (IPC/CrPC) کا حوالہ ہو سکتا ہے — 1 جولائی 2024 سے یہ BNS/BNSS/BSA ہے۔ براہ کرم موجودہ سیکشن بھی دیکھیں۔",
   },
+  actCitationWarning: {
+    en: "An Act is mentioned here without its year — please double-check the exact Act name and year before relying on it.",
+    hi: "यहाँ किसी कानून का नाम बिना वर्ष के दिया गया है — भरोसा करने से पहले कृपया सही नाम और वर्ष जांच लें।",
+    hinglish: "Yahan kisi Act ka naam bina year ke diya gaya hai — bharosa karne se pehle sahi naam aur year check kar lein.",
+    mr: "येथे एखाद्या कायद्याचे नाव वर्षाशिवाय दिले आहे — विश्वास ठेवण्यापूर्वी कृपया बरोबर नाव आणि वर्ष तपासा.",
+    marathlish: "Ethe ekhadya kaydyache naav varshashivay dile aahe — vishwas thevnyapurvi krupaya barobar naav ani varsh tapasa.",
+    ur: "یہاں کسی قانون کا نام سال کے بغیر دیا گیا ہے — بھروسہ کرنے سے پہلے براہ کرم صحیح نام اور سال چیک کریں۔",
+  },
   // Issue 9: the 3-line top summary.
   yourRightLine: { en: "Your right", hi: "आपका हक़", hinglish: "Aapka haq", mr: "तुमचा हक्क", marathlish: "Tumcha hakk", ur: "آپ کا حق" },
   doNowLine: { en: "Do now", hi: "अभी क्या करें", hinglish: "Abhi kya karein", mr: "आता काय करा", marathlish: "Ata kay kara", ur: "ابھی کیا کریں" },
@@ -226,9 +235,9 @@ const UI_STRINGS = {
 const CONFIDENCE_WORDS = {
   en: { high: "High", medium: "Medium", low: "Low" },
   hi: { high: "उच्च", medium: "मध्यम", low: "कम" },
-  hinglish: { high: "High", medium: "Medium", low: "Low" },
+  hinglish: { high: "Uchch", medium: "Madhyam", low: "Kam" },
   mr: { high: "उच्च", medium: "मध्यम", low: "कमी" },
-  marathlish: { high: "High", medium: "Medium", low: "Low" },
+  marathlish: { high: "Uchch", medium: "Madhyam", low: "Kami" },
   ur: { high: "زیادہ", medium: "درمیانہ", low: "کم" },
 };
 const CONFIDENCE_TONE = { high: "success", medium: "warning", low: "danger" };
@@ -256,11 +265,14 @@ const SPEECH_LOCALE = { hi: "hi-IN", mr: "mr-IN", ur: "ur-PK", hinglish: "en-IN"
 
 // A phone-number-shaped contact (e.g. "112", "15100", "+91 11 2345 6789") becomes a tap-to-
 // call link; anything else (an office name, a URL) is shown as plain text.
+// dir="auto" lets the number/URL itself (always LTR — digits, dots, .gov.in) render in the
+// correct direction even when embedded in an RTL (Urdu) paragraph, where the surrounding
+// bidi context would otherwise mis-order it — a no-op in an LTR context.
 function TelLink({ contact, children }) {
   if (!contact) return null;
   const digits = contact.replace(/[\s-]/g, "");
-  if (!/^\+?\d{3,15}$/.test(digits)) return <>{children ?? contact}</>;
-  return <a href={`tel:${digits}`} style={{ color: "inherit", fontWeight: 700 }}>{children ?? contact}</a>;
+  if (!/^\+?\d{3,15}$/.test(digits)) return <span dir="auto">{children ?? contact}</span>;
+  return <a href={`tel:${digits}`} dir="auto" style={{ color: "inherit", fontWeight: 700 }}>{children ?? contact}</a>;
 }
 
 // Issue 9: collapses what used to be shown as the AI-mistake note AND the full legal
@@ -435,6 +447,12 @@ function AnswerCard({ turn, onAsk }) {
         </Callout>
       )}
 
+      {result.actCitationWarning && (
+        <Callout tone="warning" style={{ marginBottom: 12 }}>
+          {t(UI_STRINGS.actCitationWarning, script)}
+        </Callout>
+      )}
+
       {result.outcome === "unparsed" && (
         <Callout tone="warning" style={{ marginBottom: 12 }}>
           {t(UI_STRINGS.unparsedWarning, script)}
@@ -528,7 +546,7 @@ function AnswerCard({ turn, onAsk }) {
             <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 6 }}>
               {sections.applicableLaws.map((law, i) => (
                 <div key={i} style={{ fontSize: 13.5, lineHeight: 1.6 }}>
-                  <strong>{law.act}{law.section ? ` — ${law.section}` : ""}</strong>
+                  <strong dir="auto">{law.act}{law.section ? ` — ${law.section}` : ""}</strong>
                   {law.sourceUrl && (
                     <a href={law.sourceUrl} target="_blank" rel="noopener noreferrer" style={{ color: "inherit", marginInlineStart: 4 }} title="Open source">↗</a>
                   )}
@@ -545,7 +563,7 @@ function AnswerCard({ turn, onAsk }) {
             <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 6 }}>
               {sections.caseLaw.slice(0, 3).map((c, i) => (
                 <div key={i} style={{ fontSize: 13.5, lineHeight: 1.6 }}>
-                  <strong>
+                  <strong dir="auto">
                     {c.caseName}
                     {c.court ? `, ${c.court}` : ""}
                     {c.year ? ` (${c.year})` : ""}
@@ -615,8 +633,8 @@ function AnswerCard({ turn, onAsk }) {
           <ul style={{ fontSize: 12, color: "var(--color-text-muted)", paddingInlineStart: 18, margin: 0 }}>
             {result.sources.map((s) => (
               <li key={s.url || s.tid} style={{ marginBottom: 3 }}>
-                <a href={s.url} target="_blank" rel="noopener noreferrer" style={{ color: "inherit" }}>
-                  {s.title}
+                <a href={s.url} target="_blank" rel="noopener noreferrer" dir="auto" style={{ color: "inherit" }}>
+                  {stripHtmlTags(s.title)}
                 </a>{" "}
                 <span style={{ opacity: 0.7 }}>({s.docsource})</span>
               </li>

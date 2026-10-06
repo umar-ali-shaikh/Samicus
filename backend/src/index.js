@@ -19,6 +19,29 @@ function checkEnv() {
   }
 }
 
+// Tables added by migrations after the original schema.sql — missing one of these doesn't
+// stop the app booting (unlike practice_areas below), but it does mean one feature will
+// 500 at runtime the first time a user hits it. Warn loudly at startup instead of only
+// discovering it from a PGRST205 in production logs. Keep this list in sync with
+// backend/src/db/migrations/*.sql whenever a migration adds a new table.
+const EXPECTED_MIGRATION_TABLES = [
+  { table: "research_chat_turns", migration: "004_research_library_v2.sql", feature: "Research library follow-up chat" },
+  { table: "notify_requests", migration: "006_notify_requests.sql", feature: "\"Notify me when available\" fallback" },
+];
+
+async function warnOnMissingMigrationTables() {
+  const supabase = getSupabase();
+  for (const { table, migration, feature } of EXPECTED_MIGRATION_TABLES) {
+    const { error } = await supabase.from(table).select("*", { count: "exact", head: true });
+    if (error) {
+      console.warn(
+        `⚠ Expected table "${table}" not found (${error.message}). ${feature} will fail at runtime. ` +
+          `Run backend/src/db/migrations/${migration} in the Supabase SQL editor — see docs/SETUP.md "Upgrading an existing database".`
+      );
+    }
+  }
+}
+
 async function main() {
   checkEnv();
   const supabase = getSupabase();
@@ -30,6 +53,8 @@ async function main() {
   }
   // Only the reference catalogues (practice areas, situations, document templates) — never demo data.
   if (count === 0) await seedAll();
+
+  await warnOnMissingMigrationTables();
 
   await ensureDocumentBucket();
 

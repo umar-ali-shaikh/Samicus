@@ -1,5 +1,6 @@
 import { Router } from "express";
 import rateLimit from "express-rate-limit";
+import { z } from "zod";
 import {
   answerLegalQuestion,
   OpenRouterAuthError,
@@ -19,6 +20,11 @@ const SESSION_ID_RE = /^[a-zA-Z0-9-]{1,64}$/;
 function isValidSessionId(id) {
   return typeof id === "string" && SESSION_ID_RE.test(id);
 }
+
+// Same cap as /messages and the same z.string().trim().max() convention used by
+// askLearn.js/complaints.js/intake.js — this route was the one place a free-text field
+// reached the LLM pipeline with no length limit at all.
+const QuestionSchema = z.string().trim().min(1, "'question' is required.").max(5000, "'question' is too long (5,000 characters max).");
 
 // This route is unauthenticated (see note below) and every hit spends real IK +
 // OpenRouter money — a per-IP cap is the stopgap until a real auth boundary exists.
@@ -61,6 +67,53 @@ function handleError(err, res) {
   return res.status(500).json({ error: "The legal assistant failed unexpectedly." });
 }
 
+// Last 1-3 turns, condensed to {question, summary} rather than the full prior answer, and
+// capped at ~1500 tokens total (a rough 4-chars-per-token heuristic — exact tokenization
+// isn't worth pulling in a tokenizer dependency for a soft budget like this). Walks newest
+// -> oldest so a tight budget drops the OLDEST turns first, keeping as much of the most
+// recent context as fits; the result is reversed back to chronological order for the prompt.
+const MAX_HISTORY_TURNS = 3;
+const MAX_HISTORY_CHARS = 6000; // ~1500 tokens
+const MAX_HISTORY_QUESTION_CHARS = 400;
+const MAX_HISTORY_SUMMARY_CHARS = 600;
+
+async function loadHistory(userId, sessionId) {
+  if (!sessionId) return [];
+  const supabase = getSupabase();
+  const { data: session, error } = await supabase.from("legal_assistant_sessions").select("id, user_id").eq("session_id", sessionId).maybeSingle();
+  if (error || !session) return [];
+  // Never load another user's conversation — a sessionId is client-generated and
+  // unguessable in practice, but this is the same ownership check persistTurn/the GET
+  // route already apply, so a mismatch here just means "no history", not an error.
+  if (session.user_id && session.user_id !== userId) {
+    console.warn(`legal-assistant: sessionId ${sessionId} belongs to another user — loading no history.`);
+    return [];
+  }
+
+  const { data: turns, error: turnsError } = await supabase
+    .from("legal_assistant_turns")
+    .select("question, result, created_at")
+    .eq("session_id", session.id)
+    .order("created_at", { ascending: false })
+    .limit(MAX_HISTORY_TURNS);
+  if (turnsError || !turns) return [];
+
+  const kept = [];
+  let totalChars = 0;
+  for (const t of turns) {
+    // turns is newest-first (see .order above)
+    const entry = {
+      question: String(t.question || "").slice(0, MAX_HISTORY_QUESTION_CHARS),
+      summary: String(t.result?.sections?.summary || "").slice(0, MAX_HISTORY_SUMMARY_CHARS),
+    };
+    const entryChars = entry.question.length + entry.summary.length;
+    if (totalChars + entryChars > MAX_HISTORY_CHARS) break;
+    kept.push(entry);
+    totalChars += entryChars;
+  }
+  return kept.reverse(); // oldest first, for natural reading order in the prompt
+}
+
 // Best-effort: a persistence hiccup shouldn't cost the user the answer they already
 // paid (in IK/OpenRouter calls) to get, so this is fire-and-forget from the caller.
 async function persistTurn(userId, sessionId, question, result) {
@@ -78,20 +131,25 @@ async function persistTurn(userId, sessionId, question, result) {
 
 router.post("/legal-assistant/ask", requireAuth, askLimiter, async (req, res) => {
   const { question, court, fromDate, toDate, title, cite, author, bench, topN, sessionId } = req.body || {};
-  if (!question || !String(question).trim()) return res.status(400).json({ error: "'question' is required." });
+  const questionResult = QuestionSchema.safeParse(question);
+  if (!questionResult.success) {
+    return res.status(400).json({ error: questionResult.error.issues[0]?.message || "'question' is required." });
+  }
   if (sessionId !== undefined && !isValidSessionId(sessionId)) {
     return res.status(400).json({ error: "'sessionId' must be a short alphanumeric/hyphen string." });
   }
 
   try {
+    const history = sessionId ? await loadHistory(req.user.id, sessionId) : [];
     const result = await answerLegalQuestion(
-      String(question),
+      questionResult.data,
       { court, fromDate, toDate, title, cite, author, bench },
-      topN ? Number(topN) : undefined
+      topN ? Number(topN) : undefined,
+      history
     );
 
     if (sessionId) {
-      persistTurn(req.user.id, sessionId, String(question), result).catch((err) => console.error("Failed to persist legal-assistant turn:", err.message));
+      persistTurn(req.user.id, sessionId, questionResult.data, result).catch((err) => console.error("Failed to persist legal-assistant turn:", err.message));
     }
 
     res.json(result);

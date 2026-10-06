@@ -5,16 +5,31 @@ import { useGet, useMut } from "../api/hooks";
 import { api } from "../lib/api";
 import { Card, Button, Callout, Badge, Loading, QueryBoundary } from "../components/ui";
 import { PageHeader } from "../components/PageHeader";
-import { Select, TextInput, TextArea } from "../components/forms";
+import { Select, TextInput, TextArea, useFormValidation } from "../components/forms";
 import { ApplyAdvocate, AdvocateProfileEditor, VerificationStatus } from "./profile/AdvocateForms";
 import { inr, fmtDate, STATES } from "../lib/format";
 
 const cleanName = (n = "") => n.replace(/\s*\([0-9a-f]{6}\)$/, "");
 
+// Same rule the backend enforces (routes/auth.js's PhoneSchema) — loose enough for an
+// Indian number with/without +91 and spacing, strict enough to reject "abc123".
+const PHONE_RE = /^\+?\d{7,15}$/;
+const isValidPhone = (phone) => !phone.trim() || PHONE_RE.test(phone.trim().replace(/[\s-]/g, ""));
+
 function PersonalDetails() {
   const { user, provider, refresh } = useAuth();
   const [f, setF] = useState({ fullName: user.full_name || "", city: user.city || "", state: user.state || "", phone: user.phone || "" });
+  const { errors, registerField, validate, clearError } = useFormValidation();
   const save = useMut(() => api.patch("/me", { fullName: f.fullName, city: f.city, state: f.state, phone: f.phone }), { success: "Profile updated.", onSuccess: refresh });
+
+  function submit() {
+    const ok = validate([
+      ["fullName", f.fullName.trim().length < 2, "Enter your full name."],
+      ["phone", !isValidPhone(f.phone), "Enter a valid phone number (digits only, optionally starting with +)."],
+    ]);
+    if (ok) save.mutate();
+  }
+
   return (
     <Card style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
@@ -23,12 +38,12 @@ function PersonalDetails() {
       </div>
       <div style={{ fontSize: 13, color: "var(--color-text-muted)" }}>{user.email}</div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 10 }}>
-        <TextInput label="Full name" value={f.fullName} onChange={(e) => setF({ ...f, fullName: e.target.value })} />
-        <TextInput label="Phone (optional)" value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} />
+        <TextInput ref={registerField("fullName")} label="Full name" value={f.fullName} onChange={(e) => { setF({ ...f, fullName: e.target.value }); clearError("fullName"); }} error={errors.fullName} />
+        <TextInput ref={registerField("phone")} label="Phone (optional)" value={f.phone} onChange={(e) => { setF({ ...f, phone: e.target.value }); clearError("phone"); }} error={errors.phone} />
         <TextInput label="City" value={f.city} onChange={(e) => setF({ ...f, city: e.target.value })} />
         <Select label="State" value={f.state} onChange={(e) => setF({ ...f, state: e.target.value })} placeholder="—" options={STATES} />
       </div>
-      <Button onClick={() => save.mutate()} disabled={save.isPending || f.fullName.trim().length < 2} style={{ alignSelf: "flex-start" }}>Save</Button>
+      <Button onClick={submit} disabled={save.isPending} style={{ alignSelf: "flex-start" }}>Save</Button>
     </Card>
   );
 }

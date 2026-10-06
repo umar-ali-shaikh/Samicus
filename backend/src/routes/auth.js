@@ -1,9 +1,20 @@
 import { Router } from "express";
 import rateLimit from "express-rate-limit";
+import { z } from "zod";
 import { getSupabase } from "../config/db.js";
 import { authenticate, requireAuth, AUTH_ERRORS } from "../middleware/auth.js";
 
 const router = Router();
+
+// Accepts a leading + and digits/spaces/hyphens, but requires 7-15 actual digits once those
+// separators are stripped (E.164-ish) — loose enough for Indian numbers with or without a
+// +91/country code and common spacing, strict enough to reject "abc123" or a stray word.
+const PHONE_RE = /^\+?\d{7,15}$/;
+const PhoneSchema = z
+  .string()
+  .trim()
+  .transform((s) => s.replace(/[\s-]/g, ""))
+  .refine((s) => PHONE_RE.test(s), "Enter a valid phone number (7-15 digits, optionally starting with +).");
 
 // Sign-in/sign-up/Google OAuth happen in the browser against Supabase Auth (supabase-js).
 // The API only ever sees the resulting access token.
@@ -61,7 +72,15 @@ router.patch("/me", profileLimiter, requireAuth, async (req, res) => {
     if (!["en", "hi"].includes(preferredLanguage)) return res.status(400).json({ error: "preferredLanguage must be 'en' or 'hi'." });
     patch.preferred_language = preferredLanguage;
   }
-  if (phone !== undefined) patch.phone = phone ? String(phone).slice(0, 20) : null;
+  if (phone !== undefined) {
+    if (!phone) {
+      patch.phone = null;
+    } else {
+      const result = PhoneSchema.safeParse(phone);
+      if (!result.success) return res.status(400).json({ error: result.error.issues[0]?.message || "Invalid phone number." });
+      patch.phone = result.data.slice(0, 20);
+    }
+  }
   if (Object.keys(patch).length === 0) return res.status(400).json({ error: "Nothing to update." });
 
   const { data, error } = await getSupabase().from("users").update(patch).eq("id", req.user.id).select().single();

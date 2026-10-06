@@ -22,6 +22,23 @@ test("detectRedFlags always flags a unilateral arbitrator appointment", () => {
   assert.ok(flags.some((f) => f.id === "unilateral_arbitrator"));
 });
 
+test("detectRedFlags always flags structural repairs pushed onto the tenant (responsibility-of-the-tenant ordering)", () => {
+  const flags = detectRedFlags("All structural repairs shall be the sole responsibility of the Tenant.");
+  assert.ok(flags.some((f) => f.id === "structural_repairs_burden"));
+});
+
+test("detectRedFlags always flags structural repairs pushed onto the tenant (tenant-responsible-for ordering)", () => {
+  const flags = detectRedFlags("The Tenant shall be solely responsible for all structural repairs to the building.");
+  assert.ok(flags.some((f) => f.id === "structural_repairs_burden"));
+});
+
+test("detectRedFlags always flags a one-sided lock-in (landlord free to terminate anytime)", () => {
+  const flags = detectRedFlags(
+    "The Tenant may not terminate this Agreement during the lock-in period of 11 months, however the Landlord may terminate this Agreement at any time by giving 15 days notice."
+  );
+  assert.ok(flags.some((f) => f.id === "one_sided_lock_in"));
+});
+
 test("detectRedFlags finds nothing in an ordinary, balanced clause", () => {
   assert.deepEqual(detectRedFlags("The Tenant shall pay rent on or before the fifth day of each month by bank transfer."), []);
 });

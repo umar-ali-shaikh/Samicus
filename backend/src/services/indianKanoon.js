@@ -5,6 +5,7 @@ import { buildFormInput } from "./indianKanoonFilters.js";
 import { createCache } from "../utils/cache.js";
 import { sanitizeJudgmentHtml } from "../utils/sanitizeHtml.js";
 import { increment } from "../utils/callCounter.js";
+import { stripTags } from "./rag/chunk.js";
 
 const BASE_URL = "https://api.indiankanoon.org";
 
@@ -107,6 +108,19 @@ async function postToIndianKanoon(path) {
   }
 }
 
+// Indian Kanoon's `found` is documented as a count but the live API sometimes returns a
+// range string instead (e.g. "1 - 10 of 9836") — `results?.found || 0` (and the equivalent
+// raw pass-through here) then sees a non-numeric value, `Number("1 - 10 of 9836")` is NaN,
+// and every numeric comparison downstream (pagination.js's `found > PAGE_SIZE`, "found
+// results" text) silently breaks: CaseLaw.jsx showed "0 results" and hid the Previous/Next
+// controls even with thousands of real hits. Take the trailing number (the actual total)
+// out of either shape and always return a real number.
+function parseFound(found) {
+  if (typeof found === "number") return found;
+  const match = String(found ?? "").replace(/,/g, "").match(/(\d+)\s*$/);
+  return match ? parseInt(match[1], 10) : 0;
+}
+
 /**
  * Full-text case search.
  * @param {string} query - free text; may include ANDD/ORR/NOTT/"phrase" operators.
@@ -125,7 +139,15 @@ export async function search(query, filters = {}, pagenum = 0, maxpages) {
 
   return {
     ...result,
-    docs: (result.docs || []).map((doc) => ({ ...doc, headline: sanitizeJudgmentHtml(doc.headline) })),
+    found: parseFound(result.found),
+    // Indian Kanoon wraps the search term it matched in <b> inside `title` the same way it
+    // does `headline` — but unlike headline (rendered as sanitized HTML, see
+    // sanitizeJudgmentHtml), every consumer of `title` (CaseLaw.jsx, the AI Assistant's
+    // evidence/sources list) renders it as plain text, so a literal "<b>" would show up as
+    // visible characters rather than bolding. Strip it fully here, once, for every caller —
+    // CaseLaw search, and legalAssistant.js's Stage 3 Indian Kanoon fallback both go through
+    // this same function.
+    docs: (result.docs || []).map((doc) => ({ ...doc, title: stripTags(doc.title), headline: sanitizeJudgmentHtml(doc.headline) })),
   };
 }
 
@@ -148,7 +170,7 @@ async function fetchDocument(docid, maxcites, maxcitedby) {
 
 export async function getDocument(docid, maxcites, maxcitedby) {
   const result = await fetchDocument(docid, maxcites, maxcitedby);
-  return { ...result, doc: sanitizeJudgmentHtml(result.doc) };
+  return { ...result, title: stripTags(result.title), doc: sanitizeJudgmentHtml(result.doc) };
 }
 
 /**
