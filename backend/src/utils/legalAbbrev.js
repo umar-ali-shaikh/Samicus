@@ -20,6 +20,10 @@ const ACT_ALIASES = [
   ["iea", "indian evidence act"],
   ["bsa", "bharatiya sakshya adhiniyam"],
   ["nia", "negotiable instruments act"],
+  // "NI Act" (two separate words) doesn't match the "nia" alias above at all (that regex
+  // requires the literal one-word token "nia") — confirmed this let "Section 138 NI Act
+  // cheque bounce" skip the "negotiable instruments act" expansion entirely.
+  ["ni act", "negotiable instruments act"],
 ].sort((a, b) => b[0].length - a[0].length);
 
 // The 2023-24 criminal-law replacements (BNS/BNSS/BSA for IPC/CrPC/Evidence Act, effective
@@ -188,8 +192,18 @@ export function expandLegalQuery(query) {
 
 /**
  * Short keyword phrases worth an exact (ILIKE) lexical search alongside the vector search —
- * section numbers and act names, the kind of token a dense embedding can blur past but a
- * keyword match catches exactly.
+ * section numbers, the kind of token a dense embedding can blur past but a keyword match
+ * catches exactly. Deliberately does NOT include the bare act name on its own (unlike
+ * expandLegalQuery's vector-search variants) — a lexical hit from research.js's
+ * hybridRetrieve gets floor-scored in at the relevance threshold with no further relevance
+ * check, so a term here must be specific enough that matching it is itself meaningful
+ * evidence of relevance. "Section 125" is specific; "Code of Criminal Procedure" alone is
+ * not — confirmed live, it alone pulled 45 unrelated CrPC chunks (bail/CBI/insurance
+ * cases, nothing to do with maintenance) into "Can a wife claim maintenance under Section
+ * 125 CrPC after divorce?"'s result set, drowning out the one genuinely relevant case
+ * ("Section 125" alone matched that same case and only it). The BNS/BNSS/BSA crosswalk
+ * number is qualified with its act for the same reason — a bare "Section 144" collides
+ * with Section 144 of half a dozen unrelated Acts.
  * @returns {string[]}
  */
 export function extractLexicalTerms(query) {
@@ -199,9 +213,6 @@ export function extractLexicalTerms(query) {
   while ((m = secRe.exec(query))) terms.add(m[0].replace(/\s+/g, " "));
   const bareNumRe = /\b\d+[a-z]?\s*(?:crpc|cr\.p\.c|ipc|bnss|bns|cpc)\b/gi;
   while ((m = bareNumRe.exec(query))) terms.add(m[0]);
-  for (const [short, canonical] of ACT_ALIASES) {
-    if (new RegExp(`\\b${short.replace(/\./g, "\\.")}\\b`, "i").test(query)) terms.add(canonical);
-  }
 
   const actKey = findActKey(query);
   const sectionRe = new RegExp(SECTION_RE);
@@ -209,9 +220,27 @@ export function extractLexicalTerms(query) {
     const num = (m[1] || m[2] || m[3] || "").toLowerCase();
     const act = (m[4] || actKey || "").toLowerCase().replace(/[.\s]/g, "");
     const crossed = SECTION_CROSSWALK[`${act}:${num}`];
-    if (crossed) for (const [, newSection] of crossed) terms.add(`Section ${newSection}`);
+    if (crossed) for (const [newAct, newSection] of crossed) terms.add(`Section ${newSection} ${newAct.toUpperCase()}`);
   }
   return [...terms];
+}
+
+// Two-or-more consecutive Capitalized words (each >=3 letters, so "I"/"Mr"/"Ok" never match)
+// read as a proper-noun phrase — a party or case name ("Kesavananda Bharati", "Maneka
+// Gandhi") a dense embedding can blur past entirely (especially an unusual name the model
+// has never seen tied to the doctrine it's actually about: confirmed live, "Kesavananda
+// Bharati basic structure" scored its own namesake passage only 0.45, below the 0.55
+// threshold, even though the passage literally opens "the concept of 'the basic structure'
+// was first propounded in ... Kesavananda Bharati") but an exact keyword match catches
+// directly regardless of how borderline the cosine similarity is. Kept separate from
+// extractLexicalTerms' section-number terms because callers treat an exact case-name hit as
+// a stronger, unconditional "accept this" signal (see hybridRetrieve in research.js) rather
+// than the gentler score bump a generic lexical hit gets.
+const PROPER_NOUN_RUN_RE = /\b[A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,}){1,4}\b/g;
+
+/** @returns {string[]} candidate case/party-name phrases found in `query`, longest matches only. */
+export function extractCaseNameTerms(query) {
+  return [...new Set((String(query || "").match(PROPER_NOUN_RUN_RE) || []))];
 }
 
 // A user who explicitly names a court is asking to see passages from THAT court, not

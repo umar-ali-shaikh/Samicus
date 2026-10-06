@@ -58,7 +58,7 @@ const RESEARCH_DISCLAIMER =
  *   relatedSearches: string[],
  * }} report
  */
-export function renderResearchReportPdf({ title, question, date, summary, cases, relatedSearches }) {
+export function renderResearchReportPdf({ title, question, date, summary, cases, relatedSearches, note }) {
   return new Promise((resolve, reject) => {
     const pdf = new PDFDocument({ margin: 56, info: { Title: title, Producer: "Vidhira" } });
     const chunks = [];
@@ -70,7 +70,23 @@ export function renderResearchReportPdf({ title, question, date, summary, cases,
     pdf.font("Times-Roman").fontSize(9).fillColor("#666").text(`${question} — ${date}`, { align: "center" }).fillColor("#000").moveDown(0.3);
     pdf.font("Times-Italic").fontSize(9).fillColor("#666").text(RESEARCH_DISCLAIMER, { align: "center" }).fillColor("#000").moveDown();
 
-    if (summary) {
+    // Samicus Research structured note (10 fixed sections) takes priority over the flat
+    // summary when present — same source of truth the report page itself shows.
+    if (note?.sections?.length) {
+      if (note.jurisdiction) pdf.font("Times-Italic").fontSize(10).text(`Jurisdiction: ${note.jurisdiction}`).moveDown(0.1);
+      if (note.position?.label) pdf.font("Times-Bold").fontSize(10).text(`Position: ${note.position.label}`, { continued: true }).font("Times-Italic").text(note.position.note ? `  ${note.position.note}` : "").moveDown(0.3);
+      for (const sec of note.sections) {
+        pdf.font("Times-Bold").fontSize(13).text(sec.title).moveDown(0.15);
+        if (sec.status === "no_authority" || sec.paragraphs.length === 0) {
+          pdf.font("Times-Italic").fontSize(10).fillColor("#666").text("No authority retrieved for this section.").fillColor("#000").moveDown(0.3);
+          continue;
+        }
+        for (const p of sec.paragraphs) {
+          pdf.font("Times-Roman").fontSize(11).text(`${p.text} [${p.cites.join(", ")}]`, { align: "justify" }).moveDown(0.15);
+        }
+        pdf.moveDown(0.15);
+      }
+    } else if (summary) {
       pdf.font("Times-Bold").fontSize(13).text("Summary").moveDown(0.2);
       pdf.font("Times-Roman").fontSize(11).text(summary, { align: "justify" }).moveDown();
     }

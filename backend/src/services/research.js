@@ -13,7 +13,7 @@ import { understandQuery } from "./legalQueryUnderstanding.js";
 import { search as searchIndianKanoon, getDocumentRaw, isIndianKanoonConfigured } from "./indianKanoon.js";
 import { rankRelevantDocs } from "./relevanceRanking.js";
 import { rankWithScores } from "../utils/tfidf.js";
-import { expandLegalQuery, extractLexicalTerms, detectCourtIntent } from "../utils/legalAbbrev.js";
+import { expandLegalQuery, extractLexicalTerms, extractCaseNameTerms, detectCourtIntent } from "../utils/legalAbbrev.js";
 
 export class KnowledgeBaseUnavailableError extends Error {
   constructor() {
@@ -26,6 +26,10 @@ export class KnowledgeBaseUnavailableError extends Error {
 
 export function relevanceThreshold() {
   return minScore();
+}
+
+export function researchNoteV2Enabled() {
+  return process.env.RESEARCH_NOTE_V2 !== "false";
 }
 
 // Only these paragraph classes may support an assertion; arguments are shown but never
@@ -96,11 +100,11 @@ async function hybridRetrieve(queryText, { limit = RESULT_LIMIT * 4 } = {}) {
     }
   }
 
+  const floor = minScore();
   const lexicalTerms = extractLexicalTerms(queryText);
   if (lexicalTerms.length > 0) {
     try {
       const lexHits = await lexicalSearch(lexicalTerms, { limit: RESULT_LIMIT * 2 });
-      const floor = minScore();
       for (const hit of lexHits) {
         const existing = byId.get(hit.id);
         if (existing) existing.score = Math.min(1, existing.score + 0.06);
@@ -108,6 +112,28 @@ async function hybridRetrieve(queryText, { limit = RESULT_LIMIT * 4 } = {}) {
       }
     } catch (err) {
       console.error("Lexical search failed, continuing with vector results only:", err.message);
+    }
+  }
+
+  // A case/party name ("Kesavananda Bharati") is a far stronger, more specific signal than a
+  // bare section number — an exact match on it is accepted outright (score forced up to the
+  // floor, not just nudged by +0.06), even for a passage the vector search already found but
+  // scored as a near-miss below threshold. Confirmed live: the passage that literally opens
+  // "the concept of 'the basic structure' was first propounded in ... Kesavananda Bharati"
+  // only scored 0.45 on cosine similarity for the query "Kesavananda Bharati basic
+  // structure" — below the 0.55 bar — purely because dense embeddings don't weight an exact
+  // proper-noun match any higher than topical similarity.
+  const caseNameTerms = extractCaseNameTerms(queryText);
+  if (caseNameTerms.length > 0) {
+    try {
+      const nameHits = await lexicalSearch(caseNameTerms, { limit: RESULT_LIMIT * 2 });
+      for (const hit of nameHits) {
+        const existing = byId.get(hit.id);
+        if (existing) existing.score = Math.max(existing.score, floor);
+        else byId.set(hit.id, { ...hit, score: floor });
+      }
+    } catch (err) {
+      console.error("Case-name lexical search failed, continuing without it:", err.message);
     }
   }
 
@@ -122,26 +148,59 @@ async function hybridRetrieve(queryText, { limit = RESULT_LIMIT * 4 } = {}) {
 // searchable before this same request answers, not only on some later question.
 const MAX_LIVE_FETCH_DOCS = 3;
 
+function logTag(queryText) {
+  return `[research:live-fetch] "${queryText.slice(0, 80)}"`;
+}
+
 async function fetchAndIndexLiveSources(queryText) {
-  if (!isIndianKanoonConfigured() || !ragEnabled()) return { fetched: 0 };
+  const tag = logTag(queryText);
+  if (!isIndianKanoonConfigured() || !ragEnabled()) {
+    console.log(`${tag} skipped — Indian Kanoon or RAG not configured`);
+    return { fetched: 0, docsFound: 0, ingestErrors: 0 };
+  }
   try {
     const intent = detectCourtIntent(queryText);
     const filters = intent === "supreme_court" ? { court: "supremecourt" } : {};
+    console.log(`${tag} firing — searching Indian Kanoon (court filter: ${intent || "none"})`);
     const { docs } = await searchIndianKanoon(queryText, filters, 0, 1);
-    if (!docs?.length) return { fetched: 0 };
-    const ranked = await rankRelevantDocs(queryText, docs, (d) => `${d.title} ${d.headline || ""}`);
+    console.log(`${tag} Indian Kanoon search returned ${docs?.length || 0} doc(s)`);
+    if (!docs?.length) return { fetched: 0, docsFound: 0, ingestErrors: 0 };
+
+    // minScore: -1 — Indian Kanoon's own full-text search already selected these as
+    // on-topic for the query; rankRelevantDocs' default 0.5 embedding floor is tuned for
+    // re-ranking full passage text, not these short title+headline snippets, where even a
+    // genuinely on-point case routinely scores well under it (its headline snippet just
+    // didn't happen to contain/highlight the query's own words) — e.g. "Kesavananda Bharati
+    // basic structure"'s best candidate scored 0.465, "non-compete after resign"'s scored
+    // 0.406, both silently rejected by the old 0.5 floor on every single re-run. Scoring here
+    // now only orders candidates and picks the best few, never rejects one Indian Kanoon
+    // already matched.
+    const ranked = await rankRelevantDocs(queryText, docs, (d) => `${d.title} ${d.headline || ""}`, { minScore: -1 });
     const top = ranked.map((r) => r.item).slice(0, MAX_LIVE_FETCH_DOCS);
+    console.log(`${tag} indexing top ${top.length}/${docs.length}: ${top.map((d) => `"${d.title}"`).join(", ")}`);
+
     const results = await Promise.allSettled(
       top.map(async (d) => {
         const full = await getDocumentRaw(d.tid);
         return ingestIndianKanoonDoc({ tid: d.tid, title: d.title, docsource: d.docsource, html: full.doc });
       })
     );
+    let ingestErrors = 0;
+    results.forEach((r, i) => {
+      const title = top[i]?.title || top[i]?.tid;
+      if (r.status === "rejected") {
+        ingestErrors++;
+        console.error(`${tag} FAILED to ingest "${title}":`, r.reason?.message || r.reason);
+      } else {
+        console.log(`${tag} "${title}" -> ${r.value.skipped ? "skipped (already indexed)" : `${r.value.chunks} chunk(s) embedded`}`);
+      }
+    });
     const fetched = results.filter((r) => r.status === "fulfilled" && !r.value.skipped).length;
-    return { fetched };
+    console.log(`${tag} done — ${fetched} new document(s) actually indexed, ${ingestErrors} ingest failure(s)`);
+    return { fetched, docsFound: docs.length, ingestErrors };
   } catch (err) {
-    console.error("Live source fetch for an empty research result failed:", err.message);
-    return { fetched: 0 };
+    console.error(`${tag} failed:`, err.message);
+    return { fetched: 0, docsFound: 0, ingestErrors: 1 };
   }
 }
 
@@ -153,44 +212,54 @@ const NON_ENGLISH_LANGUAGES = new Set(["hindi", "marathi", "urdu", "hinglish", "
 const MAX_TRANSLATED_QUERIES = 3;
 
 /**
- * @returns {Promise<{ fetchedNewSources: boolean, results: { chunk: object, score: number }[] }>}
+ * @returns {Promise<{ fetchedNewSources: boolean, liveFetch: {attempted: boolean, docsFound: number, ingestErrors: number}, results: { chunk: object, score: number }[], translatedQueries: string[] }>}
  *   `results` is best first and includes below-threshold passages so the UI can show what
- *   was kept and what was dropped.
+ *   was kept and what was dropped. `liveFetch` records whether the auto-fetch-and-index step
+ *   ran and what it found, for not-found-reason classification once answerFromRetrieval's
+ *   own gates run (see routes/research.js, which persists it onto the query row since the
+ *   /retrieve and /answer steps are separate requests).
  */
 export async function retrieve(queryText, { sourcesEnabled } = {}) {
   if (!ragEnabled()) throw new KnowledgeBaseUnavailableError();
   const threshold = minScore();
+  const tag = logTag(queryText);
 
   let candidates = await hybridRetrieve(queryText);
+  console.log(`${tag} hybrid retrieval: ${candidates.length} candidate(s), top score ${candidates[0]?.score?.toFixed(2) ?? "none"}`);
 
   // Stage 1's own searchQueries (already produced for the AI Assistant's retrieval, same
   // translation step) give the English-term version of a non-English question almost for
   // free — merge its hits in, don't replace the original-language retrieval with it (a
   // code-mixed question can still match the raw text too).
+  let translatedQueries = [];
   try {
     const understanding = await understandQuery(queryText);
     if (NON_ENGLISH_LANGUAGES.has(understanding.language) && understanding.searchQueries?.length) {
-      const translatedLists = await Promise.all(
-        understanding.searchQueries.slice(0, MAX_TRANSLATED_QUERIES).map((q) => hybridRetrieve(q))
-      );
+      translatedQueries = understanding.searchQueries.slice(0, MAX_TRANSLATED_QUERIES);
+      const translatedLists = await Promise.all(translatedQueries.map((q) => hybridRetrieve(q)));
       const byId = new Map(candidates.map((p) => [p.id, p]));
       for (const p of translatedLists.flat()) {
         const existing = byId.get(p.id);
         if (!existing || p.score > existing.score) byId.set(p.id, p);
       }
       candidates = [...byId.values()].sort((a, b) => b.score - a.score);
+      console.log(`${tag} ${understanding.language} query — merged ${translatedQueries.length} translated paraphrase(s): ${translatedQueries.join(" | ")}; top score now ${candidates[0]?.score?.toFixed(2) ?? "none"}`);
     }
   } catch (err) {
-    console.error("Research translated-query retrieval failed, continuing with the original-language query only:", err.message);
+    console.error(`${tag} translated-query retrieval failed, continuing with the original-language query only:`, err.message);
   }
 
   let fetchedNewSources = false;
+  let liveFetch = { attempted: false, docsFound: 0, ingestErrors: 0 };
   const hasCitableHit = candidates.some((p) => p.score >= threshold && CITABLE_CLASSES.has(p.paraClass));
   if (!hasCitableHit) {
-    const { fetched } = await fetchAndIndexLiveSources(queryText);
+    console.log(`${tag} no citable hit >= ${threshold} (best: ${candidates[0]?.score?.toFixed(2) ?? "none"}) — attempting live fetch`);
+    const { fetched, docsFound, ingestErrors } = await fetchAndIndexLiveSources(queryText);
+    liveFetch = { attempted: true, docsFound, ingestErrors };
     if (fetched > 0) {
       fetchedNewSources = true;
       candidates = await hybridRetrieve(queryText);
+      console.log(`${tag} re-retrieval after indexing ${fetched} new doc(s): top score now ${candidates[0]?.score?.toFixed(2) ?? "none"}`);
     }
   }
 
@@ -207,7 +276,7 @@ export async function retrieve(queryText, { sourcesEnabled } = {}) {
         document: { id: p.documentId, title: p.title, citation: p.citation, court: p.court, source: p.source, canonical_url: p.url },
       },
     }));
-  return { fetchedNewSources, results };
+  return { fetchedNewSources, liveFetch, results, translatedQueries };
 }
 
 // Secondary relevance gate (independent of the retrieval score that got a passage into the
@@ -222,25 +291,73 @@ export async function retrieve(queryText, { sourcesEnabled } = {}) {
 async function applyRelevanceGate(queryText, citable) {
   if (citable.length === 0) return citable;
   const getText = (r) => `${r.chunk.document?.title || ""} ${r.chunk.text}`;
-  const reranked = await rankRelevantDocs(queryText, citable, getText);
-  const rerankedIds = new Set(reranked.map((r) => r.item.chunk.id));
-  const termOverlapIds = new Set(rankWithScores(queryText, citable, getText).filter((r) => r.score > 0).map((r) => r.item.chunk.id));
+
+  // Both checks below are run over every query in `overlapQueries` and unioned, not just the
+  // raw queryText — two independent reasons:
+  //  - rankRelevantDocs' embedding rerank uses an English sentence-embedding model with weak
+  //    Hindi/Urdu/Devanagari<->English cross-lingual alignment: confirmed live, a raw
+  //    Devanagari query against English passage text scored 0 candidates above its 0.5 floor
+  //    even for a passage the ORIGINAL retrieval had already scored 0.76 on the same model.
+  //  - rankWithScores' tokenizer (utils/tfidf.js) keeps only [a-z0-9] characters, so a
+  //    Devanagari/Perso-Arabic-script question shares literally zero tokens with the
+  //    English-language corpus no matter how relevant the passage actually is.
+  // Either check run on the raw non-English text alone drops every citable segment regardless
+  // of genuine relevance — confirmed live with "तलाक के बाद पत्नी को गुजारा भत्ता मिलेगा क्या?". Reuse
+  // the same cached English searchQueries translation retrieve() already produced, so this
+  // runs against vocabulary (and an embedding space) the question could actually match.
+  let overlapQueries = [queryText];
+  try {
+    const understanding = await understandQuery(queryText);
+    if (NON_ENGLISH_LANGUAGES.has(understanding.language) && understanding.searchQueries?.length) {
+      overlapQueries = [queryText, ...understanding.searchQueries];
+    }
+  } catch (err) {
+    console.error("Relevance-gate translation lookup failed, using the original query only:", err.message);
+  }
+
+  const rerankedIds = new Set();
+  for (const q of overlapQueries) {
+    const reranked = await rankRelevantDocs(q, citable, getText);
+    for (const r of reranked) rerankedIds.add(r.item.chunk.id);
+  }
+  const termOverlapIds = new Set(
+    overlapQueries.flatMap((q) => rankWithScores(q, citable, getText).filter((r) => r.score > 0).map((r) => r.item.chunk.id))
+  );
   return citable.filter((r) => rerankedIds.has(r.chunk.id) && termOverlapIds.has(r.chunk.id));
 }
 
-export async function answerFromRetrieval(queryText, retrieved) {
+// Near-miss margin: a best-discarded score within this many points of the threshold reads
+// as "almost matched" (below_threshold) rather than "nothing like this in the corpus"
+// (corpus_gap) — an honest distinction the UI surfaces instead of one flat "No match".
+const NEAR_MISS_MARGIN = 0.1;
+
+function classifyNotFoundReason(threshold, bestScore, liveFetchIngestFailed) {
+  if (liveFetchIngestFailed) return "ingest_failed";
+  if (bestScore != null && bestScore >= threshold - NEAR_MISS_MARGIN) return "below_threshold";
+  return "corpus_gap";
+}
+
+/**
+ * @param {string} queryText
+ * @param {{chunk: object, score: number}[]} retrieved
+ * @param {{liveFetchIngestFailed?: boolean}} [opts] - whether this query's auto-fetch-and-index
+ *   attempt (see fetchAndIndexLiveSources) hit an ingestion error, so a not_found here reads as
+ *   "ingest_failed" rather than "corpus_gap" — a real source was found but indexing it broke.
+ */
+export async function answerFromRetrieval(queryText, retrieved, { liveFetchIngestFailed = false } = {}) {
   const threshold = relevanceThreshold();
   const kept = retrieved.filter((r) => r.score >= threshold);
   const discardedCount = retrieved.length - kept.length;
+  const topScore = retrieved[0]?.score ?? null;
 
   if (kept.length === 0) {
-    return { outcome: "not_found", segments: [], discardedCount, unsupportedSpanCount: 0 };
+    return { outcome: "not_found", segments: [], discardedCount, unsupportedSpanCount: 0, topScore, reason: classifyNotFoundReason(threshold, topScore, liveFetchIngestFailed) };
   }
 
   const citable = kept.filter((r) => CITABLE_CLASSES.has(r.chunk.paragraph_class));
   if (citable.length === 0) {
     // Only argument/fact chunks retrieved — nothing citable as authority.
-    return { outcome: "not_found", segments: [], discardedCount, unsupportedSpanCount: 0 };
+    return { outcome: "not_found", segments: [], discardedCount, unsupportedSpanCount: 0, topScore, reason: "corpus_gap" };
   }
 
   const relevant = await applyRelevanceGate(queryText, citable);
@@ -248,7 +365,7 @@ export async function answerFromRetrieval(queryText, retrieved) {
   if (relevant.length === 0) {
     // Everything retrieved was off-topic for the actual question — an honest "not in the
     // indexed library" beats presenting an irrelevant answer with false confidence.
-    return { outcome: "not_found", segments: [], discardedCount: totalDiscarded, unsupportedSpanCount: 0 };
+    return { outcome: "not_found", segments: [], discardedCount: totalDiscarded, unsupportedSpanCount: 0, topScore, reason: "corpus_gap" };
   }
 
   const segments = relevant.map((r) => ({
@@ -264,7 +381,7 @@ export async function answerFromRetrieval(queryText, retrieved) {
   }));
 
   const outcome = relevant.length < kept.length || totalDiscarded > 0 ? "partial" : "answered";
-  return { outcome, segments, discardedCount: totalDiscarded, unsupportedSpanCount: 0 };
+  return { outcome, segments, discardedCount: totalDiscarded, unsupportedSpanCount: 0, topScore, reason: null };
 }
 
 // Best-effort, deterministic check for one specific failure mode: the query names ONE case
@@ -494,4 +611,133 @@ export async function answerFollowUp(question, segments, { language, priorTurns 
     console.error("Research follow-up answer failed:", err.message);
     return empty;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Structured 10-section research note (Samicus Research "Step 2" answer).
+// Same retrieval-then-cite guarantee as everything above: the model sees only
+// the numbered segments already retrieved for this query, every section is
+// either "cited" (every paragraph in it has >=1 valid [n]) or "no_authority"
+// (nothing retrieved supports it — shown as empty, never padded), and the
+// server re-validates citations against the real segment list rather than
+// trusting the model's own numbering.
+// ---------------------------------------------------------------------------
+
+export const NOTE_SECTION_DEFS = [
+  { id: "s1", title: "Short conclusion" },
+  { id: "s2", title: "Applicable law" },
+  { id: "s3", title: "Relevant statutory provisions" },
+  { id: "s4", title: "Relevant judgments" },
+  { id: "s5", title: "How the law applies" },
+  { id: "s6", title: "Conflicting legal views" },
+  { id: "s7", title: "Current legal position" },
+  { id: "s8", title: "Practical next steps" },
+  { id: "s9", title: "Missing facts and limitations" },
+  { id: "s10", title: "Verifiable primary sources" },
+];
+
+const POSITION_LABELS = new Set(["Settled law", "Unsettled", "Conflicting"]);
+
+const NOTE_SYSTEM_PROMPT = `You compose Vidhira Research's structured research note from already-retrieved passages. You will be given a question, the jurisdiction/courts actually represented, and a numbered list of verbatim passages (the ONLY evidence that exists — retrieval already happened, you do not have or need any other source).
+
+Rules, all mandatory:
+1. Write ONLY from the numbered passages given. Never add a law, fact, case name, holding or date that is not in them.
+2. Produce exactly ten sections, in this fixed order, using exactly these ids and titles:
+${NOTE_SECTION_DEFS.map((s) => `   - ${s.id}: "${s.title}"`).join("\n")}
+3. Each section is { "id", "paragraphs": [ { "text": string, "cites": number[] } ] }. Every paragraph's "text" must end with a claim actually supported by the passage(s) named in its "cites" — cites must be non-empty and every number must be a real passage number from the list given. Do not write a paragraph with no citation.
+4. A section with nothing in the retrieved passages to support it gets an EMPTY "paragraphs" array — never pad it with a generic statement, a restatement of the question, or anything not grounded in a passage.
+5. A party's own argument (as opposed to the court's reasoning or holding, or a statute's text) must never be cited as if it were the law or the court's decision. If a passage is only a party's submission, you may note that explicitly but must not present it as settled.
+6. "position": your best-supported classification of whether the law on this question is "Settled law", "Unsettled", or "Conflicting", with a one-sentence "note" explaining why — based only on whether the passages themselves agree or diverge. If the passages are too thin to classify (e.g. a single statute with no judicial interpretation, or zero citable passages), set "label" to null and "note" to a short honest reason.
+7. "jurisdiction": the jurisdiction the retrieved authorities actually belong to (e.g. "India — Union", or name the specific High Court(s)/state if that's what's retrieved). Do not guess beyond what the passages show.
+8. Plain English. Short sentences. Never guarantee an outcome or imply this is legal advice.
+
+Output STRICT JSON only, no markdown fences, no commentary, matching exactly:
+{ "jurisdiction": string, "position": { "label": "Settled law"|"Unsettled"|"Conflicting"|null, "note": string },
+  "sections": [ { "id": string, "paragraphs": [ { "text": string, "cites": number[] } ] } ] }
+"sections" must have exactly 10 entries, one per id above, in that order, even when "paragraphs" is empty.`;
+
+function buildAuthorities(segments) {
+  return segments.map((s, i) => ({
+    n: i + 1,
+    title: s.documentTitle,
+    court: s.court || null,
+    citation: s.citation || null,
+    source: s.source,
+    url: s.url || null,
+    score: s.score ?? null,
+  }));
+}
+
+// Drops any paragraph whose cites don't all resolve to a real, in-range segment number, then
+// recomputes each section's status/citation count from what actually survived — never trusts
+// the model's own bookkeeping, same posture as verifySummaryGrounding() above.
+function sanitizeSections(rawSections, segmentCount) {
+  const byId = new Map((Array.isArray(rawSections) ? rawSections : []).map((s) => [s?.id, s]));
+  return NOTE_SECTION_DEFS.map((def) => {
+    const raw = byId.get(def.id);
+    const rawParagraphs = Array.isArray(raw?.paragraphs) ? raw.paragraphs : [];
+    const paragraphs = rawParagraphs
+      .map((p) => {
+        const text = typeof p?.text === "string" ? p.text.trim() : "";
+        const cites = Array.isArray(p?.cites)
+          ? [...new Set(p.cites.filter((n) => Number.isInteger(n) && n >= 1 && n <= segmentCount))]
+          : [];
+        return text && cites.length > 0 ? { text, cites } : null;
+      })
+      .filter(Boolean);
+    const citedNumbers = new Set(paragraphs.flatMap((p) => p.cites));
+    return {
+      id: def.id,
+      title: def.title,
+      status: paragraphs.length > 0 ? "cited" : "no_authority",
+      citationCount: citedNumbers.size,
+      paragraphs,
+    };
+  });
+}
+
+function parseNoteJson(raw) {
+  const parsed = JSON.parse(stripCodeFence(raw));
+  if (!Array.isArray(parsed.sections)) throw new Error("missing sections array");
+  return parsed;
+}
+
+/**
+ * Builds the structured 10-section note behind RESEARCH_NOTE_V2. Pure enhancement over the
+ * extractive segments/aiSummary — returns null (never throws) on any failure, including when
+ * the model's JSON doesn't validate even after one retry, so a failure here can never break
+ * the plain extractive report underneath.
+ * @param {string} question
+ * @param {Array<{chunkId:string,text:string,documentTitle:string,citation?:string,court?:string,source?:string,url?:string,score?:number}>} segments
+ * @param {{language?: string}} [opts]
+ * @returns {Promise<{jurisdiction:string,position:{label:string|null,note:string},sections:object[],authorities:object[]}|null>}
+ */
+export async function generateStructuredNote(question, segments, { language } = {}) {
+  if (!isOpenRouterConfigured() || segments.length === 0) return null;
+  const lang = language || "unknown";
+  const userContent =
+    `Question: ${question}\n\nPassages:\n${evidenceFromSegments(segments)}` +
+    `\n\n---\nReminder: write every "text" and "note" field in "${lang}" (if that is a specific language; "english"/"unknown" means plain English) — never default to English just because the passages are in English. Case names, section numbers, and citation markers stay as-is.`;
+  const messages = [
+    { role: "system", content: NOTE_SYSTEM_PROMPT },
+    { role: "user", content: userContent },
+  ];
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const raw = await chatCompletion(messages, { jsonMode: true, maxTokens: 4000 });
+      const parsed = parseNoteJson(raw);
+      const sections = sanitizeSections(parsed.sections, segments.length);
+      const position = POSITION_LABELS.has(parsed.position?.label) ? parsed.position.label : null;
+      return {
+        jurisdiction: typeof parsed.jurisdiction === "string" && parsed.jurisdiction.trim() ? parsed.jurisdiction.trim() : "India",
+        position: { label: position, note: typeof parsed.position?.note === "string" ? parsed.position.note.trim() : "" },
+        sections,
+        authorities: buildAuthorities(segments),
+      };
+    } catch (err) {
+      console.error(`Research structured-note generation failed (attempt ${attempt + 1}/2):`, err.message);
+    }
+  }
+  return null;
 }

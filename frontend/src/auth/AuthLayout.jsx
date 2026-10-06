@@ -3,7 +3,7 @@
 export function Brand({ light }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
-      <div style={{ width: 34, height: 34, borderRadius: 9, background: "var(--color-gold)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "var(--font-serif)", fontSize: 19, color: "var(--color-navy)", fontWeight: 600 }}>S</div>
+      <div style={{ width: 34, height: 34, borderRadius: 9, background: "var(--color-gold)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "var(--font-serif)", fontSize: 19, color: "var(--color-navy)", fontWeight: 600 }}>V</div>
       <span style={{ fontFamily: "var(--font-serif)", fontSize: 21, letterSpacing: "0.06em", color: light ? "#F6F1E8" : "var(--color-navy)" }}>VIDHIRA</span>
     </div>
   );

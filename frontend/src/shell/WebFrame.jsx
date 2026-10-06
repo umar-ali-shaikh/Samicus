@@ -1,4 +1,6 @@
 ﻿import { useEffect, useState } from "react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faBars } from "@fortawesome/free-solid-svg-icons";
 import { useAuth } from "../auth/AuthProvider";
 import { useUI } from "../state/UIState";
 import { CLIENT_NAV, LAWYER_NAV, ADMIN_NAV, FOUNDER_NAV, viewFor } from "./navConfig";
@@ -32,9 +34,12 @@ function NavRail({ nav, view, onNavigate }) {
               fontWeight: tab === item.tab ? 600 : 500,
             }}
           >
-            {item.label}
+            <span style={{ display: "flex", alignItems: "center", gap: 11, minWidth: 0 }}>
+              {item.icon && <FontAwesomeIcon icon={item.icon} fixedWidth style={{ fontSize: 14, opacity: tab === item.tab ? 1 : 0.85 }} />}
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.label}</span>
+            </span>
             {item.tab === "messages" && unreadCount > 0 && (
-              <span style={{ background: "#DB4F35", color: "#fff", borderRadius: 999, fontSize: 10.5, fontWeight: 700, padding: "1px 7px" }}>{unreadCount}</span>
+              <span style={{ background: "#DB4F35", color: "#fff", borderRadius: 999, fontSize: 10.5, fontWeight: 700, padding: "1px 7px", flex: "none" }}>{unreadCount}</span>
             )}
           </button>
         ))}
@@ -88,7 +93,7 @@ export function WebFrame() {
         {(isMobile || (view === "client" && accounts.length > 1)) && (
           <div style={{ display: "flex", alignItems: "center", padding: isMobile ? "10px 14px" : "12px 20px", borderBottom: "1px solid var(--color-border)", background: "#FDFBF7", gap: 10, flexWrap: "wrap" }}>
             {isMobile && (
-              <button onClick={() => setNavOpen(true)} aria-label="Open menu" style={{ background: "none", border: "1px solid var(--color-border)", borderRadius: 8, width: 36, height: 36, fontSize: 16, cursor: "pointer", flex: "none" }}>☰</button>
+              <button onClick={() => setNavOpen(true)} aria-label="Open menu" style={{ background: "none", border: "1px solid var(--color-border)", borderRadius: 8, width: 36, height: 36, fontSize: 16, cursor: "pointer", flex: "none" }}><FontAwesomeIcon icon={faBars} /></button>
             )}
             {view === "client" && accounts.length > 1 && (
               <select value={activeAccount?.id || ""} onChange={(e) => setActiveAccountId(e.target.value)} aria-label="Active account" style={{ padding: "8px 10px", borderRadius: 9, border: "1px solid var(--color-border)", fontSize: 12.5, fontWeight: 600, background: "#fff", maxWidth: 280 }}>

@@ -13,7 +13,8 @@
     "rag:reindex": "node src/utils/rag.js reindex",
     "rag:reembed-all": "node src/utils/rag.js reembed-all",
     "rag:reprocess": "node src/utils/rag.js reprocess",
-    "rag:status": "node src/utils/rag.js status"
+    "rag:status": "node src/utils/rag.js status",
+    "research:check": "node src/scripts/researchRetrievalCheck.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.117.2",

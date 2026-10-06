@@ -2,90 +2,172 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useGet, useMut } from "../../api/hooks";
 import { useUI } from "../../state/UIState";
 import { api } from "../../lib/api";
-import { Card, Callout, Button, Badge, SegmentedControl, Loading, Pill } from "../../components/ui";
-import { SOURCE_LABEL } from "../Research";
+import { Card, Callout, Button, Badge, EmptyState, Loading } from "../../components/ui";
+import { CLASS_LABEL, SOURCE_LABEL } from "../Research";
 
-const OUTCOME_TONE = { allowed: "success", dismissed: "danger", partial: "warning", not_stated: "neutral" };
-const CITE_RE = /\[(\d+(?:\s*,\s*\d+)*)\]/g;
+const EYEBROW_STYLE = { fontSize: 10.5, fontWeight: 700, letterSpacing: "0.08em", color: "var(--color-label)" };
 
-// A chip naming exactly where a cited sentence's claim comes from (case, court, paragraph)
-// — the concrete backing for "every sentence is a verbatim passage with its source",
-// shown right next to the sentence rather than requiring a click to find out.
-function SourceChip({ seg }) {
-  if (!seg) return null;
-  const label = [seg.documentTitle, seg.court, seg.sectionLabel].filter(Boolean).join(" · ");
-  const short = seg.documentTitle?.length > 24 ? `${seg.documentTitle.slice(0, 22)}…` : seg.documentTitle;
-  return (
-    <span
-      title={label}
-      style={{ display: "inline-block", fontSize: 9.5, fontWeight: 600, color: "#C9D2E6", background: "rgba(255,255,255,0.1)", borderRadius: 999, padding: "1px 7px", marginLeft: 4, verticalAlign: "middle" }}
-    >
-      {short}{seg.court ? ` · ${seg.court}` : ""}
-    </span>
-  );
+const TABS = [
+  { id: "answer", label: "Answer" },
+  { id: "authorities", label: "Authorities" },
+  { id: "compare", label: "Compare" },
+  { id: "conflicts", label: "Conflicts" },
+  { id: "adverse", label: "Adverse" },
+  { id: "casemap", label: "Case map" },
+];
+
+const POSITION_TONE = { "Settled law": "success", Unsettled: "warning", Conflicting: "danger" };
+
+// Why a "No match" happened, matching MyResearchCard's tooltip in ResearchHome.jsx — shown
+// here as the actual callout body instead of one generic line, so "No match" is never a bare
+// dead end with no next step.
+const NOT_FOUND_REASON_COPY = {
+  corpus_gap: "The library doesn't have anything indexed on this yet. It automatically tried fetching new sources for this question and still came up empty.",
+  ingest_failed: "A likely source was found, but indexing it failed partway through — this is a technical hiccup, not a sign the library lacks coverage. Try refreshing.",
+  below_threshold: "Something close was found, but it didn't clear the relevance bar closely enough to cite with confidence.",
+};
+
+function formatDate(iso) {
+  if (!iso) return null;
+  return new Date(iso).toLocaleDateString("en-IN", { year: "numeric", month: "long", day: "numeric" });
 }
 
-// Renders aiSummary text with [n] / [n, m] citation markers turned into clickable numbers
-// that scroll to + flash the matching case card below, plus a source chip (case/court/¶)
-// right next to each one — so the claim's grounding is visible without clicking anything.
-function SummaryText({ text, segments, onCite }) {
-  const parts = [];
-  let last = 0;
-  let match;
-  const re = new RegExp(CITE_RE);
-  while ((match = re.exec(text))) {
-    if (match.index > last) parts.push(text.slice(last, match.index));
-    const nums = match[1].split(",").map((n) => n.trim());
-    parts.push(
-      <span key={match.index}>
-        [{nums.map((n, i) => (
-          <span key={n}>
-            {i > 0 && ", "}
-            <button onClick={() => onCite(Number(n))} style={{ all: "unset", cursor: "pointer", color: "var(--color-rust)", fontWeight: 700 }}>{n}</button>
-          </span>
-        ))}]
-        {nums.slice(0, 2).map((n) => <SourceChip key={`chip-${n}`} seg={segments?.[Number(n) - 1]} />)}
-      </span>
-    );
-    last = match.index + match[0].length;
-  }
-  if (last < text.length) parts.push(text.slice(last));
-  return <>{parts}</>;
-}
+// --- Step 1: retrieved passages --------------------------------------------------------
 
-function CaseCard({ seg, index, highlighted, nodeRef, onOpenJudgment }) {
+function PassageRow({ n, seg, open, onToggle, highlighted, nodeRef }) {
   return (
-    <Card ref={nodeRef} style={{ background: highlighted ? "#FDF3DC" : undefined, transition: "background 1.5s" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, flexWrap: "wrap" }}>
-        <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-          <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 20, height: 20, flex: "none", borderRadius: 6, fontFamily: "var(--font-mono)", fontSize: 11, background: "var(--color-navy)", color: "#fff" }}>{index}</span>
-          <div style={{ fontFamily: "var(--font-serif)", fontSize: 16 }}>{seg.documentTitle}</div>
-        </div>
-        {seg.outcome && seg.outcome !== "not_stated" && <Badge tone={OUTCOME_TONE[seg.outcome] || "neutral"}>{seg.outcome}</Badge>}
-      </div>
-      <div style={{ fontSize: 11.5, color: "var(--color-text-muted)", marginTop: 2 }}>
-        {[seg.court, seg.citation].filter(Boolean).join(" · ")}
-      </div>
-      {seg.gloss && <div style={{ fontSize: 13, marginTop: 8 }}>{seg.gloss}</div>}
-      <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 8, fontSize: 12.5 }}>
-        {[["Facts", seg.facts], ["Issues", seg.issues], ["Held", seg.held], ["Ratio", seg.ratio]].map(([label, value]) =>
-          value ? <div key={label}><strong>{label}: </strong>{value}</div> : null
-        )}
-      </div>
-      {seg.keyParagraph && (
-        <div style={{ borderLeft: "3px solid var(--color-gold)", paddingLeft: 10, fontSize: 12.5, color: "var(--color-text-muted)", marginTop: 8, fontStyle: "italic" }}>
-          "{seg.keyParagraph}"
+    <Card ref={nodeRef} style={{ padding: 0, overflow: "hidden", background: highlighted ? "#FDF3DC" : "#fff", transition: "background 1.5s" }}>
+      <button
+        onClick={onToggle}
+        style={{ all: "unset", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, width: "100%", padding: 14, boxSizing: "border-box", minHeight: 44 }}
+      >
+        <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 22, height: 22, flex: "none", borderRadius: 6, fontFamily: "var(--font-mono)", fontSize: 11, background: "var(--color-navy)", color: "#fff" }}>{n}</span>
+        <span style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 700, fontSize: 13.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{seg.documentTitle}</div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", fontSize: 11, color: "var(--color-text-muted)", marginTop: 2 }}>
+            {seg.court && <Badge tone="neutral">{seg.court}</Badge>}
+            <span>{CLASS_LABEL[seg.paragraphClass] || seg.paragraphClass}</span>
+            {typeof seg.score === "number" && <span>· match {seg.score.toFixed(2)}</span>}
+          </div>
+        </span>
+        <span style={{ fontSize: 18, color: "var(--color-text-muted)", flex: "none" }}>{open ? "−" : "+"}</span>
+      </button>
+      {open && (
+        <div style={{ padding: "0 14px 14px", borderTop: "1px solid var(--color-border)" }}>
+          <div style={{ borderLeft: "3px solid var(--color-gold)", paddingLeft: 10, fontSize: 12.5, lineHeight: 1.5, color: "var(--color-text)", marginTop: 10, whiteSpace: "pre-wrap" }}>
+            {seg.text}
+          </div>
+          {seg.url && <a href={seg.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, display: "inline-block", marginTop: 8 }}>Open source ↗</a>}
         </div>
       )}
-      <div style={{ display: "flex", gap: 14, marginTop: 10 }}>
-        <button onClick={() => onOpenJudgment(seg.documentId)} style={{ all: "unset", cursor: "pointer", fontSize: 12, fontWeight: 600, color: "var(--color-rust)" }}>Read full judgment →</button>
-        {seg.url && <a href={seg.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12 }}>Open on Indian Kanoon ↗</a>}
-      </div>
     </Card>
   );
 }
 
-function FollowUpChat({ searchId, locale }) {
+function RetrievedPassages({ segments, threshold, openN, setOpenN, highlighted, passageRefs }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={EYEBROW_STYLE}>
+        STEP 1 · RETRIEVED PASSAGES — {segments.length} chunk{segments.length === 1 ? "" : "s"} retrieved above threshold {Number(threshold).toFixed(2)}
+      </div>
+      {segments.map((seg, i) => {
+        const n = i + 1;
+        return (
+          <PassageRow
+            key={seg.chunkId}
+            n={n}
+            seg={seg}
+            open={openN === n}
+            onToggle={() => setOpenN((cur) => (cur === n ? null : n))}
+            highlighted={highlighted === n}
+            nodeRef={(el) => { if (el) passageRefs.current[n] = el; }}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+// --- Step 2: composed answer ------------------------------------------------------------
+
+function CiteMarkers({ cites, onCite }) {
+  if (!cites?.length) return null;
+  return (
+    <span style={{ marginLeft: 4 }}>
+      [{cites.map((n, i) => (
+        <span key={n}>
+          {i > 0 && ", "}
+          <button onClick={() => onCite(n)} style={{ all: "unset", cursor: "pointer", color: "var(--color-rust)", fontWeight: 700 }}>{n}</button>
+        </span>
+      ))}]
+    </span>
+  );
+}
+
+function AccordionSection({ index, section, open, onToggle, onCite }) {
+  const label = String(index + 1).padStart(2, "0");
+  return (
+    <Card style={{ padding: 0, overflow: "hidden" }}>
+      <button
+        onClick={onToggle}
+        style={{ all: "unset", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "14px 16px", boxSizing: "border-box", minHeight: 44 }}
+      >
+        <span style={{ fontFamily: "var(--font-mono)", fontSize: 11.5, color: "var(--color-label)", flex: "none" }}>{label}</span>
+        <span style={{ flex: 1, fontWeight: 700, fontSize: 14, textAlign: "left" }}>{section.title}</span>
+        {section.status === "no_authority" ? (
+          <Badge tone="warning">NO AUTHORITY RETRIEVED</Badge>
+        ) : section.citationCount > 0 ? (
+          <Badge tone="neutral">{section.citationCount} CITATION{section.citationCount === 1 ? "" : "S"}</Badge>
+        ) : null}
+        <span style={{ fontSize: 18, color: "var(--color-text-muted)", flex: "none" }}>{open ? "−" : "+"}</span>
+      </button>
+      {open && (
+        <div style={{ padding: "0 16px 16px", borderTop: "1px solid var(--color-border)" }}>
+          {section.paragraphs.length === 0 ? (
+            <div style={{ fontSize: 12.5, color: "var(--color-text-muted)", paddingTop: 10, fontStyle: "italic" }}>
+              No retrieved passage supports this section — nothing is shown rather than guessed.
+            </div>
+          ) : (
+            section.paragraphs.map((p, i) => (
+              <div key={i} style={{ fontSize: 13.5, lineHeight: 1.6, marginTop: 10 }}>
+                {p.text}
+                <CiteMarkers cites={p.cites} onCite={onCite} />
+              </div>
+            ))
+          )}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function NotYetAvailable({ what }) {
+  return <EmptyState title="Not yet available" body={`Vidhira doesn't have enough retrieved evidence to build a ${what} without guessing — so nothing is shown here rather than something invented.`} />;
+}
+
+function AuthoritiesTab({ authorities }) {
+  if (!authorities?.length) return <NotYetAvailable what="list of authorities" />;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      {authorities.map((a) => (
+        <Card key={a.n} style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "flex-start" }}>
+          <div>
+            <div style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
+              <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--color-label)" }}>[{a.n}]</span>
+              <div style={{ fontFamily: "var(--font-serif)", fontSize: 15 }}>{a.title}</div>
+            </div>
+            <div style={{ fontSize: 11.5, color: "var(--color-text-muted)", marginTop: 2 }}>{[a.court, a.citation].filter(Boolean).join(" · ")}</div>
+          </div>
+          {a.url && <a href={a.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12 }}>Open source ↗</a>}
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+// --- Follow-up chat (existing feature, kept) --------------------------------------------
+
+function FollowUpChat({ searchId }) {
   const turns = useGet(`/research/queries/${searchId}/chat`);
   const [question, setQuestion] = useState("");
   const ask = useMut((q) => api.post(`/research/queries/${searchId}/ask`, { question: q }), {
@@ -93,7 +175,7 @@ function FollowUpChat({ searchId, locale }) {
   });
   return (
     <Card style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-      <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--color-label)", letterSpacing: "0.05em" }}>ASK A FOLLOW-UP</div>
+      <div style={EYEBROW_STYLE}>ASK A FOLLOW-UP</div>
       <div style={{ fontSize: 11.5, color: "var(--color-text-muted)" }}>Answered only from this report's own sources — no new search.</div>
       {(turns.data || []).map((t) => (
         <div key={t.id} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -117,11 +199,15 @@ function FollowUpChat({ searchId, locale }) {
   );
 }
 
+// --- Main ---------------------------------------------------------------------------------
+
 export function ResearchReport({ searchId }) {
-  const { go, showToast, setResearchQuestion } = useUI();
-  const [tab, setTab] = useState("summary");
-  const [highlightChunk, setHighlightChunk] = useState(null);
-  const segmentRefs = useRef({});
+  const { go, setResearchQuestion } = useUI();
+  const [tool, setTool] = useState("answer");
+  const [openPassage, setOpenPassage] = useState(null);
+  const [highlightPassage, setHighlightPassage] = useState(null);
+  const [openSection, setOpenSection] = useState("s1");
+  const passageRefs = useRef({});
   const chatRef = useRef(null);
 
   const report = useGet(`/research/queries/${searchId}/report`, undefined, {
@@ -135,44 +221,39 @@ export function ResearchReport({ searchId }) {
   const data = report.data;
   const segments = useMemo(() => data?.segments || [], [data]);
   const hasSources = data?.outcome !== "not_found" && segments.length > 0;
-  const cases = segments.filter((s) => s.source !== "web");
-  const articles = segments.filter((s) => s.source === "web");
-  const numberOf = (chunkId) => segments.findIndex((s) => s.chunkId === chunkId) + 1;
+  const note = data?.note;
+  // When the structured note doesn't exist (pre-v2 row, or generation failed), the
+  // Authorities tab still has a real, non-fabricated list to show — it's just the segments
+  // themselves, same source of truth as Step 1, renumbered to match.
+  const authorities = note?.authorities || segments.map((s, i) => ({ n: i + 1, title: s.documentTitle, court: s.court, citation: s.citation, source: s.source, url: s.url }));
 
-  function openJudgment(documentId) {
-    if (!documentId) return;
-    go("research", `doc/${documentId}`, { citedChunkIds: segments.filter((s) => s.documentId === documentId).map((s) => s.chunkId) });
+  useEffect(() => { setTool("answer"); setOpenPassage(null); setOpenSection("s1"); }, [searchId]);
+
+  function goToPassage(n) {
+    setOpenPassage(n);
+    setHighlightPassage(n);
+    requestAnimationFrame(() => passageRefs.current[n]?.scrollIntoView({ behavior: "smooth", block: "center" }));
+    setTimeout(() => setHighlightPassage(null), 1600);
   }
-
-  function goToCitation(n) {
-    const seg = segments[n - 1];
-    if (!seg) return;
-    setTab(seg.source === "web" ? "articles" : "cases");
-    setHighlightChunk(seg.chunkId);
-    requestAnimationFrame(() => segmentRefs.current[seg.chunkId]?.scrollIntoView({ behavior: "smooth", block: "center" }));
-    setTimeout(() => setHighlightChunk(null), 1600);
-  }
-
-  useEffect(() => {
-    setTab("summary");
-  }, [searchId]);
 
   if (report.isLoading || data?.status === "processing") return <Loading label={data?.status === "processing" ? "Still researching…" : "Loading report…"} />;
   if (report.isError) return <Callout tone="danger">{report.error.message}</Callout>;
   if (!data) return <Callout tone="danger">Report not found.</Callout>;
 
   const { query } = data;
+  const lawAsOn = formatDate(note?.lawAsOn);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+    <div className="research-page" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <Card style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
           <div>
-            <button onClick={() => { setResearchQuestion(""); go("research"); }} style={{ all: "unset", cursor: "pointer", fontSize: 12, color: "var(--color-text-muted)", marginBottom: 6, display: "block" }}>← Research library</button>
+            <button onClick={() => { setResearchQuestion(""); go("research"); }} style={{ all: "unset", cursor: "pointer", fontSize: 12, color: "var(--color-text-muted)", marginBottom: 6, display: "block" }}>← Vidhira Research</button>
             <div style={{ fontFamily: "var(--font-serif)", fontSize: 22 }}>{query.title || query.text}</div>
-            <div style={{ fontSize: 11.5, color: "var(--color-text-muted)", marginTop: 4 }}>
-              {new Date(query.created_at).toLocaleDateString("en-IN", { year: "numeric", month: "long", day: "numeric" })}
-              {(query.sources_enabled || []).length > 0 && ` · ${query.sources_enabled.map((s) => SOURCE_LABEL[s] || s).join(", ")}`}
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", fontSize: 11.5, color: "var(--color-text-muted)", marginTop: 4 }}>
+              <span>{new Date(query.created_at).toLocaleDateString("en-IN", { year: "numeric", month: "long", day: "numeric" })}</span>
+              {lawAsOn && <span style={{ background: "var(--color-gold)", color: "var(--color-navy)", borderRadius: 999, padding: "3px 10px", fontSize: 10, fontWeight: 700, letterSpacing: "0.05em" }}>LAW AS ON {lawAsOn.toUpperCase()}</span>}
+              {(query.sources_enabled || []).length > 0 && <span>{query.sources_enabled.map((s) => SOURCE_LABEL[s] || s).join(", ")}</span>}
             </div>
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -181,8 +262,7 @@ export function ResearchReport({ searchId }) {
             </Button>
             {hasSources && (
               <>
-                <Button variant="outline" onClick={() => exportPdf.mutate()} disabled={exportPdf.isPending}>Export PDF</Button>
-                <Button variant="outline" onClick={() => navigator.clipboard.writeText(data.aiSummary || query.text).then(() => showToast("Copied."))}>Copy</Button>
+                <Button variant="outline" onClick={() => exportPdf.mutate()} disabled={exportPdf.isPending}>Export research note</Button>
                 <Button variant="outline" onClick={() => pin.mutate(!query.pinned_at)} disabled={pin.isPending}>{query.pinned_at ? "Unpin" : "Pin"}</Button>
                 <Button onClick={() => chatRef.current?.scrollIntoView({ behavior: "smooth" })}>Ask follow-up</Button>
               </>
@@ -194,10 +274,12 @@ export function ResearchReport({ searchId }) {
       {!hasSources ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <Callout tone="warning" title="Not in the indexed library">
-            No passage cleared the relevance threshold, or the only matches were a party's arguments (which can't be cited as the law). The library already tried fetching new sources for this question automatically — it still came up empty.
+            {NOT_FOUND_REASON_COPY[query.not_found_reason] ||
+              "No passage cleared the relevance threshold, or the only matches were a party's arguments (which can't be cited as the law)."}
+            {typeof query.top_score === "number" && <div style={{ marginTop: 6, fontSize: 12 }}>Best match found: {query.top_score.toFixed(2)} (threshold {Number(query.threshold).toFixed(2)}).</div>}
           </Callout>
           <Card style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--color-label)" }}>TRY THIS INSTEAD</div>
+            <div style={EYEBROW_STYLE}>TRY THIS INSTEAD</div>
             <Button onClick={() => go("legalassistant", "", { question: query.text })}>Try the AI Legal Assistant →</Button>
             <div style={{ fontSize: 12.5, color: "var(--color-text-muted)" }}>
               Suggested rephrasings:
@@ -214,95 +296,86 @@ export function ResearchReport({ searchId }) {
         </div>
       ) : (
         <>
-          <SegmentedControl
-            options={[
-              { value: "summary", label: "Summary" },
-              { value: "cases", label: `Cases (${cases.length})` },
-              { value: "articles", label: `Articles (${articles.length})` },
-              { value: "related", label: "Related" },
-            ]}
-            value={tab}
-            onChange={setTab}
+          <RetrievedPassages
+            segments={segments}
+            threshold={query.threshold}
+            openN={openPassage}
+            setOpenN={setOpenPassage}
+            highlighted={highlightPassage}
+            passageRefs={passageRefs}
           />
 
-          {tab === "summary" && (
-            <Card style={{ background: "var(--color-navy)", color: "#F6F1E8" }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: "#9AA5BC", letterSpacing: "0.05em", marginBottom: 6 }}>AI SUMMARY</div>
-              {data.aiSummary ? (
-                <div style={{ fontSize: 14, lineHeight: 1.65 }}><SummaryText text={data.aiSummary} segments={segments} onCite={goToCitation} /></div>
-              ) : (
-                <div style={{ fontSize: 13, color: "#9AA5BC" }}>No AI summary for this report — showing the retrieved passages directly.</div>
-              )}
-              <div style={{ fontSize: 11, color: "#9AA5BC", marginTop: 8 }}>Written from the cases below — every number is a clickable citation. Read the verbatim passages before relying on this.</div>
-            </Card>
-          )}
-
-          {tab === "cases" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {cases.length === 0 && <Callout tone="neutral">No case law in this report.</Callout>}
-              {cases.map((s) => (
-                <CaseCard
-                  key={s.chunkId}
-                  seg={s}
-                  index={numberOf(s.chunkId)}
-                  highlighted={highlightChunk === s.chunkId}
-                  nodeRef={(el) => { if (el) segmentRefs.current[s.chunkId] = el; }}
-                  onOpenJudgment={openJudgment}
-                />
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={EYEBROW_STYLE}>STEP 2 · COMPOSED ONLY FROM THE ABOVE</div>
+            <div style={{ display: "flex", gap: 2, background: "#F1EFE6", borderRadius: 9, padding: 3, overflowX: "auto" }}>
+              {TABS.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => setTool(t.id)}
+                  style={{ background: tool === t.id ? "var(--color-navy)" : "transparent", color: tool === t.id ? "#fff" : "var(--color-ink)", border: "none", borderRadius: 7, padding: "9px 14px", fontSize: 12.5, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", minHeight: 44 }}
+                >
+                  {t.label}
+                </button>
               ))}
             </div>
-          )}
 
-          {tab === "articles" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {articles.length === 0 && <Callout tone="neutral">No articles or bare-act excerpts in this report.</Callout>}
-              {articles.map((s) => (
-                <Card key={s.chunkId} ref={(el) => { if (el) segmentRefs.current[s.chunkId] = el; }} style={{ background: highlightChunk === s.chunkId ? "#FDF3DC" : undefined }}>
-                  <div style={{ fontWeight: 700, fontSize: 14 }}>{s.documentTitle}</div>
-                  <div style={{ fontSize: 11.5, color: "var(--color-text-muted)" }}>{s.court || "Article"}</div>
-                  {s.gloss && <div style={{ fontSize: 13, marginTop: 6 }}>{s.gloss}</div>}
-                  {s.url && <a href={s.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12 }}>Read full article ↗</a>}
-                </Card>
-              ))}
-            </div>
-          )}
-
-          {tab === "related" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-              <div>
-                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--color-label)", marginBottom: 8 }}>RELATED SEARCHES</div>
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  {(data.relatedSearches || []).length === 0 && <Callout tone="neutral">No suggestions for this report.</Callout>}
-                  {(data.relatedSearches || []).map((s) => (
-                    <Pill key={s} onClick={async () => {
-                      const { retrievalId } = await api.post("/research/retrieve", { text: s });
-                      await api.post("/research/answer", { retrievalId });
-                      go("research", retrievalId);
-                    }}>{s}</Pill>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--color-label)", marginBottom: 8 }}>RELATED CASES</div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
-                  {(data.relatedCases || []).length === 0 && <Callout tone="neutral">No related cases found.</Callout>}
-                  {(data.relatedCases || []).map((d) => (
-                    <Card key={d.id}>
-                      <div style={{ fontWeight: 700, fontSize: 13 }}>{d.title}</div>
-                      <div style={{ fontSize: 11.5, color: "var(--color-text-muted)" }}>{[d.court, d.citation].filter(Boolean).join(" · ")}</div>
-                      <button onClick={() => openJudgment(d.id)} style={{ all: "unset", cursor: "pointer", fontSize: 12, fontWeight: 600, color: "var(--color-rust)", marginTop: 6, display: "block" }}>Read full judgment →</button>
+            {tool === "answer" && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                {note ? (
+                  <>
+                    <Card style={{ background: "var(--color-navy)", color: "#F6F1E8", display: "flex", flexDirection: "column", gap: 6 }}>
+                      <div style={{ fontFamily: "var(--font-serif)", fontSize: 18 }}>{query.text}</div>
+                      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", fontSize: 11.5, color: "#9AA5BC" }}>
+                        {lawAsOn && <span>LAW AS ON {lawAsOn}</span>}
+                        <span>{note.authorities.length} AUTHORIT{note.authorities.length === 1 ? "Y" : "IES"}</span>
+                        {note.jurisdiction && <span>{note.jurisdiction}</span>}
+                      </div>
                     </Card>
-                  ))}
-                </div>
+
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      {note.sections.map((sec, i) => (
+                        <AccordionSection
+                          key={sec.id}
+                          index={i}
+                          section={sec}
+                          open={openSection === sec.id}
+                          onToggle={() => setOpenSection((cur) => (cur === sec.id ? null : sec.id))}
+                          onCite={goToPassage}
+                        />
+                      ))}
+                    </div>
+
+                    {note.position?.label && (
+                      <Callout tone={POSITION_TONE[note.position.label] || "neutral"} title={note.position.label}>
+                        {note.position.note}
+                      </Callout>
+                    )}
+
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      <Button onClick={() => go("find")}>Consult an advocate on this</Button>
+                      <Button variant="outline" onClick={() => go("draft")}>Draft a document instead</Button>
+                    </div>
+                  </>
+                ) : (
+                  <Callout tone="neutral" title="Structured note not available for this report">
+                    {data.aiSummary ? data.aiSummary : "Showing the retrieved passages above directly — no AI summary was generated for this report."}
+                  </Callout>
+                )}
               </div>
-            </div>
-          )}
+            )}
+
+            {tool === "authorities" && <AuthoritiesTab authorities={authorities} />}
+            {tool === "compare" && <NotYetAvailable what="side-by-side comparison" />}
+            {tool === "conflicts" && <NotYetAvailable what="conflicting-views analysis" />}
+            {tool === "adverse" && <NotYetAvailable what="adverse-authority analysis" />}
+            {tool === "casemap" && <NotYetAvailable what="citation map" />}
+          </div>
         </>
       )}
 
       {hasSources && (
         <div ref={chatRef}>
-          <FollowUpChat searchId={searchId} locale={query.locale} />
+          <FollowUpChat searchId={searchId} />
         </div>
       )}
 

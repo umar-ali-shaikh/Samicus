@@ -1,4 +1,6 @@
 ﻿import { useState } from "react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faMagnifyingGlass } from "@fortawesome/free-solid-svg-icons";
 import { useAuth } from "../auth/AuthProvider";
 import { useUI } from "../state/UIState";
 import { ModalHost } from "../modals/ModalHost";
@@ -122,7 +124,7 @@ function TopBar() {
             title="Ask Vidhira a legal question"
             style={{ flex: "none", minWidth: 44, minHeight: 44, borderRadius: 999, border: "1px solid #2A3854", background: "#182338", color: "#F6F1E8", fontSize: 16, cursor: "pointer" }}
           >
-            🔍
+            <FontAwesomeIcon icon={faMagnifyingGlass} />
           </button>
         ) : (
           <input

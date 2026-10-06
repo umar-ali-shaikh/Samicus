@@ -5,6 +5,8 @@ import {
   retrieve,
   answerFromRetrieval,
   generateResearchInsights,
+  generateStructuredNote,
+  researchNoteV2Enabled,
   relevanceThreshold,
   findRelatedCases,
   detectLanguage,
@@ -61,12 +63,12 @@ async function loadOwnedQuery(req, id) {
  * Builds the answer (extractive segments + AI insights + related cases) for an already-scored
  * retrieval and persists it — shared by POST /research/answer and the refresh endpoint so the
  * two never drift out of sync.
- * @returns {Promise<{outcome: string, discardedCount: number}>}
+ * @returns {Promise<{outcome: string, discardedCount: number, reason: string|null, topScore: number|null}>}
  */
 async function buildAndPersistAnswer(supabase, query, scored, locale) {
-  if (scored.length === 0) return { outcome: "not_found", discardedCount: 0 };
-  const result = await answerFromRetrieval(query.text, scored);
-  if (result.outcome === "not_found") return { outcome: "not_found", discardedCount: result.discardedCount };
+  if (scored.length === 0) return { outcome: "not_found", discardedCount: 0, reason: "corpus_gap", topScore: null };
+  const result = await answerFromRetrieval(query.text, scored, { liveFetchIngestFailed: query.live_fetch_ingest_failed });
+  if (result.outcome === "not_found") return { outcome: "not_found", discardedCount: result.discardedCount, reason: result.reason, topScore: result.topScore };
 
   const { data: answer, error: answerError } = await supabase
     .from("research_answers")
@@ -82,12 +84,13 @@ async function buildAndPersistAnswer(supabase, query, scored, locale) {
 
   // Pure enhancements over the extractive segments above — never required for the report to
   // be usable, so a failure in either just means the report shows passages without them.
-  const [insights, relatedCaseIds] = await Promise.all([
+  const [insights, relatedCaseIds, structuredNote] = await Promise.all([
     generateResearchInsights(query.text, result.segments, { language: locale }),
     findRelatedCases(
       result.segments[0],
       result.segments.map((s) => s.documentId).filter(Boolean)
     ),
+    researchNoteV2Enabled() ? generateStructuredNote(query.text, result.segments, { language: locale }) : Promise.resolve(null),
   ]);
   const caseCards = {};
   for (const seg of result.segments) {
@@ -100,11 +103,29 @@ async function buildAndPersistAnswer(supabase, query, scored, locale) {
   const summary = mismatchNote ? `${mismatchNote} ${insights.summary || ""}`.trim() : insights.summary;
   const { error: updateError } = await supabase
     .from("research_answers")
-    .update({ summary, case_cards: caseCards, related_searches: insights.relatedSearches, related_case_ids: relatedCaseIds })
+    .update({
+      summary,
+      case_cards: caseCards,
+      related_searches: insights.relatedSearches,
+      related_case_ids: relatedCaseIds,
+      sections: structuredNote?.sections || null,
+      authorities: structuredNote?.authorities || null,
+      position: structuredNote?.position || null,
+      jurisdiction: structuredNote?.jurisdiction || null,
+      law_as_on: await overallLawAsOn(supabase),
+      note_schema_version: structuredNote ? "v2" : null,
+    })
     .eq("id", answer.id);
   if (updateError) throw updateError;
 
-  return { outcome: result.outcome, discardedCount: result.discardedCount };
+  return { outcome: result.outcome, discardedCount: result.discardedCount, reason: result.reason, topScore: result.topScore };
+}
+
+/** Overall "law as on" date shown in the Research page chip — the most recent indexed_at across the whole corpus. */
+async function overallLawAsOn(supabase) {
+  const { data, error } = await supabase.from("corpus_documents").select("indexed_at").order("indexed_at", { ascending: false }).limit(1).maybeSingle();
+  if (error) throw error;
+  return data?.indexed_at || null;
 }
 
 // outcome is persisted onto research_queries right after it's actually known (build time),
@@ -113,8 +134,11 @@ async function buildAndPersistAnswer(supabase, query, scored, locale) {
 // paragraph-class/relevance gates run) that downgraded to "partial" during build never had
 // research_queries.outcome corrected, and the My Research list / report read the stale value.
 async function buildPersistAndSyncOutcome(supabase, query, scored, locale) {
-  const { outcome, discardedCount } = await buildAndPersistAnswer(supabase, query, scored, locale);
-  const { error: updateError } = await supabase.from("research_queries").update({ outcome }).eq("id", query.id);
+  const { outcome, discardedCount, reason, topScore } = await buildAndPersistAnswer(supabase, query, scored, locale);
+  const { error: updateError } = await supabase
+    .from("research_queries")
+    .update({ outcome, not_found_reason: outcome === "not_found" ? reason : null, top_score: topScore })
+    .eq("id", query.id);
   if (updateError) throw updateError;
   return { outcome, discardedCount };
 }
@@ -128,8 +152,9 @@ router.post("/research/retrieve", requireAuth, async (req, res) => {
   await assertAccountMember(req.user.id, accountId);
   const threshold = relevanceThreshold();
   const normalizedText = normalizeQueryText(text);
-  const [{ fetchedNewSources, results: scored }, locale] = await Promise.all([retrieve(text, { sourcesEnabled }), detectLanguage(text)]);
+  const [{ fetchedNewSources, liveFetch, results: scored }, locale] = await Promise.all([retrieve(text, { sourcesEnabled }), detectLanguage(text)]);
   const outcome = scored.some((s) => s.score >= threshold) ? "answered" : "not_found";
+  const liveFetchIngestFailed = liveFetch.ingestErrors > 0;
 
   // Re-running the exact same question (ignoring case/punctuation) updates the existing
   // "My Research" card in place — new timestamp, a bumped re-run count — instead of piling
@@ -154,6 +179,8 @@ router.post("/research/retrieve", requireAuth, async (req, res) => {
         threshold,
         model_version: MODEL_VERSION,
         outcome,
+        top_score: scored[0]?.score ?? null,
+        live_fetch_ingest_failed: liveFetchIngestFailed,
         rerun_count: (existing.rerun_count || 1) + 1,
       })
       .eq("id", existing.id)
@@ -174,6 +201,8 @@ router.post("/research/retrieve", requireAuth, async (req, res) => {
         threshold,
         model_version: MODEL_VERSION,
         outcome,
+        top_score: scored[0]?.score ?? null,
+        live_fetch_ingest_failed: liveFetchIngestFailed,
       })
       .select()
       .single();
@@ -249,12 +278,17 @@ async function loadReport(supabase, queryId) {
   // still mid-flight from another tab. Let the client poll briefly instead of erroring.
   if (!answer) return { status: "processing", query };
 
-  const { data: segmentRows, error: segmentsError } = await supabase
-    .from("research_answer_segments")
-    .select("position, text, chunk:corpus_chunks(id, paragraph_class, section_label, document:corpus_documents(id, title, citation, court, source, canonical_url))")
-    .eq("research_answer_id", answer.id)
-    .order("position", { ascending: true });
+  const [{ data: segmentRows, error: segmentsError }, { data: chunkScoreRows, error: chunkScoreError }] = await Promise.all([
+    supabase
+      .from("research_answer_segments")
+      .select("position, text, chunk:corpus_chunks(id, paragraph_class, section_label, document:corpus_documents(id, title, citation, court, source, canonical_url))")
+      .eq("research_answer_id", answer.id)
+      .order("position", { ascending: true }),
+    supabase.from("research_query_chunks").select("chunk_id, score").eq("query_id", queryId),
+  ]);
   if (segmentsError) throw segmentsError;
+  if (chunkScoreError) throw chunkScoreError;
+  const scoreByChunkId = new Map((chunkScoreRows || []).map((r) => [r.chunk_id, r.score]));
 
   const caseCardsByChunk = answer.case_cards || {};
   const segments = segmentRows.map((row) => {
@@ -265,6 +299,7 @@ async function loadReport(supabase, queryId) {
       chunkId: chunk?.id,
       documentId: doc?.id,
       text: row.text,
+      score: scoreByChunkId.get(chunk?.id) ?? null,
       documentTitle: doc?.title,
       citation: doc?.citation,
       court: doc?.court,
@@ -297,11 +332,24 @@ async function loadReport(supabase, queryId) {
     query,
     answer,
     outcome: query.outcome,
+    threshold: query.threshold,
     segments,
     aiSummary: answer.summary,
     relatedSearches: answer.related_searches || [],
     relatedCases,
     discardedCount: 0,
+    // Samicus Research "Step 2" structured note — null on rows built before RESEARCH_NOTE_V2
+    // or when generation failed; the frontend falls back to aiSummary/segments in that case.
+    note:
+      answer.note_schema_version === "v2"
+        ? {
+            sections: answer.sections || [],
+            authorities: answer.authorities || [],
+            position: answer.position || { label: null, note: "" },
+            jurisdiction: answer.jurisdiction,
+            lawAsOn: answer.law_as_on,
+          }
+        : null,
   };
 }
 
@@ -341,7 +389,7 @@ router.get("/research/queries", requireAuth, async (req, res) => {
 
   let q = supabase
     .from("research_queries")
-    .select("id, title, text, outcome, pinned_at, tags, locale, created_at, updated_at, rerun_count")
+    .select("id, title, text, outcome, not_found_reason, top_score, pinned_at, tags, locale, created_at, updated_at, rerun_count")
     .is("superseded_by", null)
     .order("updated_at", { ascending: false })
     .limit(100);
@@ -422,11 +470,33 @@ router.patch("/research/queries/:id", requireAuth, async (req, res) => {
   res.json(updated);
 });
 
+/**
+ * Walks research_queries.superseded_by BACKWARD from `headId` — every older row that was
+ * superseded into this one, however many "Refresh" hops deep — and returns every id in the
+ * chain including headId itself. Deleting just headId alone 500s with a foreign-key
+ * violation the moment any history exists: an older row's superseded_by still points AT
+ * headId, and research_queries_superseded_by_fkey has no ON DELETE action, so Postgres
+ * refuses to drop a row something else still references. The whole chain is really one
+ * "My Research" entry's history, so deleting it deletes all of it together.
+ */
+async function collectSupersededChain(supabase, headId) {
+  const ids = new Set([headId]);
+  let frontier = [headId];
+  while (frontier.length > 0) {
+    const { data, error } = await supabase.from("research_queries").select("id").in("superseded_by", frontier);
+    if (error) throw error;
+    frontier = (data || []).map((r) => r.id).filter((id) => !ids.has(id));
+    for (const id of frontier) ids.add(id);
+  }
+  return [...ids];
+}
+
 router.delete("/research/queries/:id", requireAuth, async (req, res) => {
   const supabase = getSupabase();
   await loadOwnedQuery(req, req.params.id);
+  const chainIds = await collectSupersededChain(supabase, req.params.id);
 
-  const { data: answers, error: answersError } = await supabase.from("research_answers").select("id").eq("query_id", req.params.id);
+  const { data: answers, error: answersError } = await supabase.from("research_answers").select("id").in("query_id", chainIds);
   if (answersError) throw answersError;
   const answerIds = answers.map((a) => a.id);
   if (answerIds.length > 0) {
@@ -435,11 +505,15 @@ router.delete("/research/queries/:id", requireAuth, async (req, res) => {
     const { error: ansError } = await supabase.from("research_answers").delete().in("id", answerIds);
     if (ansError) throw ansError;
   }
-  const { error: chatError } = await supabase.from("research_chat_turns").delete().eq("research_query_id", req.params.id);
+  const { error: chatError } = await supabase.from("research_chat_turns").delete().in("research_query_id", chainIds);
   if (chatError) throw chatError;
-  const { error: chunksError } = await supabase.from("research_query_chunks").delete().eq("query_id", req.params.id);
+  const { error: chunksError } = await supabase.from("research_query_chunks").delete().in("query_id", chainIds);
   if (chunksError) throw chunksError;
-  const { error: deleteError } = await supabase.from("research_queries").delete().eq("id", req.params.id);
+  // One statement deleting every row in the chain together — Postgres defers a NO ACTION
+  // self-referencing FK check to the end of the statement, so rows that reference each
+  // other via superseded_by can be removed together even though neither could be deleted
+  // alone first.
+  const { error: deleteError } = await supabase.from("research_queries").delete().in("id", chainIds);
   if (deleteError) throw deleteError;
 
   res.json({ deleted: true });
@@ -452,7 +526,7 @@ router.post("/research/queries/:id/refresh", requireAuth, async (req, res) => {
   const query = await loadOwnedQuery(req, req.params.id);
 
   const threshold = relevanceThreshold();
-  const [{ results: scored }, locale] = await Promise.all([retrieve(query.text, { sourcesEnabled: query.sources_enabled }), detectLanguage(query.text)]);
+  const [{ liveFetch, results: scored }, locale] = await Promise.all([retrieve(query.text, { sourcesEnabled: query.sources_enabled }), detectLanguage(query.text)]);
 
   const { data: newQuery, error: insertError } = await supabase
     .from("research_queries")
@@ -466,6 +540,8 @@ router.post("/research/queries/:id/refresh", requireAuth, async (req, res) => {
       threshold,
       model_version: MODEL_VERSION,
       outcome: scored.some((s) => s.score >= threshold) ? "answered" : "not_found",
+      top_score: scored[0]?.score ?? null,
+      live_fetch_ingest_failed: liveFetch.ingestErrors > 0,
       rerun_count: query.rerun_count || 1,
     })
     .select()
@@ -564,6 +640,7 @@ router.get("/research/queries/:id/export.pdf", requireAuth, async (req, res) => 
       url: s.url,
     })),
     relatedSearches: report.relatedSearches,
+    note: report.note,
   });
   res.set({ "Content-Type": "application/pdf", "Content-Disposition": `attachment; filename="research-${query.id}.pdf"` });
   res.send(pdf);
@@ -631,12 +708,20 @@ router.get("/corpus/chunks/:id", requireAuth, async (req, res) => {
 
 router.get("/corpus/status", requireAuth, async (req, res) => {
   const supabase = getSupabase();
-  // See corpus_document_counts_by_source() in schema.sql.
-  const { data: bySource, error } = await supabase.rpc("corpus_document_counts_by_source");
+  // See corpus_document_stats_by_source() in schema.sql — count plus each source's most
+  // recently indexed document, for the Samicus Research corpus cards' "indexed to <date>" line.
+  const { data: bySource, error } = await supabase.rpc("corpus_document_stats_by_source");
   if (error) throw error;
   const { count: chunkCount, error: countError } = await supabase.from("corpus_chunks").select("*", { count: "exact", head: true });
   if (countError) throw countError;
-  res.json({ bySource, chunkCount, vectorIndex: await knowledgeBaseStats().catch((e) => ({ enabled: true, error: e.message })), asOf: new Date().toISOString().slice(0, 10) });
+  const lawAsOn = (bySource || []).reduce((latest, s) => (s.indexed_at && (!latest || s.indexed_at > latest) ? s.indexed_at : latest), null);
+  res.json({
+    bySource,
+    lawAsOn,
+    chunkCount,
+    vectorIndex: await knowledgeBaseStats().catch((e) => ({ enabled: true, error: e.message })),
+    asOf: new Date().toISOString().slice(0, 10),
+  });
 });
 
 export default router;

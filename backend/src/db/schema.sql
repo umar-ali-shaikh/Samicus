@@ -689,6 +689,9 @@ create table research_queries (
   sources_enabled text[] not null default '{}',
   threshold numeric not null default 0.62,
   outcome text not null check (outcome in ('answered', 'partial', 'not_found')),
+  not_found_reason text check (not_found_reason in ('corpus_gap', 'ingest_failed', 'below_threshold')), -- only set when outcome = 'not_found'
+  top_score numeric, -- best candidate's retrieval score, kept or not — shown alongside not_found_reason so "No match" is never a bare dead end
+  live_fetch_ingest_failed boolean not null default false, -- this query's auto-fetch-and-index attempt (see fetchAndIndexLiveSources) found a live source but failed to index it
   model_version text not null default 'fixture-1',
   prompt_version text not null default 'v1',
   latency_ms integer,
@@ -723,6 +726,12 @@ create table research_answers (
   case_cards jsonb not null default '{}'::jsonb, -- structured per-segment summary keyed by chunk id: facts/issues/held/ratio/outcome/keyParagraph/gloss
   related_searches jsonb not null default '[]'::jsonb, -- string[] of suggested follow-up queries
   related_case_ids uuid[] not null default '{}', -- corpus_documents.id[], similar cases not already in this report
+  sections jsonb,         -- the 10 fixed Samicus Research sections, each {id,title,status,paragraphs:[{text,cites:[n]}]}
+  authorities jsonb,       -- [{n,title,court,citation,source,url}], derived from this answer's own segments
+  position jsonb,          -- {label:"Settled law"|"Unsettled"|"Conflicting"|null, note}
+  jurisdiction text,
+  law_as_on timestamptz,
+  note_schema_version text, -- 'v2' once the structured note above is populated; null means pre-v2 row
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -1005,6 +1014,13 @@ $$ language sql stable;
 create or replace function corpus_document_counts_by_source()
 returns table (source text, count bigint) as $$
   select source, count(*) from corpus_documents group by source;
+$$ language sql stable;
+
+-- Per-source count AND most recent indexed_at — the Samicus Research corpus cards show an
+-- "indexed to <date>" line per card, which the count-only function above can't provide.
+create or replace function corpus_document_stats_by_source()
+returns table (source text, count bigint, indexed_at timestamptz) as $$
+  select source, count(*), max(indexed_at) from corpus_documents group by source;
 $$ language sql stable;
 
 -- ===================== transaction-wrapped flows (fixing pre-existing atomicity gaps) =====================
