@@ -14,7 +14,7 @@ import situationsRoutes from "./modules/situations/router.js";
 import advocatesRoutes from "./modules/advocates/router.js";
 import intakeRoutes from "./modules/intake/router.js";
 import consultationsRoutes from "./modules/consultations/router.js";
-import mattersRoutes from "./routes/matters.js";
+import mattersRoutes from "./modules/matters/router.js";
 import documentsRoutes from "./routes/documents.js";
 import messagesRoutes from "./routes/messages.js";
 import servicesRoutes from "./routes/services.js";
