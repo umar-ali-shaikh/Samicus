@@ -18,9 +18,18 @@ import { patchMatterAction } from "@/server/mattersActions";
 const TABS = ["Timeline", "Tasks & hearings", "Documents", "Fees"] as const;
 
 // Ported from frontend/src/screens/Matters.jsx (the list + pill selector) and
-// frontend/src/screens/matter/MatterTabs.jsx (the tab bodies). The "Secure message" button is
-// still deferred -- the messaging domain isn't converted yet.
-export function MatterDetailClient({ matters, detail, matterId }: { matters: MatterListItemDto[]; detail: MatterDetailDto; matterId: string }) {
+// frontend/src/screens/matter/MatterTabs.jsx (the tab bodies).
+export function MatterDetailClient({
+  matters,
+  detail,
+  matterId,
+  threadId,
+}: {
+  matters: MatterListItemDto[];
+  detail: MatterDetailDto;
+  matterId: string;
+  threadId: string | null;
+}) {
   const router = useRouter();
   const [tab, setTab] = useState<string>("Timeline");
   const [isPending, startTransition] = useTransition();
@@ -80,6 +89,13 @@ export function MatterDetailClient({ matters, detail, matterId }: { matters: Mat
               <div style={{ fontSize: 12, color: "var(--color-text-muted)" }}>{matter.engaged_at ? `Engaged ${fmtDate(matter.engaged_at)}` : "Engagement pending"}</div>
             </div>
           </div>
+          {threadId && (
+            <Link href={`/messages/${threadId}`}>
+              <Button variant="outline" style={{ width: "auto" }}>
+                Secure message
+              </Button>
+            </Link>
+          )}
         </Card>
       )}
 

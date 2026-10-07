@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { createServerSupabaseClient } from "@/server/supabase";
 import { apiClient, ApiError } from "@/server/apiClient";
 import type { MatterDetailDto, MatterListItemDto } from "@vidhira/contracts";
+import { getThreadsAction } from "@/server/messagesActions";
 import { MatterDetailClient } from "./MatterDetailClient";
 
 export async function generateMetadata({ params }: { params: Promise<{ matterId: string }> }): Promise<Metadata> {
@@ -34,5 +35,8 @@ export default async function MatterDetailPage({ params }: { params: Promise<{ m
   // advocate and a client elsewhere doesn't see their two roles' matters mixed in one list.
   const matters = detail.side === "viewer" ? allMatters : allMatters.filter((m) => m.mySide === detail.side);
 
-  return <MatterDetailClient matters={matters} detail={detail} matterId={matterId} />;
+  const threads = await getThreadsAction();
+  const thread = threads.find((t) => t.matter?.reference === detail.matter.reference) ?? null;
+
+  return <MatterDetailClient matters={matters} detail={detail} matterId={matterId} threadId={thread?.id ?? null} />;
 }
