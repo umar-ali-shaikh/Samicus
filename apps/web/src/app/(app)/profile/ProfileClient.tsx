@@ -1,10 +1,13 @@
 "use client";
 
 import { useActionState, useState, useTransition, type FormEvent } from "react";
-import type { AccountDto, AccountMemberDto, PlanDto } from "@vidhira/contracts";
+import type { AccountDto, AccountMemberDto, AdvocateDto, PlanDto } from "@vidhira/contracts";
 import { Card, Button, Callout, Badge, Field, Select, inputStyle } from "@/components/ui";
 import { createAccountAction, addMemberAction, removeMemberAction, getMembersAction } from "@/server/accountsActions";
 import { initialAuthFormState } from "@/server/authActionState";
+import { ApplyAdvocateForm, type PracticeAreaOption } from "@/components/advocates/ApplyAdvocateForm";
+import { AdvocateProfileEditorForm } from "@/components/advocates/AdvocateProfileEditorForm";
+import { VerificationStatusCard } from "@/components/advocates/VerificationStatusCard";
 
 const cleanName = (n = "") => n.replace(/\s*\([0-9a-f]{6}\)$/, "");
 const inr = (n: number) => `₹${n.toLocaleString("en-IN")}`;
@@ -15,13 +18,18 @@ export function ProfileClient({
   plans,
   initialAccountId,
   initialMembers,
+  advocate,
+  practiceAreas,
 }: {
   accounts: AccountDto[];
   plans: PlanDto[];
   initialAccountId: string | null;
   initialMembers: AccountMemberDto[];
+  advocate: AdvocateDto | null;
+  practiceAreas: PracticeAreaOption[];
 }) {
   const [activeAccountId, setActiveAccountId] = useState(initialAccountId);
+  const [showApply, setShowApply] = useState(false);
   const [members, setMembers] = useState(initialMembers);
   const [membersPending, startMembersTransition] = useTransition();
   const [showCreate, setShowCreate] = useState(false);
@@ -102,6 +110,22 @@ export function ProfileClient({
           </div>
         </div>
       )}
+
+      <div id="advocate" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <div style={{ fontWeight: 700 }}>Advocate listing</div>
+        {advocate ? (
+          <>
+            <VerificationStatusCard advocate={advocate} />
+            <AdvocateProfileEditorForm advocate={advocate} />
+          </>
+        ) : showApply ? (
+          <ApplyAdvocateForm practiceAreas={practiceAreas} onDone={() => setShowApply(false)} />
+        ) : (
+          <Button variant="outline" onClick={() => setShowApply(true)} style={{ alignSelf: "flex-start" }}>
+            Apply to list as an advocate
+          </Button>
+        )}
+      </div>
     </div>
   );
 }
