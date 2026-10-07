@@ -44,6 +44,19 @@ export const STATES = [
 
 export const URGENCY: Record<string, string> = { today: "Today", "48h": "Within 48h", week: "This week", deadline: "Has a deadline" };
 
+export const STAGES = ["intake", "lawyer_matched", "consultation", "engagement_confirmed", "action_in_progress", "resolution"];
+export const STAGE_LABEL: Record<string, string> = {
+  intake: "Intake",
+  lawyer_matched: "Lawyer matched",
+  consultation: "Consultation",
+  engagement_confirmed: "Engagement confirmed",
+  action_in_progress: "Action in progress",
+  resolution: "Resolution",
+  closed: "Closed",
+  archived: "Archived",
+};
+export const stageProgress = (stage: string): number => (stage === "closed" || stage === "archived" ? 100 : ((STAGES.indexOf(stage) + 1) / STAGES.length) * 100);
+
 export const URGENCY_OPTIONS: Array<[string, string, string]> = [
   ["today", "I need help today", "Response targeted under 2 hours"],
   ["48h", "Within 48 hours", "Standard fast-track"],

@@ -115,7 +115,7 @@ export function Select({
   placeholder,
   ...rest
 }: {
-  label: string;
+  label?: string;
   hint?: string;
   error?: string;
   options: readonly SelectOption[];
@@ -123,7 +123,7 @@ export function Select({
 } & SelectHTMLAttributes<HTMLSelectElement>) {
   return (
     <Field label={label} hint={hint} error={error}>
-      <select {...rest} style={inputStyle}>
+      <select {...rest} style={{ ...inputStyle, ...rest.style }}>
         {placeholder !== undefined && <option value="">{placeholder}</option>}
         {options.map((o) => (Array.isArray(o) ? <option key={o[0]} value={o[0]}>{o[1]}</option> : <option key={o as string} value={o as string}>{o as string}</option>))}
       </select>
@@ -137,7 +137,7 @@ export function Field({
   error,
   children,
 }: {
-  label: string;
+  label?: string;
   hint?: string;
   error?: string;
   children: ReactNode;
@@ -200,6 +200,15 @@ export function AvatarTile({ initials, size = 40 }: { initials: string; size?: n
       }}
     >
       {initials}
+    </div>
+  );
+}
+
+export function ProgressBar({ pct, tone = "mint" }: { pct: number; tone?: "mint" | "coral" | "navy" }) {
+  const color = tone === "mint" ? "#159C6E" : tone === "coral" ? "#DB4F35" : "var(--color-navy)";
+  return (
+    <div style={{ height: 7, borderRadius: 999, background: "var(--color-border)", overflow: "hidden" }}>
+      <div style={{ width: `${Math.min(100, Math.max(0, pct))}%`, height: "100%", background: color, transition: "width .3s" }} />
     </div>
   );
 }

@@ -10,7 +10,7 @@ export function TextInput({
   hint,
   error,
   ...props
-}: { label: string; hint?: string; error?: string } & InputHTMLAttributes<HTMLInputElement>) {
+}: { label?: string; hint?: string; error?: string } & InputHTMLAttributes<HTMLInputElement>) {
   return (
     <Field label={label} hint={hint} error={error}>
       <input {...props} style={error ? invalidInputStyle : inputStyle} />
@@ -24,7 +24,7 @@ export function TextArea({
   error,
   rows = 4,
   ...props
-}: { label: string; hint?: string; error?: string } & TextareaHTMLAttributes<HTMLTextAreaElement>) {
+}: { label?: string; hint?: string; error?: string } & TextareaHTMLAttributes<HTMLTextAreaElement>) {
   return (
     <Field label={label} hint={hint} error={error}>
       <textarea rows={rows} {...props} style={{ ...(error ? invalidInputStyle : inputStyle), resize: "vertical" }} />
