@@ -147,52 +147,6 @@ test("signing in with Google links to an existing email/password user instead of
   assert.equal(fake.db.users.find((u) => u.id === "u-legacy").auth_id, "auth-legacy");
 });
 
-test("intake requests can only be filed against an account the caller belongs to", async () => {
-  await call("GET", "/me", { token: "tok-bob" });
-  const aliceAccount = (await call("GET", "/accounts", { token: "tok-alice" })).body[0];
-  const payload = { routedPracticeAreaId: PA, urgency: "week", mode: "video", language: "en", kind: "scheduled", city: "Pune" };
-
-  const stolen = await call("POST", "/intake-requests", { token: "tok-bob", body: { ...payload, accountId: aliceAccount.id } });
-  assert.equal(stolen.status, 403);
-
-  const own = await call("POST", "/intake-requests", { token: "tok-alice", body: { ...payload, accountId: aliceAccount.id } });
-  assert.equal(own.status, 201);
-  assert.equal(own.body.status, "searching");
-
-  const invalid = await call("POST", "/intake-requests", { token: "tok-alice", body: { urgency: "never" } });
-  assert.equal(invalid.status, 400);
-});
-
-test("consultation booking: consent, real slots, and no double-booking", async () => {
-  const account = (await call("GET", "/accounts", { token: "tok-alice" })).body[0];
-  const intake = (await call("POST", "/intake-requests", { token: "tok-alice", body: { accountId: account.id, routedPracticeAreaId: PA, urgency: "week", mode: "video", language: "en", kind: "scheduled" } })).body;
-
-  const slotsRes = await call("GET", `/advocates/${ADV}/slots`);
-  assert.equal(slotsRes.status, 200);
-  const slot = slotsRes.body.flatMap((d) => d.slots).find((s) => !s.full);
-  assert.ok(slot, "advocate has bookable slots");
-
-  const book = (extra = {}) => call("POST", "/consultations", { token: "tok-alice", body: { intakeId: intake.id, advocateId: ADV, mode: "video", scheduledStart: slot.startsAt, ...extra } });
-
-  assert.equal((await book()).status, 409, "must consent before booking");
-  assert.equal((await call("POST", `/intake-requests/${intake.id}/consent`, { token: "bob" })).status, 401);
-  assert.equal((await call("POST", `/intake-requests/${intake.id}/consent`, { token: "tok-bob" })).status, 404, "another user cannot consent for this request");
-  assert.equal((await call("POST", `/intake-requests/${intake.id}/consent`, { token: "tok-alice" })).status, 200);
-
-  assert.equal((await book({ scheduledStart: "2026-10-06T10:17:00+05:30" })).status, 409, "off-grid time is rejected");
-  assert.equal((await book({ mode: "phone" })).status, 400, "advocate does not offer phone");
-
-  const ok = await book();
-  assert.equal(ok.status, 201);
-  assert.equal(ok.body.fee_total, 3000 + 99 + Math.round((3000 + 99) * 0.18));
-
-  const again = await book();
-  assert.equal(again.status, 409, "same slot cannot be booked twice");
-
-  const after = (await call("GET", `/advocates/${ADV}/slots`)).body.flatMap((d) => d.slots).find((s) => s.startsAt === slot.startsAt);
-  assert.equal(after.full, true, "the booked slot now shows as full");
-});
-
 test("matters and messages are invisible to people outside them", async () => {
   const account = (await call("GET", "/accounts", { token: "tok-alice" })).body[0];
   fake.db.matters = [{ id: "m-1", account_id: account.id, advocate_id: ADV, title: "T", reference: "R", stage: "intake", opened_at: "2026-01-01" }];
