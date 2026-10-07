@@ -9,7 +9,7 @@ import { detectRedFlags, judgeClauses } from "../services/contractReview.js";
 import { matchBaselineClauses } from "../services/rag/clauses.js";
 import { ragEnabled } from "../services/rag/ingest.js";
 import { getObject } from "../services/storage.js";
-import { loadReadableDocument } from "./documents.js";
+import { loadReadableDocument } from "../modules/documents/service.js";
 
 const router = Router();
 

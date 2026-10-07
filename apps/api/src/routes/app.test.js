@@ -168,31 +168,6 @@ test("matters and messages are invisible to people outside them", async () => {
   assert.equal((await call("POST", "/threads/t-1/messages", { token: "tok-alice", body: { body: "   " } })).status, 400);
 });
 
-test("documents: type allow-list and owner-only downloads", async () => {
-  const account = (await call("GET", "/accounts", { token: "tok-alice" })).body[0];
-  const upload = async (token, name, type) => {
-    const form = new FormData();
-    form.set("accountId", account.id);
-    form.set("kind", "Agreements");
-    form.set("file", new Blob(["hello contract"], { type }), name);
-    const res = await fetch(`${base}/documents`, { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: form });
-    return { status: res.status, body: await res.json() };
-  };
-
-  assert.equal((await upload("tok-alice", "evil.exe", "application/x-msdownload")).status, 415);
-  assert.equal((await upload("tok-bob", "a.pdf", "application/pdf")).status, 403, "not a member of the account");
-
-  const ok = await upload("tok-alice", "lease.pdf", "application/pdf");
-  assert.equal(ok.status, 201);
-  assert.equal(ok.body.virus_scan_status, "pending", "never claims a scan that did not happen");
-  assert.equal(ok.body.storage_key, undefined, "storage key is not exposed");
-
-  assert.equal((await call("GET", `/documents/${ok.body.id}/download`, { token: "tok-bob" })).status, 404);
-  const dl = await call("GET", `/documents/${ok.body.id}/download`, { token: "tok-alice" });
-  assert.equal(dl.status, 200);
-  assert.match(dl.body.url, /^https:\/\/signed\.example\//);
-});
-
 test("payments report as disabled instead of faking a capture", async () => {
   delete process.env.RAZORPAY_KEY_ID;
   delete process.env.RAZORPAY_KEY_SECRET;

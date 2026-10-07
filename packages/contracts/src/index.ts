@@ -6,3 +6,4 @@ export * from "./situations.js";
 export * from "./intake.js";
 export * from "./consultations.js";
 export * from "./matters.js";
+export * from "./documents.js";

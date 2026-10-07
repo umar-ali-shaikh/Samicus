@@ -200,9 +200,22 @@ export type InvoiceDto = z.infer<typeof invoiceDto>;
 export const invoiceCreateResultDto = invoiceDto.extend({ gst: z.number() });
 export type InvoiceCreateResultDto = z.infer<typeof invoiceCreateResultDto>;
 
-// documents stays loose -- the documents domain isn't converted yet, same precedent as
-// consultations' convertToMatterResultDto.matter.
-const matterDocumentDto = z.looseObject({ id: z.string() });
+// Narrower than documents.ts's full documentDto -- repository.listDocumentsForMatter only
+// ever selects this subset (no account_id/matter_id/virus_scan_status), matching the
+// original route's inline column list exactly.
+const matterDocumentDto = z
+  .object({
+    id: z.string(),
+    filename: z.string(),
+    mime: z.string().nullable(),
+    size_bytes: z.number().nullable(),
+    kind: z.enum(["Notices", "Agreements", "Evidence", "Invoices", "Other"]),
+    shared_with: z.array(z.string()),
+    created_at: z.string(),
+    uploaded_by: z.string(),
+  })
+  .strict();
+export type MatterDocumentDto = z.infer<typeof matterDocumentDto>;
 
 export const matterDetailDto = z
   .object({

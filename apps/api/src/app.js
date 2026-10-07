@@ -15,7 +15,7 @@ import advocatesRoutes from "./modules/advocates/router.js";
 import intakeRoutes from "./modules/intake/router.js";
 import consultationsRoutes from "./modules/consultations/router.js";
 import mattersRoutes from "./modules/matters/router.js";
-import documentsRoutes from "./routes/documents.js";
+import documentsRoutes from "./modules/documents/router.js";
 import messagesRoutes from "./routes/messages.js";
 import servicesRoutes from "./routes/services.js";
 import paymentsRoutes, { paymentWebhook } from "./routes/payments.js";
