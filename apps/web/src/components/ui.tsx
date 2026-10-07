@@ -204,6 +204,86 @@ export function AvatarTile({ initials, size = 40 }: { initials: string; size?: n
   );
 }
 
+export function RadioCard({
+  selected,
+  onClick,
+  title,
+  subtitle,
+}: {
+  selected: boolean;
+  onClick: () => void;
+  title: string;
+  subtitle?: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      type="button"
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 12,
+        width: "100%",
+        textAlign: "left",
+        padding: "12px 14px",
+        borderRadius: 12,
+        border: `1.5px solid ${selected ? "var(--color-navy)" : "var(--color-border)"}`,
+        background: "#fff",
+        cursor: "pointer",
+      }}
+    >
+      <span
+        style={{
+          width: 18,
+          height: 18,
+          borderRadius: "50%",
+          border: `1.5px solid ${selected ? "var(--color-navy)" : "var(--color-border)"}`,
+          flex: "none",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        {selected && <span style={{ width: 10, height: 10, borderRadius: "50%", background: "var(--color-navy)" }} />}
+      </span>
+      <span>
+        <div style={{ fontWeight: 600, fontSize: 14 }}>{title}</div>
+        {subtitle && <div style={{ fontSize: 12, color: "var(--color-text-muted)" }}>{subtitle}</div>}
+      </span>
+    </button>
+  );
+}
+
+export function Spinner({ size = 18 }: { size?: number }) {
+  return (
+    <span
+      role="status"
+      aria-label="Loading"
+      style={{
+        display: "inline-block",
+        width: size,
+        height: size,
+        border: "2px solid var(--color-border)",
+        borderTopColor: "var(--color-navy)",
+        borderRadius: "50%",
+        animation: "vidhira-spin .7s linear infinite",
+      }}
+    />
+  );
+}
+
+export function Loading({ label = "Loading…" }: { label?: string }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: 24, color: "var(--color-text-muted)", fontSize: 13 }}>
+      <Spinner /> {label}
+    </div>
+  );
+}
+
+export function ErrorNote({ message }: { message: string }) {
+  return <Callout tone="danger">{message}</Callout>;
+}
+
 export function EmptyState({ title, body }: { title: string; body: ReactNode }) {
   return (
     <div style={{ textAlign: "center", padding: "40px 20px", color: "var(--color-text-muted)" }}>

@@ -1,13 +1,14 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { AdvocateDto, AvailabilityDayDto } from "@vidhira/contracts";
 import { apiClient, ApiError } from "@/server/apiClient";
-import { AvatarTile, VerifiedBadge, Callout } from "@/components/ui";
+import { AvatarTile, VerifiedBadge, Callout, Button } from "@/components/ui";
 import { inr, initials, languageName, modeName, fmtDateTime } from "@/lib/format";
 
 /** Ported from frontend/src/modals/LawyerProfileModal.jsx as a real page, per
- * docs/MASTER-PROMPT.md's target_structure ("advocates/[advocateId]/"). The "Book
- * appointment" action is deferred to the consultations domain slice -- not rendered yet. */
+ * docs/MASTER-PROMPT.md's target_structure ("advocates/[advocateId]/"). "Book appointment"
+ * links to the booking wizard route ("advocates/[advocateId]/book/"). */
 export async function generateMetadata({ params }: { params: Promise<{ advocateId: string }> }): Promise<Metadata> {
   const { advocateId } = await params;
   try {
@@ -105,6 +106,10 @@ export default async function AdvocateProfilePage({ params }: { params: Promise<
       )}
 
       <Callout tone="neutral">Enrolment details were checked by Vidhira&apos;s trust team before this profile was listed.</Callout>
+
+      <Link href={`/advocates/${advocate.id}/book`}>
+        <Button style={{ width: "auto" }}>Book appointment</Button>
+      </Link>
     </div>
   );
 }

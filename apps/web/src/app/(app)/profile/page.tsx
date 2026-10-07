@@ -32,7 +32,10 @@ export default async function ProfilePage() {
   try {
     advocate = await apiClient.get<AdvocateDto>("/advocate/profile");
   } catch (err) {
-    if (!(err instanceof ApiError) || err.status !== 404) throw err;
+    // 404: role is "advocate" but no profile row exists yet. 403: requireRole("advocate")
+    // itself rejected -- the caller's role isn't "advocate" at all (the common case here,
+    // a plain client who has never applied). Both mean "show the apply form", not an error.
+    if (!(err instanceof ApiError) || (err.status !== 404 && err.status !== 403)) throw err;
   }
 
   // GET /specialisations is still served by the not-yet-converted askLearn.js domain router --

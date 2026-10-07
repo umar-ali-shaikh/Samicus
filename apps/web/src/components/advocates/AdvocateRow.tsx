@@ -44,6 +44,9 @@ export function AdvocateRow({ a }: { a: DirectoryItemDto }) {
         <Link href={`/advocates/${a.id}`}>
           <Button variant="outline">Full profile</Button>
         </Link>
+        <Link href={`/advocates/${a.id}/book`}>
+          <Button>Book consultation</Button>
+        </Link>
       </div>
     </Card>
   );

@@ -48,3 +48,9 @@ textarea:focus {
   outline: 2px solid var(--color-gold);
   outline-offset: 1px;
 }
+
+@keyframes vidhira-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

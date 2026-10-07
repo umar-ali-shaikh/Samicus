@@ -7,6 +7,20 @@ export function fmtDateTime(d: string | null | undefined): string {
   return new Date(d).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
 }
 
+export function fmtDate(d: string | null | undefined): string {
+  if (!d) return "—";
+  return new Date(d).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+}
+
+export const PLATFORM_FEE = 99;
+export const GST_RATE = 0.18;
+/** Same maths as the server (services/matching.js computeFees) -- display only; the server is authoritative. */
+export function computeFees(fee: number | null | undefined): { fee: number; platformFee: number; gst: number; total: number } {
+  const f = Number(fee) || 0;
+  const gst = Math.round((f + PLATFORM_FEE) * GST_RATE);
+  return { fee: f, platformFee: PLATFORM_FEE, gst, total: f + PLATFORM_FEE + gst };
+}
+
 export function initials(name = ""): string {
   const parts = name.replace(/^Adv\.?\s*/i, "").trim().split(/\s+/).filter(Boolean);
   return ((parts[0]?.[0] || "") + (parts.length > 1 ? parts[parts.length - 1]?.[0] ?? "" : "")).toUpperCase() || "?";
@@ -29,3 +43,10 @@ export const STATES = [
 ];
 
 export const URGENCY: Record<string, string> = { today: "Today", "48h": "Within 48h", week: "This week", deadline: "Has a deadline" };
+
+export const URGENCY_OPTIONS: Array<[string, string, string]> = [
+  ["today", "I need help today", "Response targeted under 2 hours"],
+  ["48h", "Within 48 hours", "Standard fast-track"],
+  ["week", "This week", "Standard scheduling"],
+  ["deadline", "I have a deadline", "Tell your advocate the date on the call"],
+];

@@ -37,7 +37,10 @@ export default async function LawyerDashboardPage() {
   try {
     advocate = await apiClient.get<AdvocateDto>("/advocate/profile");
   } catch (err) {
-    if (!(err instanceof ApiError) || err.status !== 404) throw err;
+    // 404: role is "advocate" but no profile row exists yet. 403: requireRole("advocate")
+    // itself rejected -- the caller's role isn't "advocate" at all. Both mean "show the
+    // apply-to-list message" here, not an error page.
+    if (!(err instanceof ApiError) || (err.status !== 404 && err.status !== 403)) throw err;
   }
 
   if (!advocate) {
