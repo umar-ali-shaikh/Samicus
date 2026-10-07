@@ -156,3 +156,59 @@ export function Field({
     </label>
   );
 }
+
+export function Pill({ active, onClick, children }: { active?: boolean; onClick?: () => void; children: ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      type="button"
+      style={{
+        background: active ? "var(--color-navy)" : "#fff",
+        color: active ? "#fff" : "var(--color-text)",
+        border: active ? "none" : "1px solid var(--color-border)",
+        borderRadius: 999,
+        padding: "6px 14px",
+        fontSize: 12.5,
+        fontWeight: 600,
+        cursor: "pointer",
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+export function VerifiedBadge() {
+  return <Badge tone="success">VERIFIED ADVOCATE</Badge>;
+}
+
+export function AvatarTile({ initials, size = 40 }: { initials: string; size?: number }) {
+  return (
+    <div
+      style={{
+        width: size,
+        height: size,
+        borderRadius: size / 3,
+        background: "var(--color-navy)",
+        color: "var(--color-gold)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontFamily: "var(--font-serif)",
+        fontSize: size * 0.4,
+        flex: "none",
+      }}
+    >
+      {initials}
+    </div>
+  );
+}
+
+export function EmptyState({ title, body }: { title: string; body: ReactNode }) {
+  return (
+    <div style={{ textAlign: "center", padding: "40px 20px", color: "var(--color-text-muted)" }}>
+      <div style={{ fontFamily: "var(--font-serif)", fontSize: 17, color: "var(--color-ink)", marginBottom: 6 }}>{title}</div>
+      <div style={{ fontSize: 13 }}>{body}</div>
+    </div>
+  );
+}

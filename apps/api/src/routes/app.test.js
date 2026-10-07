@@ -20,7 +20,7 @@ const ADV = "22222222-2222-4222-8222-222222222222";
 const AUTH_USERS = { "tok-alice": ALICE, "tok-bob": BOB, "tok-carol": CAROL, "tok-ops": OPS, "tok-dan": DAN };
 
 const fake = createFakeSupabase({
-  defaults: { consultations: { state: "scheduled" }, verification_cases: { decision: "pending" }, accounts: { seat_limit: 1 } },
+  defaults: { consultations: { state: "scheduled" }, verification_cases: { decision: "pending" }, accounts: { seat_limit: 1 }, advocates: { updated_at: "2026-01-01T00:00:00.000Z" } },
   authUsers: AUTH_USERS,
   embeds: { "account_members.account": (row, db) => db.accounts.find((a) => a.id === row.account_id) },
   unique: {
@@ -31,7 +31,15 @@ const fake = createFakeSupabase({
   tables: {
     practice_areas: [{ id: PA, name: "Family" }],
     advocates: [
-      { id: ADV, user_id: "u-adv", verification_status: "verified", scheduled_fee: 3000, instant_fee: 2500, weekly_schedule: { days: [0, 1, 2, 3, 4, 5, 6], start: "00:00", end: "23:00", slotMinutes: 60 }, advocate_consultation_modes: [{ mode: "video" }] },
+      {
+        id: ADV, user_id: "u-adv", verification_status: "verified", availability_state: "available", scheduled_fee: 3000, instant_fee: 2500,
+        weekly_schedule: { days: [0, 1, 2, 3, 4, 5, 6], start: "00:00", end: "23:00", slotMinutes: 60 },
+        advocate_consultation_modes: [{ mode: "video" }],
+        bar_council: "Bar Council of Delhi", enrolment_number: "DEL/0001/2010", enrolment_year: 2010,
+        sub_specialisations: [], years_of_practice: 10, education: [], relevant_experience: [],
+        accepts_urgent: false, chamber_address: null, city: "Delhi", keywords: [],
+        created_at: "2026-01-01T00:00:00.000Z", updated_at: "2026-01-01T00:00:00.000Z",
+      },
     ],
   },
 });
@@ -278,7 +286,9 @@ test("advocate onboarding: apply → hidden until verified → PATCH keeps untou
   assert.equal(fake.db.verification_cases.length, 1);
 
   // Not listed, and cannot go live, until an admin verifies.
-  assert.equal((await call("GET", "/advocates")).body.some((a) => a.id === applied.body.id), false);
+  const directory = await call("GET", "/advocates");
+  assert.ok(Array.isArray(directory.body), "GET /advocates must keep returning a plain array -- the legacy Vite screen relies on this shape");
+  assert.equal(directory.body.some((a) => a.id === applied.body.id), false);
   const live = await call("PATCH", "/advocate/availability", { token: "tok-bob", body: { availabilityState: "available" } });
   assert.equal(live.status, 403);
 

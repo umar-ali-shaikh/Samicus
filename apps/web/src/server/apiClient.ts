@@ -36,7 +36,7 @@ interface RequestOptions {
   query?: Record<string, QueryValue>;
 }
 
-async function request<T>(method: string, path: string, options: RequestOptions = {}): Promise<T> {
+async function requestWithHeaders<T>(method: string, path: string, options: RequestOptions = {}): Promise<{ data: T; headers: Headers }> {
   const token = await accessToken();
   const url = new URL(`${env.API_INTERNAL_URL}/api${path}`);
   for (const [key, value] of Object.entries(options.query ?? {})) {
@@ -64,11 +64,20 @@ async function request<T>(method: string, path: string, options: RequestOptions 
     const errBody = data as { error?: string; code?: string } | null;
     throw new ApiError(errBody?.error ?? `Request failed (${res.status})`, res.status, errBody?.code, data);
   }
-  return data as T;
+  return { data: data as T, headers: res.headers };
+}
+
+async function request<T>(method: string, path: string, options: RequestOptions = {}): Promise<T> {
+  const { data } = await requestWithHeaders<T>(method, path, options);
+  return data;
 }
 
 export const apiClient = {
   get: <T>(path: string, query?: RequestOptions["query"]) => request<T>("GET", path, { query }),
+  /** Same as get, but also returns the response headers -- e.g. GET /advocates's X-Total-Count
+   * / X-Page / X-Page-Size / X-Has-More pagination metadata (see apps/api's router.ts comment
+   * on why that endpoint's body stays a plain array instead of a {items, total, ...} wrapper). */
+  getWithHeaders: <T>(path: string, query?: RequestOptions["query"]) => requestWithHeaders<T>("GET", path, { query }),
   post: <T>(path: string, body?: unknown) => request<T>("POST", path, { body: body ?? {} }),
   put: <T>(path: string, body?: unknown) => request<T>("PUT", path, { body }),
   patch: <T>(path: string, body?: unknown) => request<T>("PATCH", path, { body }),

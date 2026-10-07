@@ -10,8 +10,8 @@ import { getSupabase } from "./config/db.js";
 
 import authRoutes from "./routes/auth.js";
 import accountsRoutes from "./modules/accounts/router.js";
-import situationsRoutes from "./routes/situations.js";
-import advocatesRoutes from "./routes/advocates.js";
+import situationsRoutes from "./modules/situations/router.js";
+import advocatesRoutes from "./modules/advocates/router.js";
 import intakeRoutes from "./routes/intake.js";
 import consultationsRoutes from "./routes/consultations.js";
 import mattersRoutes from "./routes/matters.js";
