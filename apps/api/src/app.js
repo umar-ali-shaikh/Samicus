@@ -9,7 +9,7 @@ import { HttpError } from "./services/access.js";
 import { getSupabase } from "./config/db.js";
 
 import authRoutes from "./routes/auth.js";
-import accountsRoutes from "./routes/accounts.js";
+import accountsRoutes from "./modules/accounts/router.js";
 import situationsRoutes from "./routes/situations.js";
 import advocatesRoutes from "./routes/advocates.js";
 import intakeRoutes from "./routes/intake.js";

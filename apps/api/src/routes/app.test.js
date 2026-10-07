@@ -20,7 +20,7 @@ const ADV = "22222222-2222-4222-8222-222222222222";
 const AUTH_USERS = { "tok-alice": ALICE, "tok-bob": BOB, "tok-carol": CAROL, "tok-ops": OPS, "tok-dan": DAN };
 
 const fake = createFakeSupabase({
-  defaults: { consultations: { state: "scheduled" }, verification_cases: { decision: "pending" } },
+  defaults: { consultations: { state: "scheduled" }, verification_cases: { decision: "pending" }, accounts: { seat_limit: 1 } },
   authUsers: AUTH_USERS,
   embeds: { "account_members.account": (row, db) => db.accounts.find((a) => a.id === row.account_id) },
   unique: {

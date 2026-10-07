@@ -3,7 +3,7 @@
  * system, same tokens.css variables) -- just the subset the auth pages need. The rest of the
  * component library gets ported screen-by-screen in Phase 3 as each domain moves to apps/web.
  */
-import type { ButtonHTMLAttributes, ReactNode, CSSProperties } from "react";
+import type { ButtonHTMLAttributes, ReactNode, CSSProperties, SelectHTMLAttributes } from "react";
 
 export function Card({ children, style }: { children: ReactNode; style?: CSSProperties }) {
   return (
@@ -85,6 +85,51 @@ export const inputStyle: CSSProperties = {
   fontSize: 14,
   color: "var(--color-ink)",
 };
+
+type BadgeTone = "neutral" | "success" | "danger" | "warning" | "info";
+
+const BADGE_TONES: Record<BadgeTone, { bg: string; fg: string }> = {
+  neutral: { bg: "#F1EFE6", fg: "var(--color-text)" },
+  success: { bg: "#E4F5EC", fg: "#0F7A55" },
+  danger: { bg: "#FDEDE9", fg: "#B23A22" },
+  warning: { bg: "#FDF3DC", fg: "#8A6420" },
+  info: { bg: "#EDEAF6", fg: "#4B3F86" },
+};
+
+export function Badge({ tone = "neutral", children }: { tone?: BadgeTone; children: ReactNode }) {
+  const t = BADGE_TONES[tone];
+  return (
+    <span style={{ background: t.bg, color: t.fg, borderRadius: 999, padding: "3px 10px", fontSize: 11, fontWeight: 700, letterSpacing: "0.02em" }}>
+      {children}
+    </span>
+  );
+}
+
+export type SelectOption = string | readonly [string, string];
+
+export function Select({
+  label,
+  hint,
+  error,
+  options,
+  placeholder,
+  ...rest
+}: {
+  label: string;
+  hint?: string;
+  error?: string;
+  options: readonly SelectOption[];
+  placeholder?: string;
+} & SelectHTMLAttributes<HTMLSelectElement>) {
+  return (
+    <Field label={label} hint={hint} error={error}>
+      <select {...rest} style={inputStyle}>
+        {placeholder !== undefined && <option value="">{placeholder}</option>}
+        {options.map((o) => (Array.isArray(o) ? <option key={o[0]} value={o[0]}>{o[1]}</option> : <option key={o as string} value={o as string}>{o as string}</option>))}
+      </select>
+    </Field>
+  );
+}
 
 export function Field({
   label,

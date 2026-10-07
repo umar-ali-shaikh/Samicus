@@ -128,36 +128,13 @@ export function authenticate({ allowUnverified = false }: AuthenticateOptions = 
 
 export const requireAuth = authenticate();
 
+// requireAccountAccess moved to modules/accounts/policy.ts -- it was only ever used by that
+// domain's routes, per the per-domain policy.ts layering.
 export function requireRole(...roles: string[]): RequestHandler {
   return (req: Request, res: Response, next: NextFunction) => {
     if (!req.user || !roles.includes(req.user.role)) {
       return res.status(403).json({ error: "Forbidden" });
     }
     next();
-  };
-}
-
-// Confirms req.user is a member of :accountId (route param) with one of the given roles.
-export function requireAccountAccess(...roles: string[]): RequestHandler {
-  return async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      const accountId = req.params.id || req.params.accountId || (req.body as { accountId?: string } | undefined)?.accountId;
-      const { data: membership, error } = await getSupabase()
-        .from("account_members")
-        .select("*")
-        .eq("account_id", accountId)
-        .eq("user_id", req.user!.id)
-        .not("accepted_at", "is", null)
-        .maybeSingle();
-      if (error) throw error;
-      const row = membership as { id: string; role: string } | null;
-      if (!row || (roles.length && !roles.includes(row.role))) {
-        return res.status(403).json({ error: "Forbidden" });
-      }
-      req.membership = row;
-      next();
-    } catch (err) {
-      next(err);
-    }
   };
 }
