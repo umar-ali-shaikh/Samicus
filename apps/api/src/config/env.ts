@@ -1,12 +1,19 @@
 /**
- * Zod-validated environment schema for apps/api, mirroring every variable env.js/db.js/the
- * route files currently read from process.env directly (see docs/architecture/00-inventory.md
- * and the root .env.example). NOT YET WIRED IN -- apps/api still boots via config/env.js
- * (plain dotenv, no validation) per MASTER-PROMPT.md Phase 1's "AS-IS first" rule. This file
- * is adopted module-by-module starting Phase 2, replacing config/env.js once every call site
- * that reads process.env directly has been ported to import `env` from here instead.
+ * Single shared .env lives at the repo root (not inside apps/api/ or frontend/) so both apps
+ * read the same file. Loaded explicitly by path since cwd varies (npm run dev from apps/api/,
+ * or the root workspace scripts). Side-effecting import -- `import "./config/env.js"` at the
+ * top of index.js runs this before anything else touches process.env.
+ *
+ * Replaces the old plain-dotenv env.js: validates every var with Zod and fails loudly (throws
+ * before the server starts listening) on anything missing/malformed, per
+ * docs/MASTER-PROMPT.md's "Zod-validated env at boot in each app... fail fast".
  */
+import { fileURLToPath } from "node:url";
+import path from "node:path";
+import dotenv from "dotenv";
 import { z } from "zod";
+
+dotenv.config({ path: path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../.env") });
 
 const schema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
@@ -48,16 +55,14 @@ const schema = z.object({
 
 export type Env = z.infer<typeof schema>;
 
-let cached: Env | undefined;
-
-/** Fails loudly (throws) on first call if a required var is missing/invalid. Lazy so tests can set env first. */
-export function loadEnv(): Env {
-  if (!cached) {
-    const parsed = schema.safeParse(process.env);
-    if (!parsed.success) {
-      throw new Error(`Invalid environment configuration:\n${parsed.error.issues.map((i) => `  - ${i.path.join(".")}: ${i.message}`).join("\n")}`);
-    }
-    cached = parsed.data;
-  }
-  return cached;
+const parsed = schema.safeParse(process.env);
+if (!parsed.success) {
+  const lines = parsed.error.issues.map((i) => `  - ${i.path.join(".")}: ${i.message}`).join("\n");
+  throw new Error(`Invalid environment configuration:\n${lines}\nSee .env.example.`);
 }
+
+if (parsed.data.NODE_ENV === "production" && !process.env.CLIENT_ORIGIN) {
+  console.warn("CLIENT_ORIGIN is not set — CORS will only allow http://localhost:5173.");
+}
+
+export const env: Env = parsed.data;

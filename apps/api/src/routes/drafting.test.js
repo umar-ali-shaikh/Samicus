@@ -3,12 +3,14 @@
 import { test, mock, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { createFakeSupabase } from "../test/fakeSupabase.js";
+import { mockJwtVerification } from "../test/mockAuth.js";
 
 const ALICE = { id: "auth-alice", email: "alice@example.com", email_confirmed_at: "2026-01-01T00:00:00Z", user_metadata: { full_name: "Alice Rao" }, app_metadata: { provider: "email" } };
 const TEMPLATE_ID = "33333333-3333-4333-8333-333333333333";
+const AUTH_USERS = { "tok-alice": ALICE };
 
 const fake = createFakeSupabase({
-  authUsers: { "tok-alice": ALICE },
+  authUsers: AUTH_USERS,
   // Mirrors schema.sql's real column defaults (jsonb not null default '{}') — the fake
   // Supabase double doesn't read Postgres DEFAULTs, so these are declared explicitly.
   defaults: { document_drafts: { field_values: {}, selected_clause_ids: [], custom_clauses: [] } },
@@ -32,6 +34,7 @@ const fake = createFakeSupabase({
   },
 });
 mock.module("../config/db.js", { namedExports: { getSupabase: () => fake.client } });
+mockJwtVerification(AUTH_USERS);
 
 let server;
 let base;

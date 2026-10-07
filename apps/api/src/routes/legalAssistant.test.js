@@ -6,15 +6,18 @@
 import { test, mock, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { createFakeSupabase } from "../test/fakeSupabase.js";
+import { mockJwtVerification } from "../test/mockAuth.js";
 
 const ALICE = { id: "auth-alice", email: "alice@example.com", email_confirmed_at: "2026-01-01T00:00:00Z", user_metadata: { full_name: "Alice Rao" }, app_metadata: { provider: "email" } };
 const BOB = { id: "auth-bob", email: "bob@example.com", email_confirmed_at: "2026-01-01T00:00:00Z", user_metadata: { full_name: "Bob" }, app_metadata: { provider: "email" } };
+const AUTH_USERS = { "tok-alice": ALICE, "tok-bob": BOB };
 
 const fake = createFakeSupabase({
-  authUsers: { "tok-alice": ALICE, "tok-bob": BOB },
+  authUsers: AUTH_USERS,
   unique: { users: [{ cols: ["auth_id"] }], legal_assistant_sessions: [{ cols: ["session_id"] }] },
 });
 mock.module("../config/db.js", { namedExports: { getSupabase: () => fake.client } });
+mockJwtVerification(AUTH_USERS);
 
 let capturedHistory;
 let capturedQuestion;

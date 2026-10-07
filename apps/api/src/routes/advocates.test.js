@@ -4,17 +4,20 @@
 import { test, mock, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { createFakeSupabase } from "../test/fakeSupabase.js";
+import { mockJwtVerification } from "../test/mockAuth.js";
 
 const ALICE = { id: "auth-alice", email: "alice@example.com", email_confirmed_at: "2026-01-01T00:00:00Z", user_metadata: { full_name: "Alice Rao" }, app_metadata: { provider: "email" } };
 const PA = "11111111-1111-4111-8111-111111111111";
+const AUTH_USERS = { "tok-alice": ALICE };
 
 const fake = createFakeSupabase({
-  authUsers: { "tok-alice": ALICE },
+  authUsers: AUTH_USERS,
   embeds: { "account_members.account": (row, db) => db.accounts.find((a) => a.id === row.account_id) },
   unique: { users: [{ cols: ["auth_id"] }], accounts: [{ cols: ["display_name"] }] },
   tables: { practice_areas: [{ id: PA, name: "Family" }] },
 });
 mock.module("../config/db.js", { namedExports: { getSupabase: () => fake.client } });
+mockJwtVerification(AUTH_USERS);
 
 let server;
 let base;

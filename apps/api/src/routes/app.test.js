@@ -3,6 +3,7 @@
 import { test, mock, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { createFakeSupabase } from "../test/fakeSupabase.js";
+import { mockJwtVerification } from "../test/mockAuth.js";
 
 const ALICE = { id: "auth-alice", email: "alice@example.com", email_confirmed_at: "2026-01-01T00:00:00Z", user_metadata: { full_name: "Alice Rao", picture: "https://x/a.png" }, app_metadata: { provider: "google" } };
 const BOB = { id: "auth-bob", email: "bob@example.com", email_confirmed_at: "2026-01-01T00:00:00Z", user_metadata: {}, app_metadata: { provider: "email" } };
@@ -13,9 +14,14 @@ const OPS = { id: "auth-ops", email: "ops@vidhira.in", email_confirmed_at: "2026
 const PA = "11111111-1111-4111-8111-111111111111";
 const ADV = "22222222-2222-4222-8222-222222222222";
 
+// Shared by reference with the JWT mock below, so a test can add a token to either one
+// (e.g. the Google-linking test below) and have both the "JWT claims" step and the
+// one-time-provisioning "auth.getUser()" step see it consistently.
+const AUTH_USERS = { "tok-alice": ALICE, "tok-bob": BOB, "tok-carol": CAROL, "tok-ops": OPS, "tok-dan": DAN };
+
 const fake = createFakeSupabase({
   defaults: { consultations: { state: "scheduled" }, verification_cases: { decision: "pending" } },
-  authUsers: { "tok-alice": ALICE, "tok-bob": BOB, "tok-carol": CAROL, "tok-ops": OPS, "tok-dan": DAN },
+  authUsers: AUTH_USERS,
   embeds: { "account_members.account": (row, db) => db.accounts.find((a) => a.id === row.account_id) },
   unique: {
     users: [{ cols: ["auth_id"] }],
@@ -30,6 +36,7 @@ const fake = createFakeSupabase({
   },
 });
 mock.module("../config/db.js", { namedExports: { getSupabase: () => fake.client } });
+mockJwtVerification(AUTH_USERS);
 
 let server;
 let base;
@@ -124,11 +131,7 @@ test("signing in with Google links to an existing email/password user instead of
   fake.db.users.push({ id: "u-legacy", email: "legacy@example.com", full_name: "Legacy", auth_id: null, role: "client" });
   fake.db.account_members.push({ id: "m-legacy", account_id: "acc-legacy", user_id: "u-legacy", role: "owner", accepted_at: "2026-01-01" });
   fake.db.accounts.push({ id: "acc-legacy", display_name: "Legacy", type: "individual" });
-  const originalGetUser = fake.client.auth.getUser;
-  fake.client.auth.getUser = async (t) =>
-    t === "tok-legacy"
-      ? { data: { user: { id: "auth-legacy", email: "Legacy@Example.com", email_confirmed_at: "2026-01-01", user_metadata: {}, app_metadata: {} } }, error: null }
-      : originalGetUser(t);
+  AUTH_USERS["tok-legacy"] = { id: "auth-legacy", email: "Legacy@Example.com", email_confirmed_at: "2026-01-01", user_metadata: {}, app_metadata: {} };
   const res = await call("GET", "/me", { token: "tok-legacy" });
   assert.equal(res.status, 200);
   assert.equal(res.body.user.id, "u-legacy");

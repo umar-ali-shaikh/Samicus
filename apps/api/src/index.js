@@ -9,21 +9,16 @@ import { ragEnabled } from "./services/rag/ingest.js";
 
 const PORT = process.env.PORT || 4000;
 
-function checkEnv() {
-  const missing = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"].filter((k) => !process.env[k]);
-  if (missing.length) {
-    throw new Error(`Missing required environment variables: ${missing.join(", ")} — see .env.example.`);
-  }
-  if (process.env.NODE_ENV === "production" && !process.env.CLIENT_ORIGIN) {
-    console.warn("CLIENT_ORIGIN is not set — CORS will only allow http://localhost:5173.");
-  }
-}
+// Env is validated (and CLIENT_ORIGIN production warning issued) as a side effect of the
+// "./config/env.js" import above -- see config/env.ts. It throws before this module finishes
+// evaluating if anything required is missing/malformed, so by the time main() runs below,
+// SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY are guaranteed present and well-formed.
 
 // Tables added by migrations after the original schema.sql — missing one of these doesn't
 // stop the app booting (unlike practice_areas below), but it does mean one feature will
 // 500 at runtime the first time a user hits it. Warn loudly at startup instead of only
 // discovering it from a PGRST205 in production logs. Keep this list in sync with
-// backend/src/db/migrations/*.sql whenever a migration adds a new table.
+// apps/api/src/db/migrations/*.sql whenever a migration adds a new table.
 const EXPECTED_MIGRATION_TABLES = [
   { table: "research_chat_turns", migration: "004_research_library_v2.sql", feature: "Research library follow-up chat" },
   { table: "notify_requests", migration: "006_notify_requests.sql", feature: "\"Notify me when available\" fallback" },
@@ -36,20 +31,19 @@ async function warnOnMissingMigrationTables() {
     if (error) {
       console.warn(
         `⚠ Expected table "${table}" not found (${error.message}). ${feature} will fail at runtime. ` +
-          `Run backend/src/db/migrations/${migration} in the Supabase SQL editor — see docs/SETUP.md "Upgrading an existing database".`
+          `Run apps/api/src/db/migrations/${migration} in the Supabase SQL editor — see docs/SETUP.md "Upgrading an existing database".`
       );
     }
   }
 }
 
 async function main() {
-  checkEnv();
   const supabase = getSupabase();
 
   // Fails fast with a clear message if the schema has not been applied yet.
   const { count, error } = await supabase.from("practice_areas").select("*", { count: "exact", head: true });
   if (error) {
-    throw new Error(`Cannot read the database (${error.message}). Run backend/src/db/schema.sql in the Supabase SQL editor first.`);
+    throw new Error(`Cannot read the database (${error.message}). Run apps/api/src/db/schema.sql in the Supabase SQL editor first.`);
   }
   // Only the reference catalogues (practice areas, situations, document templates) — never demo data.
   if (count === 0) await seedAll();
