@@ -72,6 +72,30 @@ async function request<T>(method: string, path: string, options: RequestOptions 
   return data;
 }
 
+// Multipart upload (documents' POST /documents) -- the body is sent as-is, not
+// JSON.stringify'd, and Content-Type is left unset so fetch generates the multipart boundary
+// itself (setting it manually here would omit the boundary and break the upload).
+async function upload<T>(path: string, formData: FormData): Promise<T> {
+  const token = await accessToken();
+  const url = new URL(`${env.API_INTERNAL_URL}/api${path}`);
+  const headers: Record<string, string> = { "X-Request-Id": crypto.randomUUID() };
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  let res: Response;
+  try {
+    res = await fetch(url, { method: "POST", headers, body: formData, cache: "no-store" });
+  } catch {
+    throw new ApiError("Can't reach the server. Check your connection and try again.", 0, "NETWORK");
+  }
+
+  const data: unknown = await res.json().catch(() => null);
+  if (!res.ok) {
+    const errBody = data as { error?: string; code?: string } | null;
+    throw new ApiError(errBody?.error ?? `Request failed (${res.status})`, res.status, errBody?.code, data);
+  }
+  return data as T;
+}
+
 export const apiClient = {
   get: <T>(path: string, query?: RequestOptions["query"]) => request<T>("GET", path, { query }),
   /** Same as get, but also returns the response headers -- e.g. GET /advocates's X-Total-Count
@@ -82,4 +106,5 @@ export const apiClient = {
   put: <T>(path: string, body?: unknown) => request<T>("PUT", path, { body }),
   patch: <T>(path: string, body?: unknown) => request<T>("PATCH", path, { body }),
   delete: <T>(path: string) => request<T>("DELETE", path),
+  upload,
 };

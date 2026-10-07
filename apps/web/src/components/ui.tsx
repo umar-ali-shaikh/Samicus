@@ -136,14 +136,16 @@ export function Field({
   hint,
   error,
   children,
+  style,
 }: {
   label?: string;
   hint?: string;
   error?: string;
   children: ReactNode;
+  style?: CSSProperties;
 }) {
   return (
-    <label style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+    <label style={{ display: "flex", flexDirection: "column", gap: 5, ...style }}>
       <span style={{ fontSize: 12, fontWeight: 600, color: "var(--color-text-muted)" }}>{label}</span>
       {children}
       {error ? (

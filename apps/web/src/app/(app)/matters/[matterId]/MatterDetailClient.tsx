@@ -12,14 +12,14 @@ import { Timeline } from "@/components/matters/Timeline";
 import { TasksAndHearings } from "@/components/matters/TasksAndHearings";
 import { Fees } from "@/components/matters/Fees";
 import { Access } from "@/components/matters/Access";
+import { MatterDocuments } from "@/components/matters/MatterDocuments";
 import { patchMatterAction } from "@/server/mattersActions";
 
-const TABS = ["Timeline", "Tasks & hearings", "Fees"] as const;
+const TABS = ["Timeline", "Tasks & hearings", "Documents", "Fees"] as const;
 
 // Ported from frontend/src/screens/Matters.jsx (the list + pill selector) and
-// frontend/src/screens/matter/MatterTabs.jsx (the tab bodies). The "Documents" tab and the
-// "Secure message" button are deferred -- the documents and messaging domains aren't
-// converted yet, same reasoning as the advocates slice's deferred pieces.
+// frontend/src/screens/matter/MatterTabs.jsx (the tab bodies). The "Secure message" button is
+// still deferred -- the messaging domain isn't converted yet.
 export function MatterDetailClient({ matters, detail, matterId }: { matters: MatterListItemDto[]; detail: MatterDetailDto; matterId: string }) {
   const router = useRouter();
   const [tab, setTab] = useState<string>("Timeline");
@@ -95,6 +95,7 @@ export function MatterDetailClient({ matters, detail, matterId }: { matters: Mat
 
       {tab === "Timeline" && <Timeline events={detail.timeline} />}
       {tab === "Tasks & hearings" && <TasksAndHearings matterId={matterId} side={side} tasks={detail.tasks} hearings={detail.hearings} />}
+      {tab === "Documents" && <MatterDocuments matter={matter} matterId={matterId} side={side} documents={detail.documents} />}
       {tab === "Fees" && <Fees matterId={matterId} side={side} feeProposals={detail.feeProposals} invoices={detail.invoices} />}
       {tab === "Access" && side === "client" && <Access matterId={matterId} matter={matter} access={detail.access} />}
     </div>
