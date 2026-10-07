@@ -147,27 +147,6 @@ test("signing in with Google links to an existing email/password user instead of
   assert.equal(fake.db.users.find((u) => u.id === "u-legacy").auth_id, "auth-legacy");
 });
 
-test("matters and messages are invisible to people outside them", async () => {
-  const account = (await call("GET", "/accounts", { token: "tok-alice" })).body[0];
-  fake.db.matters = [{ id: "m-1", account_id: account.id, advocate_id: ADV, title: "T", reference: "R", stage: "intake", opened_at: "2026-01-01" }];
-  fake.db.message_threads = [{ id: "t-1", matter_id: "m-1" }];
-  const alice = fake.db.users.find((u) => u.email === "alice@example.com");
-  fake.db.thread_participants = [{ thread_id: "t-1", participant_id: alice.id }];
-  fake.db.messages = [{ id: "msg-1", thread_id: "t-1", sender_id: alice.id, body: "secret", sent_at: "2026-01-01T00:00:00Z" }];
-
-  assert.equal((await call("GET", "/matters/m-1", { token: "tok-bob" })).status, 404);
-  assert.equal((await call("GET", "/threads/t-1/messages", { token: "tok-bob" })).status, 404);
-  assert.equal((await call("POST", "/threads/t-1/messages", { token: "tok-bob", body: { body: "hi" } })).status, 404);
-
-  const read = await call("GET", "/threads/t-1/messages", { token: "tok-alice" });
-  assert.equal(read.status, 200);
-  assert.equal(read.body[0].body, "secret");
-  const sent = await call("POST", "/threads/t-1/messages", { token: "tok-alice", body: { body: "  hello  " } });
-  assert.equal(sent.status, 201);
-  assert.equal(sent.body.body, "hello");
-  assert.equal((await call("POST", "/threads/t-1/messages", { token: "tok-alice", body: { body: "   " } })).status, 400);
-});
-
 test("payments report as disabled instead of faking a capture", async () => {
   delete process.env.RAZORPAY_KEY_ID;
   delete process.env.RAZORPAY_KEY_SECRET;

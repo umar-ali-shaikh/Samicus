@@ -7,3 +7,4 @@ export * from "./intake.js";
 export * from "./consultations.js";
 export * from "./matters.js";
 export * from "./documents.js";
+export * from "./messages.js";
