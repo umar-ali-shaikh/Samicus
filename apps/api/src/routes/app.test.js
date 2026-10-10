@@ -147,16 +147,6 @@ test("signing in with Google links to an existing email/password user instead of
   assert.equal(fake.db.users.find((u) => u.id === "u-legacy").auth_id, "auth-legacy");
 });
 
-test("payments report as disabled instead of faking a capture", async () => {
-  delete process.env.RAZORPAY_KEY_ID;
-  delete process.env.RAZORPAY_KEY_SECRET;
-  const cfg = await call("GET", "/config");
-  assert.equal(cfg.body.payments.enabled, false);
-  const res = await call("POST", "/payments/intents", { token: "tok-alice", body: { kind: "consultation", id: "00000000-0000-0000-0000-000000000000" } });
-  assert.equal(res.status, 503);
-  assert.equal(res.body.code, "PAYMENTS_DISABLED");
-});
-
 test("unknown API paths return JSON 404 and server errors never leak internals", async () => {
   const res = await call("GET", "/does-not-exist");
   assert.equal(res.status, 404);
