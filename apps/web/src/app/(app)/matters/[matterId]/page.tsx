@@ -4,6 +4,7 @@ import { createServerSupabaseClient } from "@/server/supabase";
 import { apiClient, ApiError } from "@/server/apiClient";
 import type { MatterDetailDto, MatterListItemDto } from "@vidhira/contracts";
 import { getThreadsAction } from "@/server/messagesActions";
+import { getPaymentsConfigAction } from "@/server/paymentsActions";
 import { MatterDetailClient } from "./MatterDetailClient";
 
 export async function generateMetadata({ params }: { params: Promise<{ matterId: string }> }): Promise<Metadata> {
@@ -37,6 +38,17 @@ export default async function MatterDetailPage({ params }: { params: Promise<{ m
 
   const threads = await getThreadsAction();
   const thread = threads.find((t) => t.matter?.reference === detail.matter.reference) ?? null;
+  const paymentsConfig = await getPaymentsConfigAction();
+  const user = { full_name: data.user.user_metadata?.full_name as string | undefined, email: data.user.email };
 
-  return <MatterDetailClient matters={matters} detail={detail} matterId={matterId} threadId={thread?.id ?? null} />;
+  return (
+    <MatterDetailClient
+      matters={matters}
+      detail={detail}
+      matterId={matterId}
+      threadId={thread?.id ?? null}
+      paymentsEnabled={paymentsConfig.enabled}
+      user={user}
+    />
+  );
 }

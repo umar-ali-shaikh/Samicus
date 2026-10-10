@@ -6,6 +6,7 @@ import type { IntakeStatusDto } from "@vidhira/contracts";
 import { Button, Callout, Spinner } from "@/components/ui";
 import { inr, modeName } from "@/lib/format";
 import { cancelIntakeAction, getIntakeStatusAction, joinConsultationRoomAction } from "@/server/intakeActions";
+import { payFor } from "@/lib/payments";
 
 const WAIT_LIMIT_MS = 10 * 60 * 1000;
 const POLL_WAITING_MS = 4000;
@@ -13,11 +14,22 @@ const POLL_MATCHED_MS = 15000;
 
 /**
  * Follows an instant/urgent request: waits for an advocate, then hands off to the call room.
- * Ported from frontend/src/components/LiveConsult.jsx. Payment is deferred here -- the
- * payments domain (Razorpay) is a later Phase 3 slice -- so a matched consultation always
- * shows the "settled directly with the advocate" copy, same as when payments are disabled.
+ * Ported from frontend/src/components/LiveConsult.jsx. "Pay now" only renders when GET /config
+ * reports payments.enabled -- off by default until real Razorpay keys are configured.
  */
-export function LiveConsult({ intakeId, onCancelled, onGone }: { intakeId: string; onCancelled?: () => void; onGone?: () => void }) {
+export function LiveConsult({
+  intakeId,
+  onCancelled,
+  onGone,
+  paymentsEnabled,
+  user,
+}: {
+  intakeId: string;
+  onCancelled?: () => void;
+  onGone?: () => void;
+  paymentsEnabled: boolean;
+  user: { full_name?: string; email?: string };
+}) {
   const [status, setStatus] = useState<IntakeStatusDto | null>(null);
   const [room, setRoom] = useState<{ roomUrl: string } | null>(null);
   const [now, setNow] = useState(() => Date.now());
@@ -62,6 +74,19 @@ export function LiveConsult({ intakeId, onCancelled, onGone }: { intakeId: strin
     startTransition(async () => {
       const r = await joinConsultationRoomAction(consultation.id);
       setRoom(r);
+    });
+  }
+
+  function pay() {
+    if (!consultation) return;
+    startTransition(async () => {
+      try {
+        await payFor("consultation", consultation.id, { user, description: "Instant consultation" });
+        const fresh = await getIntakeStatusAction(intakeId);
+        setStatus(fresh);
+      } catch {
+        // payFor throws on a real failure; the user can simply retry the button.
+      }
     });
   }
 
@@ -141,6 +166,7 @@ export function LiveConsult({ intakeId, onCancelled, onGone }: { intakeId: strin
   }
 
   const advocateName = consultation.advocate?.user?.full_name;
+  const payNeeded = paymentsEnabled && !consultation.paid_at;
 
   return (
     <div style={{ ...wrap, gap: 14 }}>
@@ -151,7 +177,14 @@ export function LiveConsult({ intakeId, onCancelled, onGone }: { intakeId: strin
           {modeName(consultation.mode)} consultation · {inr(consultation.fee_total)} incl. fees &amp; GST
         </div>
       </div>
-      <div style={{ fontSize: 11.5, color: "#9AA5BC" }}>Online payment isn&apos;t enabled yet -- the fee is settled directly with the advocate.</div>
+
+      {payNeeded ? (
+        <Button onClick={pay} disabled={isPending} style={{ width: "auto" }}>
+          {isPending ? "Opening payment…" : `Pay ${inr(consultation.fee_total)}`}
+        </Button>
+      ) : (
+        !paymentsEnabled && <div style={{ fontSize: 11.5, color: "#9AA5BC" }}>Online payment isn&apos;t enabled — the fee is settled directly with the advocate.</div>
+      )}
 
       {consultation.mode === "chat" ? (
         <Link href="/consultations">
@@ -160,7 +193,12 @@ export function LiveConsult({ intakeId, onCancelled, onGone }: { intakeId: strin
       ) : consultation.mode === "in_person" ? (
         <Callout tone="neutral">Your advocate will contact you to agree the place and time.</Callout>
       ) : !room ? (
-        <Button variant="primary" onClick={join} disabled={isPending} style={{ width: "auto", background: "var(--color-gold)", color: "var(--color-navy)" }}>
+        <Button
+          variant={payNeeded ? "outline" : "primary"}
+          onClick={join}
+          disabled={isPending || payNeeded}
+          style={{ width: "auto", background: payNeeded ? "transparent" : "var(--color-gold)", color: payNeeded ? "#fff" : "var(--color-navy)" }}
+        >
           {isPending ? "Opening room…" : "Join call"}
         </Button>
       ) : (

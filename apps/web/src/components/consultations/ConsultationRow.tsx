@@ -9,6 +9,7 @@ import { TextArea } from "@/components/forms";
 import { fmtDateTime, inr, modeName } from "@/lib/format";
 import { joinConsultationRoomAction } from "@/server/intakeActions";
 import { cancelConsultationAction, convertToMatterAction, markCompletedAction, saveNotesAction, submitFeedbackAction } from "@/server/consultationsActions";
+import { payFor } from "@/lib/payments";
 
 type Tone = "neutral" | "success" | "danger" | "warning" | "info";
 const STATE_TONE: Record<string, Tone> = {
@@ -51,10 +52,21 @@ function Rating({ consultation }: { consultation: ConsultationListItemDto }) {
   );
 }
 
-// Ported from frontend/src/screens/Consultations.jsx's Row. Payment ("Pay now") and chat
-// ("Open chat") are deferred -- the payments and messaging domains aren't converted yet, same
-// reasoning as BookingWizard's "settled directly with the advocate" copy.
-export function ConsultationRow({ c, side }: { c: ConsultationListItemDto; side: "client" | "advocate" }) {
+// Ported from frontend/src/screens/Consultations.jsx's Row. "Open chat" stays deferred -- the
+// messaging domain's thread-by-matter model doesn't map onto a bare consultation. "Pay now"
+// only renders when GET /config reports payments.enabled -- off by default until real
+// Razorpay keys are configured (see apps/api/src/services/razorpay.js's paymentsEnabled()).
+export function ConsultationRow({
+  c,
+  side,
+  paymentsEnabled,
+  user,
+}: {
+  c: ConsultationListItemDto;
+  side: "client" | "advocate";
+  paymentsEnabled: boolean;
+  user: { full_name?: string; email?: string };
+}) {
   const router = useRouter();
   const [room, setRoom] = useState<{ roomUrl: string } | null>(null);
   const [notes, setNotes] = useState(c.notes || "");
@@ -69,6 +81,18 @@ export function ConsultationRow({ c, side }: { c: ConsultationListItemDto; side:
   const canCancel = side === "client" && OPEN.includes(c.state) && now < start - 4 * 3600 * 1000;
 
   const who = side === "advocate" ? c.account?.display_name?.replace(/\s*\([0-9a-f]{6}\)$/, "") : `Adv. ${c.advocate?.user?.full_name?.replace(/^Adv\.?\s*/i, "")}`;
+
+  function pay() {
+    setError(undefined);
+    startTransition(async () => {
+      try {
+        const paid = await payFor("consultation", c.id, { user, description: "Consultation" });
+        if (paid) router.refresh();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Payment failed.");
+      }
+    });
+  }
 
   function join() {
     setError(undefined);
@@ -130,7 +154,7 @@ export function ConsultationRow({ c, side }: { c: ConsultationListItemDto; side:
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "flex-start", flexWrap: "wrap" }}>
           <Badge tone={STATE_TONE[c.state]}>{c.state.replace("_", " ")}</Badge>
-          {c.paid_at ? <Badge tone="success">paid {inr(c.fee_total)}</Badge> : <Badge tone="warning">{inr(c.fee_total)} due directly</Badge>}
+          {c.paid_at ? <Badge tone="success">paid {inr(c.fee_total)}</Badge> : <Badge tone="warning">{inr(c.fee_total)} {paymentsEnabled ? "unpaid" : "due directly"}</Badge>}
         </div>
       </div>
 
@@ -143,6 +167,11 @@ export function ConsultationRow({ c, side }: { c: ConsultationListItemDto; side:
         {canCancel && (
           <Button variant="ghost" onClick={cancel} style={{ width: "auto" }}>
             Cancel
+          </Button>
+        )}
+        {side === "client" && !c.paid_at && paymentsEnabled && c.state !== "cancelled" && (
+          <Button variant="outline" onClick={pay} disabled={isPending} style={{ width: "auto" }}>
+            Pay {inr(c.fee_total)}
           </Button>
         )}
         {side === "client" && ["completed", "notes_published"].includes(c.state) && <Rating consultation={c} />}

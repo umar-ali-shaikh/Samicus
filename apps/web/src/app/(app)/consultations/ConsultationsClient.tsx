@@ -20,7 +20,17 @@ function scope(list: ConsultationListItemDto[], filter: string): ConsultationLis
 // Ported from frontend/src/screens/Consultations.jsx. The original also scoped the list to the
 // client's currently-active account; apps/web has no multi-account switcher in its shell yet,
 // so a client here sees consultations across all accounts they belong to.
-export function ConsultationsClient({ consultations, advocateMode }: { consultations: ConsultationListItemDto[]; advocateMode: boolean }) {
+export function ConsultationsClient({
+  consultations,
+  advocateMode,
+  paymentsEnabled,
+  user,
+}: {
+  consultations: ConsultationListItemDto[];
+  advocateMode: boolean;
+  paymentsEnabled: boolean;
+  user: { full_name?: string; email?: string };
+}) {
   const [filter, setFilter] = useState<"Upcoming" | "Past">("Upcoming");
   const rows = scope(consultations, filter);
 
@@ -45,7 +55,7 @@ export function ConsultationsClient({ consultations, advocateMode }: { consultat
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {rows.map((c) => (
-            <ConsultationRow key={c.id} c={c} side={advocateMode ? "advocate" : "client"} />
+            <ConsultationRow key={c.id} c={c} side={advocateMode ? "advocate" : "client"} paymentsEnabled={paymentsEnabled} user={user} />
           ))}
         </div>
       )}

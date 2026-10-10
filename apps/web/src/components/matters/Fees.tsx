@@ -7,6 +7,7 @@ import { Card, Button, Badge, Callout, EmptyState, Select } from "@/components/u
 import { TextInput, TextArea } from "@/components/forms";
 import { fmtDate, inr } from "@/lib/format";
 import { acceptFeeProposalAction, raiseInvoiceAction, settleInvoiceOfflineAction, sendFeeProposalAction } from "@/server/mattersActions";
+import { payFor } from "@/lib/payments";
 
 function ProposalForm({ matterId }: { matterId: string }) {
   const router = useRouter();
@@ -124,10 +125,25 @@ function InvoiceForm({ matterId }: { matterId: string }) {
   );
 }
 
-// Ported from frontend/src/screens/matter/MatterTabs.jsx's Fees. Online payment ("Pay now") is
-// deferred -- the payments domain isn't converted yet -- so every unpaid invoice shows the
-// "settle directly" copy regardless of the deployment's actual payments.enabled flag.
-export function Fees({ matterId, side, feeProposals, invoices }: { matterId: string; side: "client" | "advocate" | "viewer"; feeProposals: FeeProposalDto[]; invoices: InvoiceDto[] }) {
+// Ported from frontend/src/screens/matter/MatterTabs.jsx's Fees. "Pay now" only renders when
+// GET /config reports payments.enabled -- off by default until real Razorpay keys are
+// configured (see apps/api/src/services/razorpay.js's paymentsEnabled()); "Mark as paid"
+// (settle-offline) only renders while payments are off, matching the server's own guard.
+export function Fees({
+  matterId,
+  side,
+  feeProposals,
+  invoices,
+  paymentsEnabled,
+  user,
+}: {
+  matterId: string;
+  side: "client" | "advocate" | "viewer";
+  feeProposals: FeeProposalDto[];
+  invoices: InvoiceDto[];
+  paymentsEnabled: boolean;
+  user: { full_name?: string; email?: string };
+}) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | undefined>();
@@ -147,6 +163,18 @@ export function Fees({ matterId, side, feeProposals, invoices }: { matterId: str
       const result = await settleInvoiceOfflineAction(matterId, invoiceId);
       if (!result.ok) setError(result.error);
       router.refresh();
+    });
+  }
+
+  function pay(invoiceId: string) {
+    setError(undefined);
+    startTransition(async () => {
+      try {
+        const paid = await payFor("invoice", invoiceId, { user, description: "Matter invoice" });
+        if (paid) router.refresh();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Payment failed.");
+      }
     });
   }
 
@@ -210,8 +238,15 @@ export function Fees({ matterId, side, feeProposals, invoices }: { matterId: str
             <span>Total incl. GST</span>
             <span>{inr(inv.total)}</span>
           </div>
-          {inv.status !== "paid" && side === "client" && <div style={{ fontSize: 11.5, color: "var(--color-label)" }}>Online payment isn&apos;t enabled yet — settle this directly with your advocate.</div>}
-          {inv.status !== "paid" && side === "advocate" && (
+          {inv.status !== "paid" && side === "client" && paymentsEnabled && (
+            <Button onClick={() => pay(inv.id)} disabled={isPending} style={{ alignSelf: "flex-start", width: "auto" }}>
+              Pay {inr(inv.total)}
+            </Button>
+          )}
+          {inv.status !== "paid" && side === "client" && !paymentsEnabled && (
+            <div style={{ fontSize: 11.5, color: "var(--color-label)" }}>Online payment isn&apos;t enabled yet — settle this directly with your advocate.</div>
+          )}
+          {inv.status !== "paid" && side === "advocate" && !paymentsEnabled && (
             <Button variant="outline" onClick={() => settle(inv.id)} disabled={isPending} style={{ alignSelf: "flex-start", width: "auto" }}>
               Mark as paid (received directly)
             </Button>

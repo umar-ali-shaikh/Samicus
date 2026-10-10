@@ -11,7 +11,15 @@ import { startInstantIntakeAction } from "@/server/intakeActions";
 
 // Ported from frontend/src/screens/TalkNow.jsx. The Hindi/English situation-label toggle
 // (useUI().lang) isn't ported -- apps/web has no i18n context yet -- so labels stay English-only.
-export function TalkNowClient({ situations }: { situations: SituationDto[] }) {
+export function TalkNowClient({
+  situations,
+  paymentsEnabled,
+  user,
+}: {
+  situations: SituationDto[];
+  paymentsEnabled: boolean;
+  user: { full_name?: string; email?: string };
+}) {
   const [form, setForm] = useState({ description: "", situationId: "", urgency: "today", mode: "video", language: "en", state: "", consent: false });
   const [live, setLive] = useState<{ intakeId: string; matchCount: number } | null>(null);
   const [validationError, setValidationError] = useState("");
@@ -53,7 +61,7 @@ export function TalkNowClient({ situations }: { situations: SituationDto[] }) {
       </div>
 
       {live && !none ? (
-        <LiveConsult intakeId={live.intakeId} onCancelled={() => setLive(null)} onGone={() => setLive(null)} />
+        <LiveConsult intakeId={live.intakeId} onCancelled={() => setLive(null)} onGone={() => setLive(null)} paymentsEnabled={paymentsEnabled} user={user} />
       ) : (
         <Card style={{ padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
           <TextArea label="What's going on?" rows={3} value={form.description} onChange={(e) => patch({ description: e.target.value })} placeholder="Describe the issue in a few sentences" />

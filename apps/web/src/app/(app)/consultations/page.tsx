@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { createServerSupabaseClient } from "@/server/supabase";
 import { apiClient, ApiError } from "@/server/apiClient";
 import type { ConsultationListItemDto } from "@vidhira/contracts";
+import { getPaymentsConfigAction } from "@/server/paymentsActions";
 import { ConsultationsClient } from "./ConsultationsClient";
 
 export const metadata: Metadata = {
@@ -29,6 +30,8 @@ export default async function ConsultationsPage() {
     else throw err;
   }
 
-  const consultations = await apiClient.get<ConsultationListItemDto[]>("/consultations");
-  return <ConsultationsClient consultations={consultations} advocateMode={advocateMode} />;
+  const [consultations, paymentsConfig] = await Promise.all([apiClient.get<ConsultationListItemDto[]>("/consultations"), getPaymentsConfigAction()]);
+  const user = { full_name: data.user.user_metadata?.full_name as string | undefined, email: data.user.email };
+
+  return <ConsultationsClient consultations={consultations} advocateMode={advocateMode} paymentsEnabled={paymentsConfig.enabled} user={user} />;
 }

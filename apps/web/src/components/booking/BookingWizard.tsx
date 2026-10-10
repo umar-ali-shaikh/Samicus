@@ -8,6 +8,7 @@ import { Select } from "@/components/ui";
 import { TextInput, TextArea } from "@/components/forms";
 import { computeFees, fmtDate, inr, initials, languageName, LANGUAGES, MODES, STATES, URGENCY_OPTIONS, modeName } from "@/lib/format";
 import { createBookingIntakeAction, confirmBookingAction, getAdvocateSlotsAction } from "@/server/bookingActions";
+import { payFor } from "@/lib/payments";
 
 const TITLES: Record<number, string> = {
   1: "Describe the issue",
@@ -33,7 +34,17 @@ interface Slot {
 // advocate (apps/web's /advocates/[advocateId]/book) -- so the original's step 6
 // "advocates matched to your issue" match-picking step is dropped; every other step and its
 // copy/validation is unchanged.
-export function BookingWizard({ advocate, situations }: { advocate: AdvocateDto; situations: SituationDto[] }) {
+export function BookingWizard({
+  advocate,
+  situations,
+  paymentsEnabled,
+  user,
+}: {
+  advocate: AdvocateDto;
+  situations: SituationDto[];
+  paymentsEnabled: boolean;
+  user: { full_name?: string; email?: string };
+}) {
   const router = useRouter();
   const [step, setStep] = useState(1);
   const [form, setForm] = useState({
@@ -55,7 +66,7 @@ export function BookingWizard({ advocate, situations }: { advocate: AdvocateDto;
   const [slot, setSlot] = useState<Slot | null>(null);
   const [consent, setConsent] = useState(false);
   const [error, setError] = useState<string | undefined>();
-  const [result, setResult] = useState<{ consultation: { id: string } } | null>(null);
+  const [result, setResult] = useState<{ consultation: { id: string }; paid: boolean } | null>(null);
   const [isPending, startTransition] = useTransition();
   const patch = (p: Partial<typeof form>) => setForm((f) => ({ ...f, ...p }));
 
@@ -145,7 +156,15 @@ export function BookingWizard({ advocate, situations }: { advocate: AdvocateDto;
         setError(res.error);
         return;
       }
-      setResult({ consultation: res.consultation });
+      let paid = false;
+      if (paymentsEnabled) {
+        try {
+          paid = await payFor("consultation", res.consultation.id, { user, description: "Consultation" });
+        } catch (err) {
+          setError(`${err instanceof Error ? err.message : "Payment failed."} Your slot is held — you can pay from Consultations.`);
+        }
+      }
+      setResult({ consultation: res.consultation, paid });
       setStep(9);
     });
   }
@@ -333,7 +352,14 @@ export function BookingWizard({ advocate, situations }: { advocate: AdvocateDto;
 
         {step === 8 && (
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            <Callout tone="warning">This deployment doesn&apos;t collect payments online yet. Your slot is reserved; the fee of {inr(fees.total)} is settled directly with the advocate.</Callout>
+            <Callout tone={paymentsEnabled ? "neutral" : "warning"}>
+              <strong>{paymentsEnabled ? "Payment" : "Online payment is off"}</strong>
+              <div>
+                {paymentsEnabled
+                  ? `You'll pay ${inr(fees.total)} securely after confirming.`
+                  : `This deployment doesn't collect payments online yet. Your slot is reserved; the fee of ${inr(fees.total)} is settled directly with the advocate.`}
+              </div>
+            </Callout>
             <label style={{ display: "flex", gap: 8, fontSize: 13, alignItems: "flex-start" }}>
               <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} style={{ marginTop: 3 }} />
               I consent to sharing my described issue with this advocate after their conflict check clears.
@@ -348,6 +374,7 @@ export function BookingWizard({ advocate, situations }: { advocate: AdvocateDto;
             <div style={{ fontSize: 13, color: "var(--color-text-muted)" }}>Reference {result.consultation.id.slice(0, 8).toUpperCase()}</div>
             <Callout tone="neutral" style={{ width: "100%" }}>
               {modeName(form.mode)} consultation{slot ? ` on ${fmtDate(slot.startsAt)} at ${slot.time} IST` : ""}. The room opens 15 minutes before the start from your Consultations page.
+              {!result.paid && paymentsEnabled && " Payment is still pending — complete it from Consultations to keep the slot."}
             </Callout>
           </div>
         )}
@@ -361,7 +388,7 @@ export function BookingWizard({ advocate, situations }: { advocate: AdvocateDto;
             {step === 1 ? "Cancel" : "Back"}
           </Button>
           <Button onClick={step === 8 ? confirm : next} disabled={!stepComplete || isPending} style={{ width: "auto", opacity: stepComplete ? 1 : 0.5 }}>
-            {isPending ? "Working…" : step === 8 ? "Confirm booking" : "Continue"}
+            {isPending ? "Working…" : step === 8 ? (paymentsEnabled ? "Confirm & pay" : "Confirm booking") : "Continue"}
           </Button>
         </div>
       ) : (

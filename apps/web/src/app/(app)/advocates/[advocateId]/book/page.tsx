@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import type { AdvocateDto, SituationDto } from "@vidhira/contracts";
 import { apiClient, ApiError } from "@/server/apiClient";
 import { createServerSupabaseClient } from "@/server/supabase";
+import { getPaymentsConfigAction } from "@/server/paymentsActions";
 import { BookingWizard } from "@/components/booking/BookingWizard";
 
 export async function generateMetadata({ params }: { params: Promise<{ advocateId: string }> }): Promise<Metadata> {
@@ -33,7 +34,8 @@ export default async function BookAdvocatePage({ params }: { params: Promise<{ a
     if (err instanceof ApiError && err.status === 404) notFound();
     throw err;
   }
-  const situations = await apiClient.get<SituationDto[]>("/situations");
+  const [situations, paymentsConfig] = await Promise.all([apiClient.get<SituationDto[]>("/situations"), getPaymentsConfigAction()]);
+  const user = { full_name: data.user.user_metadata?.full_name as string | undefined, email: data.user.email };
 
-  return <BookingWizard advocate={advocate} situations={situations} />;
+  return <BookingWizard advocate={advocate} situations={situations} paymentsEnabled={paymentsConfig.enabled} user={user} />;
 }

@@ -24,11 +24,15 @@ export function MatterDetailClient({
   detail,
   matterId,
   threadId,
+  paymentsEnabled,
+  user,
 }: {
   matters: MatterListItemDto[];
   detail: MatterDetailDto;
   matterId: string;
   threadId: string | null;
+  paymentsEnabled: boolean;
+  user: { full_name?: string; email?: string };
 }) {
   const router = useRouter();
   const [tab, setTab] = useState<string>("Timeline");
@@ -112,7 +116,9 @@ export function MatterDetailClient({
       {tab === "Timeline" && <Timeline events={detail.timeline} />}
       {tab === "Tasks & hearings" && <TasksAndHearings matterId={matterId} side={side} tasks={detail.tasks} hearings={detail.hearings} />}
       {tab === "Documents" && <MatterDocuments matter={matter} matterId={matterId} side={side} documents={detail.documents} />}
-      {tab === "Fees" && <Fees matterId={matterId} side={side} feeProposals={detail.feeProposals} invoices={detail.invoices} />}
+      {tab === "Fees" && (
+        <Fees matterId={matterId} side={side} feeProposals={detail.feeProposals} invoices={detail.invoices} paymentsEnabled={paymentsEnabled} user={user} />
+      )}
       {tab === "Access" && side === "client" && <Access matterId={matterId} matter={matter} access={detail.access} />}
     </div>
   );
