@@ -30,7 +30,7 @@ import privacyRoutes from "./routes/privacy.js";
 import caseLawRoutes from "./modules/caselaw/router.js";
 import configRoutes from "./routes/config.js";
 import complaintsRoutes from "./routes/complaints.js";
-import legalAssistantRoutes from "./routes/legalAssistant.js";
+import legalAssistantRoutes from "./modules/assistant/router.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CLIENT_DIST = path.join(__dirname, "../../../frontend/dist");
