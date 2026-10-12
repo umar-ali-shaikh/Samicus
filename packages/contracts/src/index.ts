@@ -12,3 +12,5 @@ export * from "./payments.js";
 export * from "./research.js";
 export * from "./caseLaw.js";
 export * from "./assistant.js";
+export * from "./drafting.js";
+export * from "./contractReview.js";
