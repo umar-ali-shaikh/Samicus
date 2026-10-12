@@ -27,7 +27,7 @@ import askLearnRoutes from "./routes/askLearn.js";
 import adminRoutes, { resubmitRouter } from "./routes/admin.js";
 import founderRoutes from "./routes/founder.js";
 import privacyRoutes from "./routes/privacy.js";
-import indianKanoonRoutes from "./routes/indianKanoon.js";
+import caseLawRoutes from "./modules/caselaw/router.js";
 import configRoutes from "./routes/config.js";
 import complaintsRoutes from "./routes/complaints.js";
 import legalAssistantRoutes from "./routes/legalAssistant.js";
@@ -102,7 +102,7 @@ export function createApp() {
   const api = express.Router();
   api.use(configRoutes);
   api.use(authRoutes);
-  api.use(indianKanoonRoutes);
+  api.use(caseLawRoutes);
   api.use(legalAssistantRoutes);
   api.use(accountsRoutes);
   api.use(situationsRoutes);

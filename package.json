@@ -3,6 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "packageManager": "npm@11.8.0",
   "workspaces": [
     "frontend",
     "apps/api",

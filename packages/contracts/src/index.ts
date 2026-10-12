@@ -9,3 +9,6 @@ export * from "./matters.js";
 export * from "./documents.js";
 export * from "./messages.js";
 export * from "./payments.js";
+export * from "./research.js";
+export * from "./caseLaw.js";
+export * from "./assistant.js";
