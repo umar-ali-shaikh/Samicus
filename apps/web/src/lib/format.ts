@@ -21,6 +21,16 @@ export function fmtDate(d: string | null | undefined): string {
   return new Date(d).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
 }
 
+export function fmtDateLong(d: string | null | undefined): string {
+  if (!d) return "—";
+  return new Date(d).toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" });
+}
+
+// Indian Kanoon's search/document titles are already stripped of highlight markup server-side
+// (services/indianKanoon.js's stripTags) -- this is defence in depth, same as
+// frontend/src/lib/format.js's stripHtmlTags.
+export const stripHtmlTags = (text: string | null | undefined): string => String(text ?? "").replace(/<[^>]+>/g, "").trim();
+
 export const PLATFORM_FEE = 99;
 export const GST_RATE = 0.18;
 /** Same maths as the server (services/matching.js computeFees) -- display only; the server is authoritative. */
