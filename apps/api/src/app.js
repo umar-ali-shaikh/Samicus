@@ -19,7 +19,7 @@ import documentsRoutes from "./modules/documents/router.js";
 import messagesRoutes from "./modules/messages/router.js";
 import servicesRoutes from "./routes/services.js";
 import paymentsRoutes, { paymentWebhook } from "./modules/payments/router.js";
-import researchRoutes from "./routes/research.js";
+import researchRoutes from "./modules/research/router.js";
 import contractReviewRoutes from "./routes/contractReview.js";
 import packRoutes from "./routes/pack.js";
 import draftingRoutes from "./routes/drafting.js";
