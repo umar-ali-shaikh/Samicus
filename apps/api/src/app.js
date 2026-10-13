@@ -21,7 +21,7 @@ import servicesRoutes from "./routes/services.js";
 import paymentsRoutes, { paymentWebhook } from "./modules/payments/router.js";
 import researchRoutes from "./modules/research/router.js";
 import contractReviewRoutes from "./modules/contractreview/router.js";
-import packRoutes from "./routes/pack.js";
+import packRoutes from "./modules/pack/router.js";
 import draftingRoutes from "./modules/drafting/router.js";
 import askLearnRoutes from "./routes/askLearn.js";
 import adminRoutes, { resubmitRouter } from "./routes/admin.js";
