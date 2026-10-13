@@ -17,3 +17,7 @@ export * from "./contractReview.js";
 export * from "./pack.js";
 export * from "./learn.js";
 export * from "./complaints.js";
+export * from "./privacy.js";
+export * from "./services.js";
+export * from "./admin.js";
+export * from "./founder.js";

@@ -140,6 +140,13 @@ export async function insertVerificationCase(advocateId: string, barCouncil: str
   if (error) throw error;
 }
 
+// Ported from admin.js's resubmitRouter -- advocates resubmit after being sent back for more
+// information (see modules/admin/service.ts's decideVerification, which sets this status).
+export async function insertResubmissionCase(advocateId: string): Promise<void> {
+  const { error } = await getSupabase().from("verification_cases").insert({ advocate_id: advocateId, checks: [{ type: "resubmission", status: "pending" }] });
+  if (error) throw error;
+}
+
 export async function markUserAsAdvocate(userId: string): Promise<void> {
   const { error } = await getSupabase().from("users").update({ role: "advocate", kyc_status: "pending" }).eq("id", userId);
   if (error) throw error;

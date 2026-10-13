@@ -105,6 +105,11 @@ router.post("/advocate/requests/:id/decline", requireAuth, requireRole("advocate
   res.status(204).end();
 });
 
+router.post("/advocate/resubmit", requireAuth, requireRole("advocate"), selfAdvocate, async (req, res) => {
+  await service.resubmit(req.advocate!);
+  res.json({ ok: true });
+});
+
 router.get("/advocate/profile", requireAuth, requireRole("advocate"), async (req, res) => {
   const profile = await service.getMyProfile(req.user!.id);
   res.json(advocateDto.parse(profile));

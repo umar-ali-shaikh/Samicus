@@ -175,6 +175,13 @@ export async function loadSelfAdvocate(userId: string): Promise<SelfAdvocate | n
   return { ...row, practice_area_ids: (row.advocate_practice_areas ?? []).map((r) => r.practice_area_id) } as SelfAdvocate;
 }
 
+// Ported from admin.js's resubmitRouter.
+export async function resubmit(advocate: SelfAdvocate): Promise<void> {
+  if (advocate.verification_status !== "documents_requested") throw new HttpError(409, "Nothing to resubmit.");
+  await repo.insertResubmissionCase(advocate.id);
+  await repo.updateAdvocate(advocate.id, { verification_status: "submitted" });
+}
+
 export async function updateAvailability(advocate: SelfAdvocate, input: AvailabilityPatchInput): Promise<AdvocateDto> {
   const patch: Record<string, unknown> = {};
   if (input.availabilityState) {
