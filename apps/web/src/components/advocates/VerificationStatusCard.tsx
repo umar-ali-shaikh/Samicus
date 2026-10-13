@@ -16,10 +16,7 @@ const STATUS: Record<string, [Tone, string]> = {
   rejected: ["danger", "Not approved"],
 };
 
-// Ported from frontend/src/screens/profile/AdvocateForms.jsx's VerificationStatus. The
-// "Resubmit" action (POST /advocate/resubmit) is still served by the not-yet-converted
-// admin.js's resubmitRouter -- calling it here works the same either way since apps/web only
-// talks to apps/api over HTTP.
+// Ported from frontend/src/screens/profile/AdvocateForms.jsx's VerificationStatus.
 export function VerificationStatusCard({ advocate }: { advocate: AdvocateDto }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();

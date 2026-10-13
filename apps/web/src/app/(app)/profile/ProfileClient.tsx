@@ -9,6 +9,7 @@ import { ApplyAdvocateForm, type PracticeAreaOption } from "@/components/advocat
 import { AdvocateProfileEditorForm } from "@/components/advocates/AdvocateProfileEditorForm";
 import { VerificationStatusCard } from "@/components/advocates/VerificationStatusCard";
 import { ComplaintsSection } from "@/components/complaints/ComplaintsSection";
+import { PrivacySection } from "@/components/privacy/PrivacySection";
 
 const cleanName = (n = "") => n.replace(/\s*\([0-9a-f]{6}\)$/, "");
 const inr = (n: number) => `₹${n.toLocaleString("en-IN")}`;
@@ -131,6 +132,7 @@ export function ProfileClient({
       </div>
 
       <ComplaintsSection initialComplaints={myComplaints} />
+      <PrivacySection />
     </div>
   );
 }

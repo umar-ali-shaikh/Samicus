@@ -12,9 +12,9 @@ export const metadata: Metadata = {
 
 /**
  * Ported from frontend/src/screens/Profile.jsx -- scoped to this slice's domain (accounts,
- * members, plans, advocate onboarding/listing) plus complaints (this is the learn/complaints
- * slice). The remaining sections that screen has (personal details, payments, privacy) get
- * added here as their own domains are converted in later Phase 3 slices -- this page grows
+ * members, plans, advocate onboarding/listing) plus complaints and privacy, added as those
+ * domains were converted in their own Phase 3 slices. The one remaining section that screen
+ * has (personal details/payments) is still pending its own domain slice -- this page grows
  * incrementally, it isn't yet "done".
  */
 export default async function ProfilePage() {
