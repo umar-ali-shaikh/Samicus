@@ -23,13 +23,13 @@ import researchRoutes from "./modules/research/router.js";
 import contractReviewRoutes from "./modules/contractreview/router.js";
 import packRoutes from "./modules/pack/router.js";
 import draftingRoutes from "./modules/drafting/router.js";
-import askLearnRoutes from "./routes/askLearn.js";
+import askLearnRoutes from "./modules/learn/router.js";
 import adminRoutes, { resubmitRouter } from "./routes/admin.js";
 import founderRoutes from "./routes/founder.js";
 import privacyRoutes from "./routes/privacy.js";
 import caseLawRoutes from "./modules/caselaw/router.js";
 import configRoutes from "./routes/config.js";
-import complaintsRoutes from "./routes/complaints.js";
+import complaintsRoutes from "./modules/complaints/router.js";
 import legalAssistantRoutes from "./modules/assistant/router.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));

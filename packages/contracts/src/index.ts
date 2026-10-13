@@ -15,3 +15,5 @@ export * from "./assistant.js";
 export * from "./drafting.js";
 export * from "./contractReview.js";
 export * from "./pack.js";
+export * from "./learn.js";
+export * from "./complaints.js";
