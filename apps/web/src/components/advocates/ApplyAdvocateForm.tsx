@@ -19,8 +19,8 @@ export interface PracticeAreaOption {
 }
 
 // Ported from frontend/src/screens/profile/AdvocateForms.jsx's ApplyAdvocate. practiceAreas is
-// fetched server-side (GET /specialisations, still served by the not-yet-converted askLearn.js
-// domain router) and passed in as a prop instead of fetched client-side here.
+// fetched server-side (GET /specialisations) and passed in as a prop instead of fetched
+// client-side here.
 export function ApplyAdvocateForm({ practiceAreas, onDone }: { practiceAreas: PracticeAreaOption[]; onDone: () => void }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
