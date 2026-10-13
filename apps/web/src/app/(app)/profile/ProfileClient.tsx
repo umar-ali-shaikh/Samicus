@@ -1,13 +1,14 @@
 "use client";
 
 import { useActionState, useState, useTransition, type FormEvent } from "react";
-import type { AccountDto, AccountMemberDto, AdvocateDto, PlanDto } from "@vidhira/contracts";
+import type { AccountDto, AccountMemberDto, AdvocateDto, MyComplaintDto, PlanDto } from "@vidhira/contracts";
 import { Card, Button, Callout, Badge, Field, Select, inputStyle } from "@/components/ui";
 import { createAccountAction, addMemberAction, removeMemberAction, getMembersAction } from "@/server/accountsActions";
 import { initialAuthFormState } from "@/server/authActionState";
 import { ApplyAdvocateForm, type PracticeAreaOption } from "@/components/advocates/ApplyAdvocateForm";
 import { AdvocateProfileEditorForm } from "@/components/advocates/AdvocateProfileEditorForm";
 import { VerificationStatusCard } from "@/components/advocates/VerificationStatusCard";
+import { ComplaintsSection } from "@/components/complaints/ComplaintsSection";
 
 const cleanName = (n = "") => n.replace(/\s*\([0-9a-f]{6}\)$/, "");
 const inr = (n: number) => `₹${n.toLocaleString("en-IN")}`;
@@ -20,6 +21,7 @@ export function ProfileClient({
   initialMembers,
   advocate,
   practiceAreas,
+  myComplaints,
 }: {
   accounts: AccountDto[];
   plans: PlanDto[];
@@ -27,6 +29,7 @@ export function ProfileClient({
   initialMembers: AccountMemberDto[];
   advocate: AdvocateDto | null;
   practiceAreas: PracticeAreaOption[];
+  myComplaints: MyComplaintDto[];
 }) {
   const [activeAccountId, setActiveAccountId] = useState(initialAccountId);
   const [showApply, setShowApply] = useState(false);
@@ -126,6 +129,8 @@ export function ProfileClient({
           </Button>
         )}
       </div>
+
+      <ComplaintsSection initialComplaints={myComplaints} />
     </div>
   );
 }
