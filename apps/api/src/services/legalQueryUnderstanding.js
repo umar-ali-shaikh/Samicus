@@ -10,7 +10,7 @@ import { getCache } from "../platform/cache.js";
 const TTL_MS = 60 * 60 * 1000;
 const cache = getCache();
 
-export { OpenRouterAuthError, OpenRouterApiError };
+export { OpenRouterAuthError };
 
 // P3-1: a question trying to manipulate the assistant's own instructions (not a real legal
 // question at all) must never even reach a model call — "the system prompt must never

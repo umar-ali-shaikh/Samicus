@@ -13,7 +13,7 @@ const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 // under-fill arrays like stepByStep/yourRights even when the evidence supports more —
 // observed in production with qwen3.7-flash (which lacks structured_outputs) returning a
 // single stepByStep/yourRights item despite 5 directly-on-point case law sources.
-export const DEFAULT_MODEL = "openai/gpt-oss-20b";
+const DEFAULT_MODEL = "openai/gpt-oss-20b";
 
 // Each a different upstream provider, so a single provider's outage/rate-limit/retired
 // model string doesn't take down the whole chain — see the "only stop early on a genuine

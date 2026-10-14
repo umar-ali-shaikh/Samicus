@@ -50,5 +50,3 @@ export const contractReviewDetailDto = contractReviewListItemDto
   .extend({ notes: z.string().nullable(), findings: z.array(contractReviewFindingDto) })
   .strict();
 export type ContractReviewDetailDto = z.infer<typeof contractReviewDetailDto>;
-
-export const contractReviewCreateResultDto = contractReviewDetailDto;

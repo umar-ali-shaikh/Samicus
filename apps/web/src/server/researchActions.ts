@@ -8,10 +8,8 @@ import type {
   ResearchRetrieveResultDto,
   ResearchChatTurnDto,
   ResearchQueryRowDto,
-  CorpusDocumentListItemDto,
   CorpusDocumentDetailDto,
   CorpusChunkBriefDto,
-  CorpusChunkDetailDto,
   CorpusStatusDto,
 } from "@vidhira/contracts";
 
@@ -74,10 +72,6 @@ export async function askResearchFollowUpAction(queryId: string, question: strin
   return wrap(() => apiClient.post<ResearchChatTurnDto>(`/research/queries/${queryId}/ask`, { question }));
 }
 
-export async function listCorpusDocumentsAction(): Promise<CorpusDocumentListItemDto[]> {
-  return apiClient.get<CorpusDocumentListItemDto[]>("/corpus/documents");
-}
-
 export async function getCorpusDocumentAction(id: string): Promise<CorpusDocumentDetailDto> {
   return apiClient.get<CorpusDocumentDetailDto>(`/corpus/documents/${id}`);
 }
@@ -86,6 +80,3 @@ export async function getCorpusDocumentChunksAction(id: string): Promise<CorpusC
   return apiClient.get<CorpusChunkBriefDto[]>(`/corpus/documents/${id}/chunks`);
 }
 
-export async function getCorpusChunkAction(id: string): Promise<CorpusChunkDetailDto> {
-  return apiClient.get<CorpusChunkDetailDto>(`/corpus/chunks/${id}`);
-}

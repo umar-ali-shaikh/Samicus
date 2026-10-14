@@ -27,12 +27,12 @@ const MAX_HISTORY_CHARS = 6000; // ~1500 tokens
 const MAX_HISTORY_QUESTION_CHARS = 400;
 const MAX_HISTORY_SUMMARY_CHARS = 600;
 
-export interface HistoryEntry {
+interface HistoryEntry {
   question: string;
   summary: string;
 }
 
-export async function loadHistory(userId: string, sessionId: string | undefined): Promise<HistoryEntry[]> {
+async function loadHistory(userId: string, sessionId: string | undefined): Promise<HistoryEntry[]> {
   if (!sessionId) return [];
   let session;
   try {
@@ -73,7 +73,7 @@ export async function loadHistory(userId: string, sessionId: string | undefined)
 }
 
 /** Best-effort: a persistence hiccup shouldn't cost the user the answer they already paid (in IK/OpenRouter calls) to get -- callers fire this without awaiting. */
-export async function persistTurn(userId: string, sessionId: string, question: string, result: AssistantAnswerDto): Promise<void> {
+async function persistTurn(userId: string, sessionId: string, question: string, result: AssistantAnswerDto): Promise<void> {
   let session = await repo.findSessionBySessionId(sessionId);
   if (session && session.user_id && session.user_id !== userId) throw new Error("Session belongs to another user");
   if (!session) session = await repo.insertSession(sessionId, userId);

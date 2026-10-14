@@ -109,7 +109,7 @@ export async function createScheduledOrInstantIntake(user: { id: string }, input
   return (await createIntake(user, input, input.kind)) as unknown as IntakeDto;
 }
 
-export async function loadOwnIntake(user: { id: string }, id: string): Promise<repo.IntakeRow> {
+async function loadOwnIntake(user: { id: string }, id: string): Promise<repo.IntakeRow> {
   const intake = await repo.findIntakeById(id);
   if (!intake) throw new HttpError(404, "Not found");
   await assertAccountMember(user.id, intake.account_id).catch(() => {

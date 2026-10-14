@@ -16,10 +16,11 @@ before(() => {
   originalQdrantUrl = process.env.QDRANT_URL;
   process.env.IK_API_TOKEN = "test-ik-token";
   process.env.OPENROUTER_API_KEY = "test-or-key";
-  // getCache() (platform/cache.js) now transitively loads config/env.js, which dotenv-loads
-  // the real .env -- including a real QDRANT_URL. Force it back off so ragEnabled() stays
-  // false and stage 2 keeps returning zero passages, matching every mock in this file (see
-  // the "QDRANT_URL is never set in this file" comment below).
+  // getCache() (platform/cache.js) now transitively loads config/env.js, which reads process.env
+  // as populated by node's own --env-file-if-exists flag at startup -- including a real
+  // QDRANT_URL from the real .env. Force it back off so ragEnabled() stays false and stage 2
+  // keeps returning zero passages, matching every mock in this file (see the "QDRANT_URL is
+  // never set in this file" comment below).
   delete process.env.QDRANT_URL;
 });
 

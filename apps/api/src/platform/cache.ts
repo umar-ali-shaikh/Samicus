@@ -128,8 +128,3 @@ export function getCache(): Cache {
   }
   return shared;
 }
-
-/** Test-only: forces the next getCache() to re-select an implementation. */
-export function __resetCacheForTests(): void {
-  shared = undefined;
-}

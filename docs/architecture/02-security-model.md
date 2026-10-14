@@ -143,9 +143,20 @@ or an AI prompt that might contain client matter facts.
   `apps/web/e2e/README.md`, not silently suppressed.
 - **No email/SMS notifications** — in-app only (messages poll). Not a security gap, but relevant
   to incident response: a banned/compromised user won't be notified out-of-band.
-- `knip` still reports ~50 unused exports / 9 unused exported types across `apps/api`/`apps/web`
-  (`npx knip` at the repo root) — module-private helpers exported out of habit, not dead code with
-  a security implication. Left as a tidiness backlog item, not actioned here. `pino-pretty` in
-  both `apps/api` and `apps/worker` is a `knip` **false positive** — loaded by `pino` via a string
-  transport target (`{ target: "pino-pretty" }`) that static import analysis can't see; it is
-  genuinely used in dev and must not be removed.
+- `npx knip` at the repo root is clean (`knip.json` ignores `pino-pretty` specifically — a
+  confirmed **false positive**, loaded by `pino` via a string transport target
+  (`{ target: "pino-pretty" }`) that static import analysis can't see; it is genuinely used in
+  dev and must not be removed). Getting here from ~50 unused-export findings surfaced two real
+  issues, not just tidiness: `apps/api/src/services/analytics/index.js` had 8 full functions
+  (`overview`/`demand`/.../`ai`) + a `TABS` dispatch table that were **completely orphaned**
+  after `modules/founder/service.ts` ported its own fresh copies of the same logic — deleted,
+  keeping only `complaints()` (still genuinely shared). Separately,
+  `services/aiCaseLawAnswer.js`'s own cache-reset helper was written with clear test-isolation
+  intent (its own comment: "so tests don't leak state into each other") but never actually
+  wired into `caselaw.test.ts` — wired in rather than deleted. Everything else was either a
+  module-private helper that only needed its `export` keyword removed (used internally via a
+  same-file dispatch table or a handful of call sites, never imported elsewhere), or a second,
+  genuinely dead duplicate export (`eslint.base.js`'s unused `default` — every real consumer
+  imports the named `baseConfig`; `contractReviewCreateResultDto` — never imported anywhere,
+  `router.ts` reuses `contractReviewDetailDto` directly for both its create and detail
+  responses).

@@ -10,7 +10,7 @@ const TAVILY_URL = "https://api.tavily.com/search";
 
 // Official/authoritative Indian legal and government sources only — never a random
 // blog, forum, or law-firm marketing page. Override per-call if a narrower set fits.
-export const TRUSTED_DOMAINS = [
+const TRUSTED_DOMAINS = [
   "indiacode.nic.in",
   "legislative.gov.in",
   "sci.gov.in",
@@ -20,14 +20,14 @@ export const TRUSTED_DOMAINS = [
   "indiankanoon.org",
 ];
 
-export class TavilyAuthError extends Error {
+class TavilyAuthError extends Error {
   constructor(message = "Web search is unavailable: invalid or missing TAVILY_API_KEY") {
     super(message);
     this.name = "TavilyAuthError";
   }
 }
 
-export class TavilyApiError extends Error {
+class TavilyApiError extends Error {
   constructor(message, status) {
     super(message);
     this.name = "TavilyApiError";

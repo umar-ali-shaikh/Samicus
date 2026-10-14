@@ -31,8 +31,8 @@ export function fmtDateLong(d: string | null | undefined): string {
 // frontend/src/lib/format.js's stripHtmlTags.
 export const stripHtmlTags = (text: string | null | undefined): string => String(text ?? "").replace(/<[^>]+>/g, "").trim();
 
-export const PLATFORM_FEE = 99;
-export const GST_RATE = 0.18;
+const PLATFORM_FEE = 99;
+const GST_RATE = 0.18;
 /** Same maths as the server (services/matching.js computeFees) -- display only; the server is authoritative. */
 export function computeFees(fee: number | null | undefined): { fee: number; platformFee: number; gst: number; total: number } {
   const f = Number(fee) || 0;
@@ -63,7 +63,7 @@ export const STATES = [
 
 export const URGENCY: Record<string, string> = { today: "Today", "48h": "Within 48h", week: "This week", deadline: "Has a deadline" };
 
-export const STAGES = ["intake", "lawyer_matched", "consultation", "engagement_confirmed", "action_in_progress", "resolution"];
+const STAGES = ["intake", "lawyer_matched", "consultation", "engagement_confirmed", "action_in_progress", "resolution"];
 export const STAGE_LABEL: Record<string, string> = {
   intake: "Intake",
   lawyer_matched: "Lawyer matched",

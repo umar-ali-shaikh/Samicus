@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import { createFakeSupabase } from "../../test/fakeSupabase.js";
 import { mockJwtVerification } from "../../test/mockAuth.js";
 import { __resetCacheForTests } from "../../services/indianKanoon.js";
+import { __resetCacheForTests as resetAiAnswerCache } from "../../services/aiCaseLawAnswer.js";
 
 const ALICE = { id: "auth-alice", email: "alice@example.com", email_confirmed_at: "2026-01-01T00:00:00Z", user_metadata: { full_name: "Alice Rao" }, app_metadata: { provider: "email" } };
 const AUTH_USERS = { "tok-alice": ALICE };
@@ -42,9 +43,13 @@ before(async () => {
 });
 after(() => server.close());
 
-beforeEach(() => {
+beforeEach(async () => {
   process.env.IK_API_TOKEN = "ik-test";
   __resetCacheForTests();
+  // GET /case-law/ai-answer shares aiCaseLawAnswer.js's own cache, keyed by
+  // question+filters+topN -- reset it too so a repeated question across tests can't return a
+  // stale cached answer instead of exercising this run's own mocked fetch.
+  await resetAiAnswerCache();
 });
 
 async function call(path: string, token?: string): Promise<{ status: number; body: any }> {

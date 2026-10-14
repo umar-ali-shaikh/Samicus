@@ -61,7 +61,7 @@ const SIGNAL_LABELS = {
   feeBand: () => "fee fits within your stated band",
 };
 
-export function scoreAdvocate(advocate, intake) {
+function scoreAdvocate(advocate, intake) {
   if (!passesHardFilters(advocate, intake)) return null;
 
   const breakdown = {

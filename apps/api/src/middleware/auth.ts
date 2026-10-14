@@ -29,7 +29,7 @@ import { getSupabase } from "../config/db.js";
 import { provisionUser, type AppUser, type SupabaseAuthUser } from "../services/auth/provision.js";
 import { verifySupabaseAccessToken, JwtVerificationError } from "../platform/jwt.js";
 
-export interface AuthUserShape {
+interface AuthUserShape {
   id: string;
   email?: string | null;
   email_confirmed_at?: string | null;
@@ -66,7 +66,7 @@ function fail(res: Response, kind: AuthErrorKind) {
   return res.status(status).json(body);
 }
 
-export function bearerToken(req: Request): string | null {
+function bearerToken(req: Request): string | null {
   const header = req.headers.authorization || "";
   return header.startsWith("Bearer ") ? header.slice(7).trim() : null;
 }

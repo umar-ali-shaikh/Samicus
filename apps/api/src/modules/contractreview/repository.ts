@@ -96,7 +96,7 @@ export async function listReviewsForAccounts(accountIds: string[]): Promise<Cont
   return data as unknown as ContractReviewListRow[];
 }
 
-export interface FindingRow {
+interface FindingRow {
   id: string;
   contract_review_id: string;
   position: number;

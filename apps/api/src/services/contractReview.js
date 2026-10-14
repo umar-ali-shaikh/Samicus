@@ -31,7 +31,7 @@ const ResultSchema = z.object({
 // clause patterns are one-sided enough (per a legal QA pass) that they must ALWAYS be
 // flagged, whether or not the baseline-matching/LLM pipeline caught them. Checked against
 // every segment regardless of whether it matched a baseline clause.
-export const RED_FLAG_RULES = [
+const RED_FLAG_RULES = [
   {
     id: "deposit_forfeiture_discretion",
     title: "Deposit forfeiture at sole discretion",

@@ -26,12 +26,3 @@ export function getRedisClient(): Redis | null {
   client.on("error", (err: Error) => console.error("Redis connection error:", err.message));
   return client;
 }
-
-export function redisConfigured(): boolean {
-  return Boolean(env.REDIS_URL);
-}
-
-/** Test-only: forces the next getRedisClient() call to re-evaluate REDIS_URL. */
-export function __resetRedisClientForTests(): void {
-  client = undefined;
-}

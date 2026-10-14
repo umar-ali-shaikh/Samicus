@@ -2,7 +2,7 @@
 import type { ReactNode } from "react";
 import { Card } from "../ui";
 
-export function Brand({ light }: { light?: boolean }) {
+function Brand({ light }: { light?: boolean }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
       <div

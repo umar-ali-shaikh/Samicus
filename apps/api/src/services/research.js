@@ -5,7 +5,6 @@
 //   4. the "answer" is EXTRACTIVE: every segment is a retrieved passage's own text, so every
 //      citation resolves by construction (no model can invent one)
 //   5. paragraph-class gate: a party's *arguments* can be shown but never cited as authority.
-import { getSupabase } from "../config/db.js";
 import { retrievePassages, lexicalSearch, minScore } from "@vidhira/rag/retrieve";
 import { ragEnabled, ingestIndianKanoonDoc } from "@vidhira/rag/ingest";
 import { chatCompletion, isOpenRouterConfigured } from "./openRouter.js";
@@ -15,7 +14,7 @@ import { rankRelevantDocs } from "./relevanceRanking.js";
 import { rankWithScores } from "../utils/tfidf.js";
 import { expandLegalQuery, extractLexicalTerms, extractCaseNameTerms, detectCourtIntent } from "../utils/legalAbbrev.js";
 
-export class KnowledgeBaseUnavailableError extends Error {
+class KnowledgeBaseUnavailableError extends Error {
   constructor() {
     super("The research library is not configured on this deployment (needs QDRANT_URL and OPENROUTER_API_KEY).");
     this.status = 503;
@@ -560,12 +559,6 @@ export async function detectLanguage(question) {
   }
 }
 
-export async function resolveCitation(chunkId) {
-  const { data, error } = await getSupabase().from("corpus_chunks").select("*, document:corpus_documents(*)").eq("id", chunkId).maybeSingle();
-  if (error) throw error;
-  return data;
-}
-
 const FOLLOWUP_SYSTEM_PROMPT = `You answer a follow-up question about a Vidhira research report. You will be given the SAME numbered passages the report was built from (never a new search — this is a closed-book question over evidence already gathered) and, if any, earlier Q&A in this same follow-up conversation.
 
 Rules:
@@ -623,7 +616,7 @@ export async function answerFollowUp(question, segments, { language, priorTurns 
 // trusting the model's own numbering.
 // ---------------------------------------------------------------------------
 
-export const NOTE_SECTION_DEFS = [
+const NOTE_SECTION_DEFS = [
   { id: "s1", title: "Short conclusion" },
   { id: "s2", title: "Applicable law" },
   { id: "s3", title: "Relevant statutory provisions" },

@@ -2,8 +2,8 @@
 // the API hands out short-lived signed URLs after an access check.
 import { getSupabase } from "../config/db.js";
 
-export const DOCUMENT_BUCKET = process.env.SUPABASE_DOCUMENT_BUCKET || "documents";
-export const SIGNED_URL_TTL_SECONDS = 60;
+const DOCUMENT_BUCKET = process.env.SUPABASE_DOCUMENT_BUCKET || "documents";
+const SIGNED_URL_TTL_SECONDS = 60;
 
 export async function ensureDocumentBucket() {
   const storage = getSupabase().storage;

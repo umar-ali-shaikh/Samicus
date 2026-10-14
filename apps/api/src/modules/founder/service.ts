@@ -50,7 +50,7 @@ async function platformFeesPaid(): Promise<number> {
   return sum(consults.map((c) => c.fee_platform)) + sum(lines.map((l) => l.amount)) + serviceOrders * 99;
 }
 
-export async function overview(): Promise<OverviewDto> {
+async function overview(): Promise<OverviewDto> {
   const [
     requestsToday, requestsWeek, requestsPrevWeek, urgent30, assistantTurns30, noEvidence30, researchQueries30,
     users, activeUsers30, businessAccounts, verifiedAdvocates, openMatters, contractReviews, drafts, packScans,
@@ -119,7 +119,7 @@ export async function overview(): Promise<OverviewDto> {
   };
 }
 
-export async function demand(): Promise<DemandDto> {
+async function demand(): Promise<DemandDto> {
   const intakes = await repo.rows<{ created_at: string; city: string | null; account: { type: string } | null }>(
     "intake_requests",
     "created_at, city, account:accounts(type)",
@@ -162,7 +162,7 @@ export async function demand(): Promise<DemandDto> {
   };
 }
 
-export async function services(): Promise<ServicePerformanceDto> {
+async function services(): Promise<ServicePerformanceDto> {
   const [consultations, orders, drafts, reviews, scans, turns, serviceDefs] = await Promise.all([
     repo.rows<{ state: string; fee_total: number; paid_at: string | null; csat_rating: number | null }>("consultations", "state, fee_total, paid_at, csat_rating"),
     repo.rows<{ service_id: string; status: string; paid_at: string | null; created_at: string }>("service_orders", "service_id, status, paid_at, created_at"),
@@ -194,7 +194,7 @@ export async function services(): Promise<ServicePerformanceDto> {
   return { rows: out };
 }
 
-export async function funnel(): Promise<FunnelDto> {
+async function funnel(): Promise<FunnelDto> {
   const [users, intakes, consultations, orders, paid] = await Promise.all([
     repo.count("users"),
     repo.rows<{ created_by: string }>("intake_requests", "created_by"),
@@ -221,7 +221,7 @@ export async function funnel(): Promise<FunnelDto> {
   };
 }
 
-export async function revenue(): Promise<RevenueDto> {
+async function revenue(): Promise<RevenueDto> {
   const [paid, platform, dueInvoices] = await Promise.all([
     paidOrders(),
     platformFeesPaid(),
@@ -254,7 +254,7 @@ export async function revenue(): Promise<RevenueDto> {
   };
 }
 
-export async function corporate(): Promise<CorporateDto> {
+async function corporate(): Promise<CorporateDto> {
   const accounts = await repo.rows<{ id: string; display_name: string; type: string; seat_limit: number; plan: { name: string } | null }>(
     "accounts",
     "id, display_name, type, seat_limit, gstin, created_at, plan:plans(name)",
@@ -290,7 +290,7 @@ export async function corporate(): Promise<CorporateDto> {
   };
 }
 
-export async function advocates(): Promise<AdvocatePerformanceDto> {
+async function advocates(): Promise<AdvocatePerformanceDto> {
   const advs = await repo.rows<{ id: string; availability_state: string; verification_status: string; user: { full_name: string } | null }>(
     "advocates",
     "id, availability_state, verification_status, user:users(full_name)",
@@ -330,7 +330,7 @@ export async function advocates(): Promise<AdvocatePerformanceDto> {
   };
 }
 
-export async function ai(): Promise<AiPerformanceDto> {
+async function ai(): Promise<AiPerformanceDto> {
   const [turns, researchTotal, researchNotFound, kb] = await Promise.all([
     repo.rows<{ question: string; created_at: string; outcome: string | null; emergency: { flag?: boolean } | null; understanding: { topic?: string } | null }>(
       "legal_assistant_turns",

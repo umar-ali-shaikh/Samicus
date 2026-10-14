@@ -11,7 +11,7 @@ import { DOCUMENT_KINDS } from "@vidhira/contracts";
 import type { DocumentDto, DocumentDownloadDto, DocumentListItemDto, ShareDocumentInput } from "@vidhira/contracts";
 import * as repo from "./repository.js";
 
-export const ALLOWED_TYPES = new Map<string, string[]>([
+const ALLOWED_TYPES = new Map<string, string[]>([
   ["application/pdf", [".pdf"]],
   ["application/msword", [".doc"]],
   ["application/vnd.openxmlformats-officedocument.wordprocessingml.document", [".docx"]],
@@ -20,7 +20,7 @@ export const ALLOWED_TYPES = new Map<string, string[]>([
   ["image/png", [".png"]],
 ]);
 
-export function safeName(name: string): string {
+function safeName(name: string): string {
   return path.basename(name).replace(/[^\w.\- ]+/g, "_").slice(0, 120) || "document";
 }
 

@@ -7,12 +7,12 @@
 import type { NextFunction, Request, RequestHandler, Response } from "express";
 import { getSupabase } from "../../config/db.js";
 
-export interface AccountMembership {
+interface AccountMembership {
   id: string;
   role: string;
 }
 
-export async function loadAccountMembership(userId: string, accountId: string): Promise<AccountMembership | null> {
+async function loadAccountMembership(userId: string, accountId: string): Promise<AccountMembership | null> {
   const { data, error } = await getSupabase()
     .from("account_members")
     .select("*")

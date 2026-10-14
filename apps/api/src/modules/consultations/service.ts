@@ -18,15 +18,15 @@ import type {
 } from "@vidhira/contracts";
 import * as repo from "./repository.js";
 
-export type Side = "client" | "advocate";
+type Side = "client" | "advocate";
 
-export interface ConsultationContext {
+interface ConsultationContext {
   consultation: repo.ConsultationRow;
   side: Side;
   advocate: Advocate | null;
 }
 
-export async function loadConsultationForUser(user: { id: string }, id: string): Promise<ConsultationContext> {
+async function loadConsultationForUser(user: { id: string }, id: string): Promise<ConsultationContext> {
   const consultation = await repo.findConsultationById(id);
   if (!consultation) throw new HttpError(404, "Not found");
 

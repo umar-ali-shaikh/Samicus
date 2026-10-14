@@ -31,7 +31,7 @@ const ACT_ALIASES = [
 // everyday questions are hardcoded here — a targeted aid for retrieval recall and for
 // prompting the AI Legal Assistant to always name the current section alongside the old
 // one, not a substitute for a full section-mapping table.
-export const SECTION_CROSSWALK = {
+const SECTION_CROSSWALK = {
   "crpc:41": [["bnss", "35"]], // arrest without warrant
   "crpc:50": [["bnss", "47"]], // right to know grounds of arrest
   "crpc:57": [["bnss", "58"]], // produced before magistrate within 24 hours
@@ -95,7 +95,7 @@ export function citesOnlyRepealedCode(text) {
 // CODE_CROSSWALK_REFERENCE above. A model naming "the Payment of Wages Act" with no year,
 // or the wrong year, is a common small-model failure mode that's cheap to catch
 // deterministically instead of hoping the model remembers correctly.
-export const ACT_YEARS = {
+const ACT_YEARS = {
   "payment of wages act": 1936,
   "code on wages": 2019,
   "industrial disputes act": 1947,
