@@ -75,7 +75,10 @@ function stubFetch(extra = () => null) {
 const realFetch = globalThis.fetch;
 const env = {};
 before(() => {
-  for (const [k, v] of Object.entries({ QDRANT_URL: "http://qdrant.test", RAG_MIN_SCORE: "0.15", RAG_SKIP_LIVE_SEARCH_SCORE: "0.2", RAG_SKIP_LIVE_MIN_PASSAGES: "1", IK_API_TOKEN: "ik", OPENROUTER_API_KEY: "or", TAVILY_API_KEY: "tvly" })) {
+  // QDRANT_COLLECTION pinned explicitly too: getCache() (platform/cache.js) now transitively
+  // loads config/env.js, which dotenv-loads the real .env -- whose QDRANT_COLLECTION is NOT
+  // the "vidhira_legal" default this file's qdrantCollections fake is keyed on.
+  for (const [k, v] of Object.entries({ QDRANT_URL: "http://qdrant.test", QDRANT_COLLECTION: "vidhira_legal", RAG_MIN_SCORE: "0.15", RAG_SKIP_LIVE_SEARCH_SCORE: "0.2", RAG_SKIP_LIVE_MIN_PASSAGES: "1", IK_API_TOKEN: "ik", OPENROUTER_API_KEY: "or", TAVILY_API_KEY: "tvly" })) {
     env[k] = process.env[k];
     process.env[k] = v;
   }

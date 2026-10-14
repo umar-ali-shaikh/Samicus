@@ -1,13 +1,14 @@
 /**
  * Rate-limit store interface, shaped to match express-rate-limit's Store contract
- * (increment/decrement/resetKey) so a Redis-backed store (rate-limit-redis + ioredis) can be
- * swapped in for prod later without touching call sites. NOT YET WIRED IN -- every route still
- * uses express-rate-limit's default in-memory store directly (see docs/architecture/00-inventory.md
- * risk list for which routes are missing dedicated limiters entirely).
- *
- * Enabling real Redis requires explicit sign-off (docs/MASTER-PROMPT.md STOP conditions) --
- * this file only defines the seam, it does not add the ioredis/rate-limit-redis dependency.
+ * (increment/decrement/resetKey). Redis is now approved (Phase 4 sign-off): createRateLimiter()
+ * below is what every router should call instead of express-rate-limit's rateLimit() directly
+ * -- it picks a real RedisStore (rate-limit-redis, shared across horizontally-scaled instances)
+ * when REDIS_URL is configured, and falls back to express-rate-limit's own built-in in-memory
+ * store otherwise (same per-instance behaviour as before Redis was introduced).
  */
+import { rateLimit, type Options as RateLimitOptions } from "express-rate-limit";
+import { RedisStore, type SendCommandFn } from "rate-limit-redis";
+import { getRedisClient } from "./redis.js";
 
 export interface RateLimitHit {
   totalHits: number;
@@ -48,4 +49,21 @@ export function createMemoryRateLimitStore(windowMs: number): RateLimitStore {
       hits.delete(key);
     },
   };
+}
+
+/**
+ * Every router's rate limiter should be built with this instead of calling express-rate-limit's
+ * rateLimit() directly, so the Redis/memory choice is made in exactly one place. `prefix`
+ * namespaces this limiter's keys in Redis (shared across all instances) -- give each call site
+ * a distinct one (e.g. "rl:login:", "rl:draft-review:") so unrelated limiters never collide.
+ */
+export function createRateLimiter(prefix: string, options: Partial<RateLimitOptions>): ReturnType<typeof rateLimit> {
+  const client = getRedisClient();
+  // ioredis's .call() is typed with overloads keyed to specific known commands, which doesn't
+  // line up with rate-limit-redis's generic "any raw command" SendCommandFn -- both sides are
+  // correct at runtime (this is the library's own documented integration pattern), the mismatch
+  // is purely in how precisely each package's types model a raw Redis command.
+  const sendCommand = client ? ((...args: string[]) => client.call(args[0] as string, ...args.slice(1)) as ReturnType<SendCommandFn>) : undefined;
+  const store = sendCommand ? new RedisStore({ prefix, sendCommand }) : undefined;
+  return rateLimit({ ...options, ...(store ? { store } : {}) } as RateLimitOptions);
 }

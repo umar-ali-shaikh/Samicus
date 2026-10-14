@@ -4,17 +4,17 @@
  * Zod-parsed (.strict()) before being sent.
  */
 import { Router } from "express";
-import rateLimit from "express-rate-limit";
 import { requireAuth } from "../../middleware/auth.js";
 import { HttpError } from "../../services/access.js";
 import { askAssistantSchema, assistantAnswerDto, assistantSessionDto, SESSION_ID_RE } from "@vidhira/contracts";
+import { createRateLimiter } from "../../platform/rateLimit.js";
 import * as service from "./service.js";
 
 const router = Router();
 
 // Per signed-in user (the route is behind requireAuth) -- every hit spends real IK +
 // OpenRouter money, so this is tighter than the global per-IP backstop.
-const askLimiter = rateLimit({
+const askLimiter = createRateLimiter("rl:assistant-ask:", {
   windowMs: 15 * 60 * 1000,
   limit: 20,
   keyGenerator: (req) => req.user?.id || req.ip || "unknown",

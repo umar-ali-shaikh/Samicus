@@ -1,8 +1,8 @@
 import { Router } from "express";
-import rateLimit from "express-rate-limit";
 import { z } from "zod";
 import { getSupabase } from "../config/db.js";
 import { authenticate, requireAuth, AUTH_ERRORS } from "../middleware/auth.js";
+import { createRateLimiter } from "../platform/rateLimit.js";
 
 const router = Router();
 
@@ -57,7 +57,7 @@ router.get("/me", authenticate({ allowUnverified: true }), async (req, res) => {
   });
 });
 
-const profileLimiter = rateLimit({ windowMs: 60 * 1000, limit: 20, standardHeaders: true, legacyHeaders: false });
+const profileLimiter = createRateLimiter("rl:profile:", { windowMs: 60 * 1000, limit: 20, standardHeaders: true, legacyHeaders: false });
 
 router.patch("/me", profileLimiter, requireAuth, async (req, res) => {
   const { fullName, city, state, preferredLanguage, phone } = req.body || {};

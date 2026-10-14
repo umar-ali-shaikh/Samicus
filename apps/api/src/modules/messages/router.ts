@@ -4,11 +4,11 @@
  * (.strict()) before being sent.
  */
 import { Router } from "express";
-import rateLimit from "express-rate-limit";
 import { requireAuth } from "../../middleware/auth.js";
 import { HttpError } from "../../services/access.js";
 import { sendMessageSchema, threadListItemDto, messageDto } from "@vidhira/contracts";
 import { z } from "zod";
+import { createRateLimiter } from "../../platform/rateLimit.js";
 import * as service from "./service.js";
 
 const router = Router();
@@ -29,7 +29,7 @@ router.get("/threads/:id/messages", requireAuth, async (req, res) => {
   res.json(messages.map((m) => messageDto.parse(m)));
 });
 
-const sendLimiter = rateLimit({
+const sendLimiter = createRateLimiter("rl:messages-send:", {
   windowMs: 60 * 1000,
   limit: 30,
   keyGenerator: (req) => req.user?.id || req.ip!,

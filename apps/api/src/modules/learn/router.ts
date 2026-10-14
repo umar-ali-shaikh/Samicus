@@ -4,7 +4,6 @@
  * (.strict()) before being sent.
  */
 import { Router } from "express";
-import rateLimit from "express-rate-limit";
 import { requireAuth, requireRole } from "../../middleware/auth.js";
 import { HttpError } from "../../services/access.js";
 import {
@@ -22,6 +21,7 @@ import {
   moderationQueueDto,
 } from "@vidhira/contracts";
 import { z } from "zod";
+import { createRateLimiter } from "../../platform/rateLimit.js";
 import * as service from "./service.js";
 
 const router = Router();
@@ -32,7 +32,7 @@ function parse<T>(schema: z.ZodType<T>, body: unknown): T {
   return result.data;
 }
 
-const questionLimiter = rateLimit({
+const questionLimiter = createRateLimiter("rl:learn-questions:", {
   windowMs: 60 * 60 * 1000,
   limit: 5,
   keyGenerator: (req) => req.user?.id || req.ip || "unknown",

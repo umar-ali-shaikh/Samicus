@@ -3,11 +3,11 @@
 // the model can cite real cases instead of inventing them.
 import { search } from "./indianKanoon.js";
 import { chatCompletion, OpenRouterAuthError, OpenRouterApiError } from "./openRouter.js";
-import { createCache } from "../utils/cache.js";
+import { getCache } from "../platform/cache.js";
 
 const ANSWER_TTL_MS = 60 * 60 * 1000; // 1h — matches search's TTL, same staleness tradeoff
 
-const cache = createCache();
+const cache = getCache();
 
 export { OpenRouterAuthError, OpenRouterApiError };
 
@@ -54,6 +54,6 @@ export async function answerCaseLawQuestion(question, filters = {}, topN = 5) {
 }
 
 // Test-only: clears the module-level cache so tests don't leak state into each other.
-export function __resetCacheForTests() {
-  cache.clear();
+export async function __resetCacheForTests() {
+  await cache.clear();
 }

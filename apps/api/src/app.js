@@ -4,7 +4,7 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import morgan from "morgan";
-import rateLimit from "express-rate-limit";
+import { createRateLimiter } from "./platform/rateLimit.js";
 import { HttpError } from "./services/access.js";
 import { getSupabase } from "./config/db.js";
 
@@ -96,7 +96,7 @@ export function createApp() {
   // Coarse per-IP backstop; individual routes add tighter per-user limits where money or abuse is at stake.
   app.use(
     "/api",
-    rateLimit({ windowMs: 60 * 1000, limit: 300, standardHeaders: true, legacyHeaders: false, message: { error: "Too many requests — slow down." } })
+    createRateLimiter("rl:global:", { windowMs: 60 * 1000, limit: 300, standardHeaders: true, legacyHeaders: false, message: { error: "Too many requests — slow down." } })
   );
 
   const api = express.Router();

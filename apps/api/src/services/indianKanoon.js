@@ -2,7 +2,7 @@
 // costs real money per call — always goes through the cache in this file, and callers
 // must never bypass it by hitting BASE_URL directly.
 import { buildFormInput } from "./indianKanoonFilters.js";
-import { createCache } from "../utils/cache.js";
+import { getCache } from "../platform/cache.js";
 import { sanitizeJudgmentHtml } from "../utils/sanitizeHtml.js";
 import { increment } from "../utils/callCounter.js";
 import { stripTags } from "./rag/chunk.js";
@@ -17,7 +17,7 @@ const SEARCH_TTL_MS = 60 * 60 * 1000; // 1h — search/docfragment
 const MAX_RETRIES = 2;
 const RETRY_BASE_DELAY_MS = 300;
 
-const cache = createCache();
+const cache = getCache();
 
 export class IndianKanoonAuthError extends Error {
   constructor(message = "Indian Kanoon API rejected the request: invalid or missing API token") {
@@ -217,6 +217,6 @@ export async function getMetainfo(docid) {
 }
 
 // Test-only: clears the module-level cache so tests don't leak state into each other.
-export function __resetCacheForTests() {
-  cache.clear();
+export async function __resetCacheForTests() {
+  await cache.clear();
 }

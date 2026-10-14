@@ -5,10 +5,10 @@
 // "Mere landlord ne security deposit return nahi kiya, kya kar sakta hoon?" needs to
 // become something like "landlord security deposit not returned tenant remedy" first.
 import { chatCompletion, OpenRouterAuthError, OpenRouterApiError } from "./openRouter.js";
-import { createCache } from "../utils/cache.js";
+import { getCache } from "../platform/cache.js";
 
 const TTL_MS = 60 * 60 * 1000;
-const cache = createCache();
+const cache = getCache();
 
 export { OpenRouterAuthError, OpenRouterApiError };
 
@@ -308,6 +308,6 @@ export async function understandQuery(question, history = []) {
 }
 
 // Test-only: clears the module-level cache so tests don't leak state into each other.
-export function __resetCacheForTests() {
-  cache.clear();
+export async function __resetCacheForTests() {
+  await cache.clear();
 }

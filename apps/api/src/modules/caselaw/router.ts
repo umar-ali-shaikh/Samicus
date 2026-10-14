@@ -4,17 +4,17 @@
  * (.strict() where the shape is fully known) before being sent.
  */
 import { Router } from "express";
-import rateLimit from "express-rate-limit";
 import { requireAuth } from "../../middleware/auth.js";
 import { HttpError } from "../../services/access.js";
 import { caseLawSearchResultDto, caseLawAiAnswerDto, type CaseLawFiltersInput } from "@vidhira/contracts";
+import { createRateLimiter } from "../../platform/rateLimit.js";
 import * as service from "./service.js";
 
 const router = Router();
 
 // Every Indian Kanoon call costs real money, so the whole router sits behind sign-in and a
 // tighter per-user limit than the global per-IP backstop.
-const caseLawLimiter = rateLimit({
+const caseLawLimiter = createRateLimiter("rl:case-law:", {
   windowMs: 15 * 60 * 1000,
   limit: 60,
   keyGenerator: (req) => req.user?.id || req.ip || "unknown",

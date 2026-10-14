@@ -33,7 +33,7 @@ import { z } from "zod";
 import { search, getDocument, getDocumentRaw, getFragment } from "./indianKanoon.js";
 import { understandQuery, looksLikePromptInjection } from "./legalQueryUnderstanding.js";
 import { chatCompletion, chatCompletionWithMeta, OpenRouterAuthError, OpenRouterApiError } from "./openRouter.js";
-import { createCache } from "../utils/cache.js";
+import { getCache } from "../platform/cache.js";
 import { rankRelevantDocs } from "./relevanceRanking.js";
 import { ragEnabled, ingestIndianKanoonDoc, ingestWebDoc } from "./rag/ingest.js";
 import { retrievePassages } from "./rag/retrieve.js";
@@ -56,7 +56,7 @@ const DEFAULT_TOP_N = 5;
 // show up even when it wouldn't rank in the general judgment-heavy result set.
 const LAWS_TOP_N = 2;
 
-const cache = createCache();
+const cache = getCache();
 
 export const DISCLAIMER =
   "This is general legal information to help you understand your situation, generated only from the Indian Kanoon sources listed below — it is not legal advice from a lawyer, it does not create a lawyer-client relationship, and it cannot guarantee any outcome. For anything serious, urgent, criminal, financial, family, property, or litigation-related, please consult a qualified Indian lawyer.";
@@ -1309,6 +1309,6 @@ export async function answerLegalQuestion(question, filters = {}, topN = DEFAULT
 }
 
 // Test-only: clears the module-level cache so tests don't leak state into each other.
-export function __resetCacheForTests() {
-  cache.clear();
+export async function __resetCacheForTests() {
+  await cache.clear();
 }

@@ -8,17 +8,26 @@ import { __resetCacheForTests as resetQuCache } from "./legalQueryUnderstanding.
 // Indian Kanoon or OpenRouter for real (both cost money).
 let originalIkToken;
 let originalOrKey;
+let originalQdrantUrl;
 
 before(() => {
   originalIkToken = process.env.IK_API_TOKEN;
   originalOrKey = process.env.OPENROUTER_API_KEY;
+  originalQdrantUrl = process.env.QDRANT_URL;
   process.env.IK_API_TOKEN = "test-ik-token";
   process.env.OPENROUTER_API_KEY = "test-or-key";
+  // getCache() (platform/cache.js) now transitively loads config/env.js, which dotenv-loads
+  // the real .env -- including a real QDRANT_URL. Force it back off so ragEnabled() stays
+  // false and stage 2 keeps returning zero passages, matching every mock in this file (see
+  // the "QDRANT_URL is never set in this file" comment below).
+  delete process.env.QDRANT_URL;
 });
 
 after(() => {
   process.env.IK_API_TOKEN = originalIkToken;
   process.env.OPENROUTER_API_KEY = originalOrKey;
+  if (originalQdrantUrl === undefined) delete process.env.QDRANT_URL;
+  else process.env.QDRANT_URL = originalQdrantUrl;
 });
 
 beforeEach(() => {

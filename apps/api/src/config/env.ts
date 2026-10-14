@@ -51,6 +51,18 @@ const schema = z.object({
   RAZORPAY_WEBHOOK_SECRET: z.string().optional(),
 
   VIDEO_BASE_URL: z.string().url().default("https://meet.jit.si"),
+
+  // Optional: shared state across horizontally-scaled instances (platform/cache.ts,
+  // platform/rateLimit.ts). Unset -> each instance falls back to its own in-process Map, same
+  // behaviour as before Redis was introduced.
+  REDIS_URL: z.string().optional(),
+
+  // Optional: direct Postgres connection for pg-boss (apps/worker's job queue -- apps/api only
+  // enqueues). Distinct from SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY, which talk to Supabase's
+  // REST API, not raw Postgres; pg-boss needs a real connection string (Supabase project
+  // settings -> Database -> Connection string). Unset -> enqueue calls fail loudly when used,
+  // same "optional integration, fails at use not at boot" pattern as Qdrant/OpenRouter/Razorpay.
+  DATABASE_URL: z.string().optional(),
 });
 
 export type Env = z.infer<typeof schema>;
