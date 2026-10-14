@@ -259,7 +259,7 @@ export function Advocates({ p }: { p: AdvocatePerformanceDto }) {
             </thead>
             <tbody>
               {p.rows.map((r) => (
-                <tr key={r.name} style={{ color: r.csat !== null && r.csat < 4.3 ? "#B23A22" : "inherit" }}>
+                <tr key={r.id} style={{ color: r.csat !== null && r.csat < 4.3 ? "#B23A22" : "inherit" }}>
                   <td style={{ ...td, fontFamily: "var(--font-sans)" }}>{r.name}</td>
                   <td style={td}>{r.status}</td>
                   <td style={td}>{r.received}</td>

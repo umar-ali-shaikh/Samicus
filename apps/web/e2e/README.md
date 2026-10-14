@@ -68,12 +68,22 @@ logged rather than fixed by this suite. If/when a new value is approved, re-run
 `npm run e2e -w apps/web` to confirm it clears every screen this flagged, then remove the
 `color-contrast` carve-out in `smoke.spec.ts`.
 
-## Known finding: `/founder/fadv` React duplicate-key warning
+## Resolved finding: `/founder/fadv` React duplicate-key warning
 
-"Encountered two children with the same key" -- `Advocates` (`FounderSections.tsx`) keys each row
-by `r.name`, and `advocatePerformanceDto` (`packages/contracts/src/founder.ts`) has no stable id
-field to key by at all (only a nullable `name`). With exactly one seeded advocate in this suite's
-data, the `rows` array apparently contains it twice -- which also means the underlying founder
-analytics query likely has a real duplication bug, not just a React key smell. Fixing the
-symptom needs a contract change (add a real id to `advocatePerformanceDto`); fixing the
-duplication needs the query investigated. Neither is a smoke-suite fix.
+Previously logged "Encountered two children with the same key" here, under two hypotheses:
+`Advocates` (`FounderSections.tsx`) keyed each row by `r.name` instead of a stable id, and/or
+the founder analytics `advocates()` query had a real duplication bug returning the one seeded
+advocate twice. Investigated directly against the live project with a temporary debug log: the
+query and the component were both already correct -- the real cause was **a
+genuinely orphaned advocate row (and its matter/account/message-thread dependents) left behind
+by an earlier interrupted test run**, never cleaned up because `global-teardown.ts` only ever
+deletes rows *its own* run tracked in `seed.json`, not pre-existing orphans. That orphan shared
+the fixed literal name `"E2E Advocate"` with the current run's freshly-seeded one, producing a
+real two-rows-same-name collision that both the query and the React key correctly reported.
+
+Fixed in both directions: the orphaned rows were deleted (FK-safe, children first), **and**
+`advocatePerformanceDto` gained a real `id` field (`packages/contracts/src/founder.ts`,
+populated in `modules/founder/service.ts`) with `Advocates` now keying by `r.id` -- keying by a
+non-unique, user-editable `name` was a real latent fragility worth closing regardless of this
+specific incident's actual root cause. The `KNOWN_CONSOLE_ERRORS` carve-out in `smoke.spec.ts`
+has been removed now that this doesn't reproduce.

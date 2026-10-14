@@ -315,6 +315,7 @@ async function advocates(): Promise<AdvocatePerformanceDto> {
       const mine = consultations.filter((c) => c.advocate_id === a.id);
       const mids = new Set(matters.filter((m) => m.advocate_id === a.id).map((m) => m.id));
       return {
+        id: a.id,
         name: a.user?.full_name ?? null,
         status: a.availability_state,
         received,

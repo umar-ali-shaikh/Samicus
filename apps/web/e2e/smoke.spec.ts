@@ -40,13 +40,6 @@ const ROLE_SCREENS: Record<string, string[]> = {
   ],
 };
 
-// /founder/fadv logs a React "two children with the same key" warning -- the underlying
-// advocatePerformanceDto has no stable id field to key by (only a nullable `name`), and with
-// exactly one seeded advocate, the rows array apparently contains it twice. Fixing the symptom
-// (key by id) isn't possible without a contract change; fixing the duplicate needs the founder
-// analytics query investigated, neither of which is a smoke-suite fix -- see e2e/README.md.
-const KNOWN_CONSOLE_ERRORS = [/Encountered two children with the same key/];
-
 for (const [role, screens] of Object.entries(ROLE_SCREENS)) {
   test.describe(`${role} role`, () => {
     test.use({ storageState: path.join(AUTH_DIR, `${role}.json`) });
@@ -62,11 +55,8 @@ for (const [role, screens] of Object.entries(ROLE_SCREENS)) {
         expect(response?.ok(), `${url} responded ${response?.status()}`).toBeTruthy();
         await page.waitForLoadState("networkidle");
 
-        const unknownConsoleErrors = consoleErrors.filter((e) => !KNOWN_CONSOLE_ERRORS.some((re) => re.test(e)));
-        if (unknownConsoleErrors.length < consoleErrors.length) console.warn(`[known] ${url}: ${consoleErrors.length - unknownConsoleErrors.length} known console error(s) -- see e2e/README.md`);
-
         expect(pageErrors, `${url} threw page error(s): ${pageErrors.join(" | ")}`).toHaveLength(0);
-        expect(unknownConsoleErrors, `${url} logged console error(s): ${unknownConsoleErrors.join(" | ")}`).toHaveLength(0);
+        expect(consoleErrors, `${url} logged console error(s): ${consoleErrors.join(" | ")}`).toHaveLength(0);
 
         const axeResults = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze();
         const serious = axeResults.violations.filter((v) => v.impact === "serious" || v.impact === "critical");

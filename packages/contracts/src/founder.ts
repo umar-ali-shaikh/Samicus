@@ -104,6 +104,7 @@ export const advocatePerformanceDto = z
     rows: z.array(
       z
         .object({
+          id: z.string(),
           name: z.string().nullable(),
           status: z.string(),
           received: z.number(),
