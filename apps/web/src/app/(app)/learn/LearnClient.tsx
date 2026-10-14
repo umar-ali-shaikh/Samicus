@@ -166,7 +166,7 @@ export function LearnClient({
           style={{ padding: 12, borderRadius: 10, border: "1px solid #2A3854", background: "#18233A", color: "#fff" }}
         />
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <select value={area} onChange={(e) => setArea(e.target.value)} style={{ padding: 10, borderRadius: 9, border: "1px solid #2A3854", background: "#18233A", color: "#fff" }}>
+          <select aria-label="Practice area" value={area} onChange={(e) => setArea(e.target.value)} style={{ padding: 10, borderRadius: 9, border: "1px solid #2A3854", background: "#18233A", color: "#fff" }}>
             <option value="">Practice area (optional)</option>
             {areas.map((a) => (
               <option key={a.id} value={a.name}>
@@ -185,6 +185,7 @@ export function LearnClient({
         <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8, alignItems: "center", marginBottom: 8 }}>
           <div style={{ fontWeight: 700 }}>Answered by verified advocates</div>
           <Select
+            aria-label="Filter by practice area"
             value={filterArea}
             onChange={(e) => {
               setFilterArea(e.target.value);

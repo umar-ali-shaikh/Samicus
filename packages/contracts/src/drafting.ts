@@ -32,7 +32,21 @@ export const returnDraftReviewSchema = z.object({
 export type ReturnDraftReviewInput = z.infer<typeof returnDraftReviewSchema>;
 
 const fieldSchemaEntryDto = z
-  .object({ key: z.string(), label: z.string(), placeholder: z.string().nullable().optional(), required: z.boolean(), default: z.string().optional() })
+  .object({
+    key: z.string(),
+    label: z.string(),
+    placeholder: z.string().nullable().optional(),
+    // Not every seeded template field sets `required` explicitly (seed.js's Rental Agreement
+    // template leaves it off for startDate/monthlyRent, treating absence as "not required") --
+    // this was .strict() with a non-optional boolean, so GET /doc-templates/:id 500'd on every
+    // real template with an unset field.
+    required: z.boolean().optional(),
+    default: z.string().optional(),
+    // "wide" is a real, used field (doc_templates.field_schema entries render it as a
+    // full-width form input -- see seed.js's propertyAddress field) that this DTO never
+    // declared at all.
+    wide: z.boolean().optional(),
+  })
   .strict();
 
 export const docTemplateListItemDto = z

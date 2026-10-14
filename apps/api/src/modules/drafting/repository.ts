@@ -227,14 +227,17 @@ export interface AdvocateReviewListRow {
 }
 
 export async function listReviewsForAdvocate(advocateId: string): Promise<AdvocateReviewListRow[]> {
-  // No "!draft_id" FK hint: draft_reviews has exactly one FK to document_drafts, so it's
-  // unambiguous without the hint (unlike clause_library's clause_conflicts, which has two FKs
-  // to itself and genuinely needs one) -- written this way so the embed is exercisable through
-  // the fakeSupabase test double's alias-resolution regex, which doesn't support the "!col" hint
-  // syntax at all.
+  // "!draft_reviews_draft_id_fkey" FK hint IS required here: document_drafts and draft_reviews
+  // reference each other in both directions (draft_reviews.draft_id -> document_drafts.id, AND
+  // document_drafts.review_id -> draft_reviews.id, added later via
+  // "alter table document_drafts add constraint document_drafts_review_id_fkey..." in
+  // schema.sql) -- real PostgREST 500s on "more than one relationship was found" without the
+  // hint disambiguating which FK this embed means. fakeSupabase's alias-resolution regex
+  // doesn't model that ambiguity (it only ever sees one FK per embed), which is why this
+  // shipped broken against real Supabase despite every existing test passing.
   const { data, error } = await getSupabase()
     .from("draft_reviews")
-    .select("id, status, fee, submitted_at, draft:document_drafts(id, template:doc_templates(name))")
+    .select("id, status, fee, submitted_at, draft:document_drafts!draft_reviews_draft_id_fkey(id, template:doc_templates(name))")
     .eq("advocate_id", advocateId)
     .order("submitted_at", { ascending: false });
   if (error) throw error;

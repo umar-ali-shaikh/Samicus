@@ -42,6 +42,7 @@ function OrderRow({ o, advocates }: { o: AdminServiceOrderDto; advocates: Direct
           <span style={{ fontSize: 12.5 }}>Adv. {o.advocate.user?.full_name}</span>
         ) : (
           <Select
+            aria-label="Assign advocate"
             value=""
             onChange={(e) => assign(e.target.value)}
             disabled={isPending}

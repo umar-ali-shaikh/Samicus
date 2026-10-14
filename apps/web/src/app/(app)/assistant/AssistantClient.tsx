@@ -658,15 +658,25 @@ function getOrCreateSessionId(userId: string, { fresh = false }: { fresh?: boole
 
 function VoiceInputButton({ onResult }: { onResult: (text: string) => void }) {
   const [listening, setListening] = useState(false);
+  // Recognition support is read from `window`, which doesn't exist during SSR -- reading it
+  // directly in render (the old `typeof window !== "undefined" ? ... : null`) made the server
+  // render `null` and the client immediately re-render the real button on mount, a classic
+  // hydration mismatch. useEffect-after-mount keeps both the server and the client's FIRST
+  // render agreeing on "unsupported" (null), only flipping to the real button once we're
+  // definitely past hydration.
+  const [supported, setSupported] = useState(false);
   const recognitionRef = useRef<any>(null);
-  const Recognition = typeof window !== "undefined" ? (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition : null;
-  if (!Recognition) return null;
+  useEffect(() => {
+    setSupported(Boolean((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition));
+  }, []);
+  if (!supported) return null;
 
   function toggle() {
     if (listening) {
       recognitionRef.current?.stop();
       return;
     }
+    const Recognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     const recognition = new Recognition();
     recognition.lang = "en-IN"; // works reasonably for Hinglish/Hindi speech in practice
     recognition.interimResults = false;
