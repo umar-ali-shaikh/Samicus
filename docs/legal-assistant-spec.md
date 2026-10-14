@@ -1,9 +1,14 @@
 ﻿# AI Legal Assistant — As-Built Spec & Roadmap
 
-> **Update:** retrieval now runs through a Qdrant-backed knowledge base first (passage-level RAG),
-> falling back to the live Indian Kanoon search as described below. See [RAG.md](RAG.md) for
-> the current architecture; sections 2–3 describe the live-search path, which is still used when
-> the knowledge base cannot answer confidently or is not configured.
+> **Update (post Next.js/Express-TS migration):** this doc originally described the pre-monorepo
+> `backend/`/`frontend/` layout. Paths below are updated to the current `apps/api/`/`apps/web/`
+> monorepo structure (see `docs/architecture/01-target-architecture.md`); a few implementation
+> details genuinely changed along the way (noted inline) — this isn't just a path rename.
+>
+> Retrieval now runs through a Qdrant-backed knowledge base first (passage-level RAG), falling
+> back to the live Indian Kanoon search as described below. See [RAG.md](RAG.md) for the current
+> architecture; sections 2–3 describe the live-search path, which is still used when the
+> knowledge base cannot answer confidently or is not configured.
 
 This replaces an earlier draft spec that assumed a fresh, standalone `legal-bot/` project
 (separate repo, MongoDB-backed API cache, `cheerio` for HTML stripping, an `openai`-package
@@ -14,30 +19,35 @@ concrete, scoped gaps worth closing next.
 
 ## 1. Where it lives
 
-It's one feature among many in the existing `frontend/` + `backend/` npm-workspaces app, not a
-separate project:
+It's one feature among many in the `apps/web` (Next.js) + `apps/api` (Express) monorepo, not a
+separate project. The route/service/repository split below is the standard per-domain layering
+every module in `apps/api/src/modules/` follows (`docs/architecture/01-target-architecture.md`
+section 3) — HTTP concerns, business logic and Supabase access are three separate files, not one:
 
 | Concern | File |
 |---|---|
-| Route | [backend/src/routes/legalAssistant.js](../backend/src/routes/legalAssistant.js) — `POST /api/legal-assistant/ask` |
-| RAG orchestration | [backend/src/services/legalAssistant.js](../backend/src/services/legalAssistant.js) |
-| Query understanding (rewrite + language + emergency detection) | [backend/src/services/legalQueryUnderstanding.js](../backend/src/services/legalQueryUnderstanding.js) |
-| Indian Kanoon client + cache | [backend/src/services/indianKanoon.js](../backend/src/services/indianKanoon.js), [indianKanoonFilters.js](../backend/src/services/indianKanoonFilters.js) |
-| LLM client | [backend/src/services/openRouter.js](../backend/src/services/openRouter.js) |
-| Generic TTL cache | [backend/src/utils/cache.js](../backend/src/utils/cache.js) |
-| HTML sanitizer | [backend/src/utils/sanitizeHtml.js](../backend/src/utils/sanitizeHtml.js) |
-| Chat UI | [frontend/src/screens/LegalAssistant.jsx](../frontend/src/screens/LegalAssistant.jsx) |
-| API client | [frontend/src/api/legalAssistantClient.js](../frontend/src/api/legalAssistantClient.js) |
-| Chat history persistence | `legal_assistant_sessions` / `legal_assistant_turns` tables ([schema.sql](../backend/src/db/schema.sql)), written by [routes/legalAssistant.js](../backend/src/routes/legalAssistant.js) |
-| Relevance re-ranking orchestration (OpenRouter embeddings if configured, else local TF-IDF) | [backend/src/services/relevanceRanking.js](../backend/src/services/relevanceRanking.js) |
-| OpenRouter embeddings client | [backend/src/services/openRouterEmbeddings.js](../backend/src/services/openRouterEmbeddings.js) (supersedes the earlier Gemini-based client this section originally described — see the historical note below) |
-| Local TF-IDF fallback ranker | [backend/src/utils/tfidf.js](../backend/src/utils/tfidf.js), [backend/src/utils/cosine.js](../backend/src/utils/cosine.js) |
-| Cost/usage counter | [backend/src/utils/callCounter.js](../backend/src/utils/callCounter.js), exposed via `GET /api/admin/usage` in [admin.js](../backend/src/routes/admin.js) |
+| Route (HTTP) | [apps/api/src/modules/assistant/router.ts](../apps/api/src/modules/assistant/router.ts) — `POST /api/legal-assistant/ask`, `GET /api/legal-assistant/session/:sessionId` |
+| Business logic (history loading/budgeting, persistence orchestration) | [apps/api/src/modules/assistant/service.ts](../apps/api/src/modules/assistant/service.ts) |
+| Supabase access (sessions/turns tables) | [apps/api/src/modules/assistant/repository.ts](../apps/api/src/modules/assistant/repository.ts) |
+| RAG orchestration (the actual pipeline below) | [apps/api/src/services/legalAssistant.js](../apps/api/src/services/legalAssistant.js) |
+| Query understanding (rewrite + language + emergency detection) | [apps/api/src/services/legalQueryUnderstanding.js](../apps/api/src/services/legalQueryUnderstanding.js) |
+| Indian Kanoon client + cache | [apps/api/src/services/indianKanoon.js](../apps/api/src/services/indianKanoon.js), [indianKanoonFilters.js](../apps/api/src/services/indianKanoonFilters.js) |
+| LLM client | [apps/api/src/services/openRouter.js](../apps/api/src/services/openRouter.js) |
+| Shared memory/Redis cache (`getCache()`) | [apps/api/src/platform/cache.ts](../apps/api/src/platform/cache.ts) — Redis-backed when `REDIS_URL` is set, in-process `Map` otherwise; see `docs/architecture/02-security-model.md` §4 |
+| HTML plain-text extraction (for the LLM prompt — distinct from the XSS-safe sanitizer below) | [apps/api/src/utils/stripHtml.js](../apps/api/src/utils/stripHtml.js) |
+| XSS-safe HTML sanitizer (for browser rendering) | [apps/api/src/utils/sanitizeHtml.js](../apps/api/src/utils/sanitizeHtml.js) |
+| Chat UI | [apps/web/src/app/(app)/assistant/AssistantClient.tsx](../apps/web/src/app/(app)/assistant/AssistantClient.tsx) |
+| Server actions (BFF calls to apps/api) | [apps/web/src/server/assistantActions.ts](../apps/web/src/server/assistantActions.ts) |
+| Chat history persistence | `legal_assistant_sessions` / `legal_assistant_turns` tables ([schema.sql](../apps/api/src/db/schema.sql)), read/written by `modules/assistant/repository.ts` |
+| Relevance re-ranking orchestration (OpenRouter embeddings if configured, else local TF-IDF) | [apps/api/src/services/relevanceRanking.js](../apps/api/src/services/relevanceRanking.js) |
+| OpenRouter embeddings client | [packages/rag/src/embeddings.ts](../packages/rag/src/embeddings.ts) (moved here during the Phase 4 shared-RAG-package extraction — was `backend/src/services/openRouterEmbeddings.js`; supersedes the earlier Gemini-based client this section originally described — see the historical note below) |
+| Local TF-IDF fallback ranker | [apps/api/src/utils/tfidf.js](../apps/api/src/utils/tfidf.js), [cosine.js](../apps/api/src/utils/cosine.js) |
+| Cost/usage counter | [apps/api/src/utils/callCounter.js](../apps/api/src/utils/callCounter.js) — Redis-backed when `REDIS_URL` is set (so counts stay accurate across horizontally-scaled instances), exposed via `GET /api/admin/usage` in [modules/admin/router.ts](../apps/api/src/modules/admin/router.ts) |
 
 It shares the Indian Kanoon client/cache with the separate **Case Law** browse screen
-(`CaseLaw.jsx` / `indianKanoon.js` route) — that's a faceted search UI, distinct from this
-conversational assistant, and both sit on the same IK client so a call from either surface is
-cached once for both.
+(`apps/web`'s `/case-law` page / `apps/api/src/modules/caselaw/`) — that's a faceted search UI,
+distinct from this conversational assistant, and both sit on the same IK client so a call from
+either surface is cached once for both.
 
 ## 2. Pipeline, as actually implemented
 
@@ -51,10 +61,11 @@ cached once for both.
 2. **Retrieval** — two parallel Indian Kanoon searches: the general query, and the same query
    scoped to `doctypes:laws` (bare Acts/Rules). Within each pool, candidates are scored for
    relevance via `rankRelevantDocs()` (`services/relevanceRanking.js`), which:
-   - Uses **OpenRouter embeddings** (`services/openRouterEmbeddings.js`,
+   - Uses **OpenRouter embeddings** (`@vidhira/rag/embeddings`,
      `sentence-transformers/all-mpnet-base-v2` by default, one batched request per pool)
      when `OPENROUTER_API_KEY` is set — real semantic cosine similarity, filtered at
-     `MIN_EMBEDDING_SIMILARITY = 0.5` (a starting heuristic, not empirically tuned).
+     `MIN_EMBEDDING_SIMILARITY = 0.3` (loosened from an initial `0.5` once there was real
+     traffic to judge false-negative rates against — still not rigorously tuned).
    - **Automatically falls back to local TF-IDF** (`utils/tfidf.js`) if `OPENROUTER_API_KEY`
      is unset, or the embeddings call fails for any reason (network, rate limit, bad key) —
      logged, not thrown. TF-IDF candidates below score `> 0` (zero shared vocabulary with
@@ -78,11 +89,13 @@ cached once for both.
    "score > 0" bar only catches *zero*-overlap noise — two docs sharing only generic
    legal-boilerplate words (e.g. "person", "state", "authority") can still both clear it even
    if only one is actually on point. Embeddings (when configured) don't have this exact
-   failure mode, but the `0.5` similarity cutoff is unvalidated against real traffic.
+   failure mode, but the `0.3` similarity cutoff is still not rigorously validated against
+   real traffic.
 3. **Evidence extraction** — per hit: try full `getDocument(tid)` text first, fall back to a
    query-targeted `getFragment` snippet if that fails/empties, fall back to the search
-   headline as a last resort. Each is capped at 3000 chars after HTML is stripped, to fit
-   `topN` sources into one free-model-sized prompt.
+   headline as a last resort. Each is capped at 3000 chars after HTML is stripped (`utils/stripHtml.js`,
+   not the XSS-safe sanitizer — this is plain-text extraction for an LLM prompt, a different
+   job), to fit `topN` sources into one free-model-sized prompt.
 4. **Answer generation** — one LLM call, `response_format: json_object`, grounded strictly in
    the numbered evidence, returning **six structured fields**
    (`statute`/`judgments`/`interpretation`/`generalInformation`/`practicalNextSteps`/
@@ -93,8 +106,8 @@ cached once for both.
    text is recovered as `generalInformation` (`outcome: "unparsed"`) rather than discarded.
 5. **Safety copy is fixed, not generated.** The disclaimer and the emergency banner are
    hardcoded strings on the server (`DISCLAIMER`, `EMERGENCY_MESSAGE`) and mirrored, pre-translated,
-   client-side (`UI_STRINGS` in `LegalAssistant.jsx`) for all six language/scripts. This is
-   deliberate: safety-critical framing must never depend on a model choosing to say it.
+   client-side (`AssistantClient.tsx`) for all six language/scripts. This is deliberate:
+   safety-critical framing must never depend on a model choosing to say it.
 6. **Response shape** returned to the client:
    `{ outcome, understanding, emergency, sections, rawAnswer, sources, disclaimer }` — richer
    than a flat `{ answer, sources, model }`, because the UI renders distinct labelled sections
@@ -102,70 +115,71 @@ cached once for both.
 
 ## 3. Tech actually in use (vs. what to assume)
 
-- **Caching**: an in-process `Map` with TTL + in-flight de-dupe
-  ([utils/cache.js](../backend/src/utils/cache.js)), reused independently by the IK client, the
-  query-understanding step, and the whole-answer cache in `legalAssistant.js`. **Not** a
-  persistent cache — nothing here needs to survive a restart and the app runs as one process.
+- **Caching**: `platform/cache.ts`'s `getCache()` — Redis-backed (shared across
+  horizontally-scaled instances) when `REDIS_URL` is set, falling back to an in-process `Map`
+  with TTL + in-flight de-dupe otherwise. Reused independently by the IK client, the
+  query-understanding step, and the whole-answer cache in `legalAssistant.js`.
   (Persistence of *sources* is the job of the Qdrant knowledge base; see [RAG.md](RAG.md).)
 - **LLM access**: raw `fetch` to OpenRouter's `chat/completions`
-  ([openRouter.js](../backend/src/services/openRouter.js)) — no `openai` npm package. On a 429
+  ([openRouter.js](../apps/api/src/services/openRouter.js)) — no `openai` npm package. On a 429
   it doesn't just retry once; it **chains through a list of fallback free models** from
   different upstream providers (`FALLBACK_MODELS`), since free-tier pools rate-limit
   independently of each other.
 - **No Anthropic/Claude integration yet.** `openRouter.js` is the only provider; there's no
   `LLM_PROVIDER` switch or `llm.js` facade today.
-- **HTML handling**: `sanitize-html` (allowlist-based), not `cheerio`. It's applied once, at
-  the IK client layer (`sanitizeJudgmentHtml`), and serves two different consumers: the Case
-  Law screen renders it via `dangerouslySetInnerHTML` (so it must be safe HTML), while
-  `legalAssistant.js` additionally regex-strips it to plain text before building the LLM
-  context. One sanitizer, two downstream uses — no need for a second HTML library.
-- **Chat history is persisted** in Supabase Postgres, keyed by a client-generated `sessionId`
-  (stored in `localStorage` per signed-in user) and owned by the signed-in user. `LegalAssistant.jsx` still keeps
-  `turns` in local React state as the render source of truth — it just rehydrates that state
-  from `GET /legal-assistant/session/:sessionId` on mount instead of always starting empty.
+- **HTML handling**: `sanitize-html` (allowlist-based), not `cheerio`. `sanitizeJudgmentHtml`
+  (`utils/sanitizeHtml.js`) is applied at the IK client layer for the Case Law screen, which
+  renders it via `dangerouslySetInnerHTML` (so it must be safe HTML); `legalAssistant.js`
+  additionally runs evidence text through `utils/stripHtml.js` (plain-text tag-stripping, a
+  separate, simpler utility — not a second sanitizer) before building the LLM context.
+- **Chat history is persisted** in Supabase Postgres (`modules/assistant/repository.ts`), keyed
+  by a client-generated `sessionId` (stored in `localStorage` per signed-in user) and owned by
+  the signed-in user. `AssistantClient.tsx` keeps `turns` in local React state as the render
+  source of truth — it just rehydrates that state from
+  `GET /legal-assistant/session/:sessionId` on mount instead of always starting empty.
 - **Answer shape is validated**, not just typed: `zod`'s `AnswerSchema.safeParse()` gates what
   counts as `outcome: "answered"` vs `"unparsed"`, on top of the existing
   `extractJson()` (strict `JSON.parse` → brace-slice fallback) recovery.
 - **Testing**: Node's built-in `node --test` (with an in-memory Supabase stand-in for route and
-  RAG tests, see `backend/src/test/fakeSupabase.js`), matching the rest of the server (`indianKanoon.test.js`, `legalQueryUnderstanding.test.js`, `cache.test.js`,
-  `indianKanoonFilters.test.js`, `callCounter.test.js` all follow this pattern) — not
-  Jest/Vitest. No route-level (supertest-style) tests exist anywhere in the server — the new
-  rate limiter/session endpoints were verified with ad hoc boot scripts during development, not
-  a checked-in test suite; that's a gap of its own if it matters later.
+  RAG tests, see `apps/api/src/test/fakeSupabase.js`), matching the rest of the server
+  (`indianKanoon.test.js`, `legalQueryUnderstanding.test.js`, `relevanceRanking.test.js`,
+  `callCounter.test.js` all follow this pattern) — not Jest/Vitest. Route-level (HTTP) tests DO
+  exist now (`modules/assistant/assistant.test.ts`, `modules/caselaw/caselaw.test.ts`) — boot the
+  real Express app via `createApp().listen(0)` and hit it with real HTTP requests; this closes
+  the gap this doc used to flag ("no route-level tests exist anywhere").
 - **Route requires a signed-in, email-verified user** (Supabase Auth) and is rate-limited per
   user (`express-rate-limit`, 20/15min) since every hit spends real money. The case-law routes
   sit behind the same gate.
 
 ## 4. Gaps worth closing (recommended new tech, scoped)
 
-Status as of 2026-09-23: #2, #3, #4, #6, #7 are done. #1 (Anthropic) was explicitly deferred —
-OpenRouter remains the only *chat* provider, no new API key needed there. #5 (multi-instance
-cache) is still open but was already flagged "not urgent" and remains so (single-process
-deployment). #7 (retrieval relevance/embeddings) wasn't in the original six gaps — added after
-a production incident (irrelevant Acts cited as sources for an FIR question) traced back to
-"always take the top N candidates regardless of relevance."
+Status: #2, #3, #4, #6, #7 are done. #1 (Anthropic) was explicitly deferred — OpenRouter remains
+the only *chat* provider, no new API key needed there. #5 (multi-instance cache) is now also
+done — both the cache and the call counter are Redis-backed when `REDIS_URL` is configured
+(Phase 4/5 of the Next.js/Express-TS migration), falling back to the original single-process
+behaviour otherwise.
 
 1. **Claude/Anthropic switch** — *deferred, not implemented.* Genuinely missing. Add
-   `backend/src/services/anthropic.js` using `@anthropic-ai/sdk`, matching
+   `apps/api/src/services/anthropic.js` using `@anthropic-ai/sdk`, matching
    `openRouter.js`'s call shape (`chatCompletion(messages, opts) -> string`). Introduce a thin
    `LLM_PROVIDER` env switch (`openrouter` default, `anthropic`) at one seam — either inline in
    the two call sites (`legalAssistant.js`, `legalQueryUnderstanding.js`) or behind a new
    `services/llm.js` facade so neither file imports a provider SDK directly. New dependency:
    `@anthropic-ai/sdk`. New env vars: `LLM_PROVIDER`, `ANTHROPIC_API_KEY`, `CLAUDE_MODEL`.
 
-2. **Chat history persistence** — ✅ **done.** `backend/src/models/LegalAssistantSession.js`
-   (`sessionId`, `turns: [{ question, result, createdAt }]`, upserted per turn). Client
-   generates a `sessionId` (`crypto.randomUUID()`, stored in `localStorage`) in
-   `LegalAssistant.jsx`; `POST /legal-assistant/ask` appends to it (best-effort — a persistence
-   failure logs and still returns the already-computed answer), and
+2. **Chat history persistence** — ✅ **done.** `modules/assistant/repository.ts` (Supabase
+   `legal_assistant_sessions`/`legal_assistant_turns` tables). Client generates a `sessionId`
+   (`crypto.randomUUID()`, stored in `localStorage`) in `AssistantClient.tsx`;
+   `POST /legal-assistant/ask` appends to it (best-effort — a persistence failure logs and
+   still returns the already-computed answer), and
    `GET /legal-assistant/session/:sessionId` rehydrates on mount (200 + empty `turns` for a
-   brand-new session, not a 404). Additive to the existing in-memory answer cache, not a
+   brand-new session, not a 404). Additive to the existing in-memory/Redis answer cache, not a
    replacement for it.
 
 3. **No rate limiting on a costly, unauthenticated route** — ✅ **done.** `express-rate-limit`,
    20 requests/15min per IP, on `POST /api/legal-assistant/ask`
-   (`routes/legalAssistant.js`). Requires `app.set("trust proxy", 1)` in `app.js` — Render
-   sits in front as a single reverse-proxy hop, and without this `req.ip` resolves to the
+   (`modules/assistant/router.ts`). Requires `app.set("trust proxy", 1)` in `app.js` — most PaaS
+   hosts sit in front as a single reverse-proxy hop, and without this `req.ip` resolves to the
    proxy's address for every request.
 
 4. **Informal JSON-shape enforcement** — ✅ **done.** A `zod` schema (`AnswerSchema` in
@@ -173,21 +187,20 @@ a production incident (irrelevant Acts cited as sources for an FIR question) tra
    recovers a candidate object; schema failure (wrong types, not just malformed JSON) now also
    routes into the existing `"unparsed"` fallback — same behavior, typed success path.
 
-5. **Cache is single-process, in-memory** — still open, still not urgent. Fine today (the app
-   deliberately runs as one process per the README), but a known constraint: if this ever
-   scales to multiple instances, cache hits (and the cost savings they represent) stop being
-   shared. If it becomes one, back `utils/cache.js` with a shared store (Redis/Postgres) behind the same
-   `getOrSet()` interface so callers don't change.
+5. **Cache is single-process, in-memory** — ✅ **done.** `platform/cache.ts`'s `getCache()` is
+   Redis-backed (shared across horizontally-scaled instances) when `REDIS_URL` is configured,
+   falling back to the original single-process `Map` behind the same `getOrSet()` interface
+   otherwise — callers didn't change.
 
-6. **No cost/usage observability** — ✅ **done.** `backend/src/utils/callCounter.js` is a tiny
-   in-memory per-provider counter, incremented on every successful (cache-missed, i.e.
-   actually billed) call in `indianKanoon.js`'s `postToIndianKanoon`, `openRouter.js`'s
-   `callModel`, and `openRouterEmbeddings.js`'s `embedTexts` (its own `openrouter_embeddings`
-   bucket, kept separate from chat completions' `openrouter` since the two have very
-   different per-call cost). Exposed via `GET /api/admin/usage`
-   (`requireAuth` + `requireRole("admin")`, matching `admin.js`'s existing pattern) —
-   `{ callsSinceStart: { indianKanoon, openrouter, openrouter_embeddings } }`. Resets on
-   restart, same single-process tradeoff as the cache (#5).
+6. **No cost/usage observability** — ✅ **done.** `utils/callCounter.js` is a per-provider
+   counter (Redis-backed when `REDIS_URL` is set, in-process `Map` otherwise — same
+   memory/Redis selection pattern as `platform/cache.ts`), incremented on every successful
+   (cache-missed, i.e. actually billed) call in `indianKanoon.js`'s `postToIndianKanoon`,
+   `openRouter.js`'s `chatCompletion`, and `@vidhira/rag/embeddings`'s `embedTexts` (its own
+   `openrouter_embeddings` bucket, kept separate from chat completions' `openrouter` since the
+   two have very different per-call cost). Exposed via `GET /api/admin/usage`
+   (`requireAuth` + `requireRole("admin", "founder")`, `modules/admin/router.ts`) —
+   `{ callsSinceStart: { indianKanoon, openrouter, openrouter_embeddings } }`.
 
 7. **Retrieval relevance / no semantic search** — ✅ **done**, not in the original six gaps.
    Indian Kanoon's search is exact-keyword; a paraphrased/conversational question regularly
@@ -195,11 +208,11 @@ a production incident (irrelevant Acts cited as sources for an FIR question) tra
    `doctypes:laws` returning something with literally nothing in common with the question
    (e.g. "Kerala Municipality Act" cited for an FIR question) because the old code took the
    top `LAWS_TOP_N`/`topN` unconditionally. Fixed with `services/relevanceRanking.js`:
-   - **OpenRouter embeddings** (`services/openRouterEmbeddings.js`, originally Gemini — see
+   - **OpenRouter embeddings** (`@vidhira/rag/embeddings`, originally Gemini — see
      the historical note near the end of this doc for why/when that changed) when
      `OPENROUTER_API_KEY` is set — real semantic cosine similarity, filtered at
-     `MIN_EMBEDDING_SIMILARITY = 0.5` (unvalidated against real traffic — tighten/loosen once
-     there's a feel for false positive/negative rates).
+     `MIN_EMBEDDING_SIMILARITY = 0.3` (loosened from an initial `0.5` — still not rigorously
+     tuned against real traffic).
    - **Local TF-IDF** (`utils/tfidf.js`) as the always-available, zero-config fallback — used
      automatically if the embeddings call fails for any reason.
      Filters at `score > 0` (zero shared vocabulary with the query).
@@ -209,7 +222,7 @@ a production incident (irrelevant Acts cited as sources for an FIR question) tra
    - **Historical note:** OpenRouter originally had no genuinely free embedding model, so
      Gemini (a second, independent provider with a free-tier API key, no card) was wired up
      for embeddings instead — `GEMINI_API_KEY`/`GEMINI_EMBEDDING_MODEL`. Once the OpenRouter
-     account moved to paid credit, embeddings moved too (`services/openRouterEmbeddings.js`,
+     account moved to paid credit, embeddings moved too (now `packages/rag/src/embeddings.ts`,
      `sentence-transformers/all-mpnet-base-v2` by default, overridable via
      `OPENROUTER_EMBEDDING_MODEL`) — one provider/one bill instead of two, and the paid
      OpenRouter chat models already in use made the "needs a free-tier provider" constraint
@@ -217,7 +230,7 @@ a production incident (irrelevant Acts cited as sources for an FIR question) tra
      required (switching embedding models/providers always needs one, since old and new
      vectors live in incomparable coordinate spaces).
 
-## 5. Env vars to add (`backend/.env.example`)
+## 5. Env vars to add (root `.env.example`)
 
 ```env
 # LLM provider switch — "openrouter" (default, current) or "anthropic"
@@ -231,7 +244,8 @@ CLAUDE_MODEL=claude-sonnet-5
 ## 6. Do not regress
 
 - The fixed, non-LLM disclaimer/emergency strings (server `DISCLAIMER`/`EMERGENCY_MESSAGE`,
-  mirrored client `UI_STRINGS`) — a deliberate safety property, not incidental duplication.
+  mirrored client strings in `AssistantClient.tsx`) — a deliberate safety property, not
+  incidental duplication.
 - The six-way language/script contract (hindi/marathi/urdu/hinglish/marathlish/english,
   script-exact) — broader and stricter than "English or Hinglish"; the query-understanding
   prompt already documents how to tell Hindi from Marathi and Hinglish from Marathlish.
@@ -240,10 +254,10 @@ CLAUDE_MODEL=claude-sonnet-5
   tangential case law.
 - Re-ranking (`services/relevanceRanking.js`) runs on the title+headline the `/search/` call
   already returned — never an extra Indian Kanoon call per candidate. Embeddings go through
-  OpenRouter (`services/openRouterEmbeddings.js`, see the historical note in §4 for why this
-  used to be Gemini); TF-IDF (`utils/tfidf.js`) is the always-available, zero-config fallback,
-  not a placeholder to be deleted once embeddings exist — `OPENROUTER_API_KEY` being unset (or
-  the embeddings call failing for any reason) must keep degrading to it, never hard-fail.
+  `@vidhira/rag/embeddings` (see the historical note in §4 for why this used to be Gemini);
+  TF-IDF (`utils/tfidf.js`) is the always-available, zero-config fallback, not a placeholder
+  to be deleted once embeddings exist — `OPENROUTER_API_KEY` being unset (or the embeddings
+  call failing for any reason) must keep degrading to it, never hard-fail.
 - The zero-relevance filter (`rankRelevantDocs()` in `relevanceRanking.js`, `score > 0` for
   TF-IDF / `score >= MIN_EMBEDDING_SIMILARITY` for embeddings) is load bearing, not cosmetic —
   without it, an off-topic `doctypes:laws` or general hit gets force-included just to fill
@@ -251,8 +265,8 @@ CLAUDE_MODEL=claude-sonnet-5
   a cited source for an FIR question in production. Don't revert to "always take the top N
   regardless of score."
 - `app.set("trust proxy", 1)` in `app.js` — remove it (or the rate limiter) and every request
-  behind Render's proxy collapses onto one IP, either breaking the per-IP limit entirely or
-  making express-rate-limit throw on the X-Forwarded-For mismatch it detects.
+  behind the PaaS host's proxy collapses onto one IP, either breaking the per-IP limit entirely
+  or making express-rate-limit throw on the X-Forwarded-For mismatch it detects.
 - The chat-history write in `POST /legal-assistant/ask` is deliberately best-effort
   (fire-and-forget `.catch(...)`, not `await`ed into the response path) — a database hiccup must
   never cost the user an answer they already paid IK/OpenRouter money for.
