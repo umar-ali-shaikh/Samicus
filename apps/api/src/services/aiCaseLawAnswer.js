@@ -4,6 +4,7 @@
 import { search } from "./indianKanoon.js";
 import { chatCompletion, OpenRouterAuthError, OpenRouterApiError } from "./openRouter.js";
 import { getCache } from "../platform/cache.js";
+import { stripHtml } from "../utils/stripHtml.js";
 
 const ANSWER_TTL_MS = 60 * 60 * 1000; // 1h — matches search's TTL, same staleness tradeoff
 
@@ -12,7 +13,7 @@ const cache = getCache();
 export { OpenRouterAuthError, OpenRouterApiError };
 
 function buildMessages(question, docs) {
-  const context = docs.map((d, i) => `[${i + 1}] ${d.title} (${d.docsource})\n${d.headline.replace(/<[^>]+>/g, "")}`).join("\n\n");
+  const context = docs.map((d, i) => `[${i + 1}] ${d.title} (${d.docsource})\n${stripHtml(d.headline)}`).join("\n\n");
 
   return [
     {

@@ -40,6 +40,7 @@ import { retrievePassages } from "@vidhira/rag/retrieve";
 import { searchTavily as callTavily, isTavilyConfigured } from "./tavily.js";
 import { CODE_CROSSWALK_REFERENCE, citesOnlyRepealedCode, ACT_YEAR_REFERENCE, citesActWithoutYear } from "../utils/legalAbbrev.js";
 import { isOpenRouterConfigured } from "./openRouter.js";
+import { stripHtml } from "../utils/stripHtml.js";
 
 export { OpenRouterAuthError, OpenRouterApiError };
 export { IndianKanoonAuthError, IndianKanoonApiError } from "./indianKanoon.js";
@@ -345,10 +346,6 @@ function rentDepositLegalNoticeTemplate() {
     "Yours faithfully,",
     "[Your signature and name]",
   ].join("\n");
-}
-
-function stripHtml(html) {
-  return (html || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
 }
 
 function stripCodeFence(text) {
