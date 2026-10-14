@@ -13,6 +13,17 @@ const STEPS = ["Your details", "Special clauses", "Review & issue"];
 const FAVOR_LABEL: Record<string, string> = { drafter: "FAVOURS YOU", counterparty: "FAVOURS THEM", balanced: "BALANCED" };
 const FAVOR_TONE: Record<string, "success" | "danger" | "neutral"> = { drafter: "success", counterparty: "danger", balanced: "neutral" };
 
+function applyTemplateDefaults(
+  fields: Record<string, string>,
+  fieldSchema: DocTemplateDetailDto["template"]["field_schema"],
+): Record<string, string> {
+  const next = { ...fields };
+  for (const f of fieldSchema) {
+    if (f.default !== undefined && !String(next[f.key] || "").trim()) next[f.key] = f.default;
+  }
+  return next;
+}
+
 function Preview({ draftId, version }: { draftId: string; version: number }) {
   const [blocks, setBlocks] = useState<AssembledBlockDto[] | null>(null);
   const [error, setError] = useState("");
@@ -67,7 +78,7 @@ export function DraftEditorClient({
 }) {
   const router = useRouter();
   const [step, setStep] = useState(1);
-  const [fields, setFields] = useState<Record<string, string>>(draft.field_values);
+  const [fields, setFields] = useState<Record<string, string>>(() => applyTemplateDefaults(draft.field_values, template.field_schema));
   const [selected, setSelected] = useState<string[]>(draft.selected_clause_ids);
   const [custom, setCustom] = useState(draft.custom_clauses[0]?.body || "");
   const [version, setVersion] = useState(0);
@@ -79,19 +90,15 @@ export function DraftEditorClient({
 
   const missingFields = template.field_schema.filter((f) => f.required && !String(fields[f.key] || "").trim()).map((f) => f.label);
 
-  useEffect(() => {
-    let changed = false;
-    const next = { ...fields };
-    for (const f of template.field_schema) {
-      if (f.default !== undefined && !String(next[f.key] || "").trim()) {
-        next[f.key] = f.default;
-        changed = true;
-      }
-    }
-    if (changed) setFields(next);
-    // Applied once per template load, same as frontend/src/screens/Draft.jsx.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [template.id]);
+  // Re-apply the new template's defaults when the template itself changes (not on every
+  // re-render) -- calling setState here, during render, rather than in an effect, is React's own
+  // documented pattern for "adjusting state when a prop changes" (same frontend/src/screens/Draft.jsx
+  // behaviour, applied once per template load).
+  const [defaultsAppliedFor, setDefaultsAppliedFor] = useState(template.id);
+  if (template.id !== defaultsAppliedFor) {
+    setDefaultsAppliedFor(template.id);
+    setFields((f) => applyTemplateDefaults(f, template.field_schema));
+  }
 
   function commit(patch: { fieldValues?: Record<string, string>; selectedClauseIds?: string[]; customClauses?: Array<{ body: string }> }) {
     startTransition(async () => {

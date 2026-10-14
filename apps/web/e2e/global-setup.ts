@@ -35,7 +35,7 @@ function track(table: string, match: Record<string, string>) {
   fs.writeFileSync(SEED_FILE, JSON.stringify(seed, null, 2));
 }
 
-async function insertOne(table: string, values: Record<string, unknown>): Promise<any> {
+async function insertOne(table: string, values: Record<string, unknown>): Promise<{ id: string } & Record<string, unknown>> {
   const { data, error } = await admin.from(table).insert(values).select().single();
   if (error) throw new Error(`insert ${table} failed: ${error.message}`);
   track(table, { id: data.id });

@@ -24,9 +24,9 @@ export default async function FounderTabPage({ params }: { params: Promise<{ tab
   if (!data.user) redirect("/login");
   if (!data.user.email_confirmed_at) redirect("/verify-email");
 
+  let response;
   try {
-    const response = await getAnalyticsTabAction(tab as FounderTab);
-    return <FounderTabView response={response} />;
+    response = await getAnalyticsTabAction(tab as FounderTab);
   } catch (err) {
     if (err instanceof ApiError && err.status === 403) {
       return (
@@ -37,4 +37,5 @@ export default async function FounderTabPage({ params }: { params: Promise<{ tab
     }
     throw err;
   }
+  return <FounderTabView response={response} />;
 }

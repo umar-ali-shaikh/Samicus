@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { Card, Button, Badge, Callout } from "@/components/ui";
 import { stripHtmlTags } from "@/lib/format";
@@ -656,19 +656,46 @@ function getOrCreateSessionId(userId: string, { fresh = false }: { fresh?: boole
   }
 }
 
+interface SpeechRecognitionInstance {
+  lang: string;
+  interimResults: boolean;
+  maxAlternatives: number;
+  onresult: ((e: { results?: { [i: number]: { [i: number]: { transcript: string } } } }) => void) | null;
+  onend: (() => void) | null;
+  onerror: (() => void) | null;
+  start(): void;
+  stop(): void;
+}
+type SpeechRecognitionConstructor = new () => SpeechRecognitionInstance;
+declare global {
+  interface Window {
+    SpeechRecognition?: SpeechRecognitionConstructor;
+    webkitSpeechRecognition?: SpeechRecognitionConstructor;
+  }
+}
+
+// Support is read from `window`, which doesn't exist during SSR -- reading it directly in
+// render (the old `typeof window !== "undefined" ? ... : null`) made the server render `null`
+// and the client immediately re-render the real button on mount, a classic hydration mismatch.
+// useSyncExternalStore is React's own prescribed fix for exactly this "value only known on the
+// client" case: getServerSnapshot keeps the server and the client's FIRST render agreeing on
+// "unsupported" (null), and getSnapshot flips to the real button once we're past hydration --
+// with no setState-in-effect involved, since there's nothing to subscribe to (the browser either
+// has the API or it doesn't; it isn't going to change at runtime).
+function noSubscription() {
+  return () => {};
+}
+function getSupportSnapshot() {
+  return Boolean(window.SpeechRecognition || window.webkitSpeechRecognition);
+}
+function getServerSupportSnapshot() {
+  return false;
+}
+
 function VoiceInputButton({ onResult }: { onResult: (text: string) => void }) {
   const [listening, setListening] = useState(false);
-  // Recognition support is read from `window`, which doesn't exist during SSR -- reading it
-  // directly in render (the old `typeof window !== "undefined" ? ... : null`) made the server
-  // render `null` and the client immediately re-render the real button on mount, a classic
-  // hydration mismatch. useEffect-after-mount keeps both the server and the client's FIRST
-  // render agreeing on "unsupported" (null), only flipping to the real button once we're
-  // definitely past hydration.
-  const [supported, setSupported] = useState(false);
-  const recognitionRef = useRef<any>(null);
-  useEffect(() => {
-    setSupported(Boolean((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition));
-  }, []);
+  const supported = useSyncExternalStore(noSubscription, getSupportSnapshot, getServerSupportSnapshot);
+  const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
   if (!supported) return null;
 
   function toggle() {
@@ -676,12 +703,13 @@ function VoiceInputButton({ onResult }: { onResult: (text: string) => void }) {
       recognitionRef.current?.stop();
       return;
     }
-    const Recognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!Recognition) return;
     const recognition = new Recognition();
     recognition.lang = "en-IN"; // works reasonably for Hinglish/Hindi speech in practice
     recognition.interimResults = false;
     recognition.maxAlternatives = 1;
-    recognition.onresult = (e: any) => onResult(e.results?.[0]?.[0]?.transcript || "");
+    recognition.onresult = (e) => onResult(e.results?.[0]?.[0]?.transcript || "");
     recognition.onend = () => setListening(false);
     recognition.onerror = () => setListening(false);
     recognitionRef.current = recognition;
@@ -707,21 +735,19 @@ export function AssistantClient({ userId }: { userId: string }) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const sessionIdRef = useRef<string>("");
-  if (!sessionIdRef.current) sessionIdRef.current = getOrCreateSessionId(userId);
+  const [sessionId, setSessionId] = useState(() => getOrCreateSessionId(userId));
 
   useEffect(() => {
-    getAssistantSessionAction(sessionIdRef.current)
+    getAssistantSessionAction(sessionId)
       .then(({ turns: persisted }) => {
         if (!persisted?.length) return;
         setTurns(persisted.map((p) => ({ id: crypto.randomUUID(), question: p.question, result: p.result })));
       })
       .catch(() => {}); // best-effort rehydrate — a failed fetch just starts a fresh-looking session
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [sessionId]);
 
   function newConversation() {
-    sessionIdRef.current = getOrCreateSessionId(userId, { fresh: true });
+    setSessionId(getOrCreateSessionId(userId, { fresh: true }));
     setTurns([]);
     setError("");
   }
@@ -734,7 +760,7 @@ export function AssistantClient({ userId }: { userId: string }) {
     const turnId = crypto.randomUUID();
     setTurns((t) => [...t, { id: turnId, question: q, result: null }]);
     setLoading(true);
-    const result = await askAssistantAction(q, sessionIdRef.current);
+    const result = await askAssistantAction(q, sessionId);
     setLoading(false);
     if (result.ok) {
       setTurns((t) => t.map((turn) => (turn.id === turnId ? { ...turn, result: result.data } : turn)));
@@ -767,7 +793,7 @@ export function AssistantClient({ userId }: { userId: string }) {
 
       {turns.length === 0 && (
         <Callout tone="warning">
-          <strong>Not a substitute for a lawyer.</strong> Vidhira gives general legal information, not legal advice — it never guarantees outcomes and can't replace a qualified Indian lawyer. For arrests, violence, or urgent deadlines, contact a lawyer or the relevant authority immediately.
+          <strong>Not a substitute for a lawyer.</strong> Vidhira gives general legal information, not legal advice — it never guarantees outcomes and can&apos;t replace a qualified Indian lawyer. For arrests, violence, or urgent deadlines, contact a lawyer or the relevant authority immediately.
         </Callout>
       )}
 

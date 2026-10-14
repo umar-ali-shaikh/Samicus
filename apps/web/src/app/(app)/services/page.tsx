@@ -5,7 +5,7 @@ import { createServerSupabaseClient } from "@/server/supabase";
 import { apiClient } from "@/server/apiClient";
 import { getPaymentsConfigAction } from "@/server/paymentsActions";
 import type { ServiceListItemDto, ServiceOrderDto } from "@vidhira/contracts";
-import { Card, Badge, Button, EmptyState } from "@/components/ui";
+import { Card, Badge, EmptyState } from "@/components/ui";
 import { inr, fmtDate } from "@/lib/format";
 import { PayOrderButton } from "./PayOrderButton";
 

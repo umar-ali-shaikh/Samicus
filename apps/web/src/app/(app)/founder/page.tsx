@@ -19,9 +19,9 @@ export default async function FounderCommandCentrePage() {
   if (!data.user) redirect("/login");
   if (!data.user.email_confirmed_at) redirect("/verify-email");
 
+  let response;
   try {
-    const response = await getAnalyticsTabAction("founder");
-    return <FounderTabView response={response} />;
+    response = await getAnalyticsTabAction("founder");
   } catch (err) {
     if (err instanceof ApiError && err.status === 403) {
       return (
@@ -32,4 +32,5 @@ export default async function FounderCommandCentrePage() {
     }
     throw err;
   }
+  return <FounderTabView response={response} />;
 }

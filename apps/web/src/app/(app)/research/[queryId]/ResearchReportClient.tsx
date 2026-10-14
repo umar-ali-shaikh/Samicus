@@ -167,7 +167,7 @@ function FollowUpChat({ queryId }: { queryId: string }) {
   return (
     <Card style={{ display: "flex", flexDirection: "column", gap: 10, padding: 16 }}>
       <div style={EYEBROW_STYLE}>ASK A FOLLOW-UP</div>
-      <div style={{ fontSize: 11.5, color: "var(--color-text-muted)" }}>Answered only from this report's own sources — no new search.</div>
+      <div style={{ fontSize: 11.5, color: "var(--color-text-muted)" }}>Answered only from this report&apos;s own sources — no new search.</div>
       {turns.map((t) => (
         <div key={t.id} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
           <div style={{ fontWeight: 700, fontSize: 13 }}>{t.question}</div>

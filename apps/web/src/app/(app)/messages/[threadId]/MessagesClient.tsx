@@ -51,9 +51,15 @@ function Conversation({ thread, initialMessages }: { thread: ThreadListItemDto; 
   const [isPending, startTransition] = useTransition();
   const bottom = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
+  // A server refresh for this same thread (e.g. after sending a message) hands down a new
+  // initialMessages array for the still-mounted Conversation -- re-sync it into local state.
+  // Comparing and conditionally calling setState here, during render rather than in an effect,
+  // is React's own documented pattern for "adjusting state when a prop changes".
+  const [syncedFor, setSyncedFor] = useState(initialMessages);
+  if (initialMessages !== syncedFor) {
+    setSyncedFor(initialMessages);
     setMessages(initialMessages);
-  }, [initialMessages]);
+  }
 
   useEffect(() => {
     const t = setInterval(async () => {
