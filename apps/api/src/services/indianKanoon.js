@@ -138,16 +138,27 @@ export async function search(query, filters = {}, pagenum = 0, maxpages) {
   const result = await cache.getOrSet(cacheKey, SEARCH_TTL_MS, () => postToIndianKanoon(`/search/?${params.toString()}`));
 
   return {
-    ...result,
     found: parseFound(result.found),
-    // Indian Kanoon wraps the search term it matched in <b> inside `title` the same way it
-    // does `headline` — but unlike headline (rendered as sanitized HTML, see
-    // sanitizeJudgmentHtml), every consumer of `title` (CaseLaw.jsx, the AI Assistant's
-    // evidence/sources list) renders it as plain text, so a literal "<b>" would show up as
-    // visible characters rather than bolding. Strip it fully here, once, for every caller —
-    // CaseLaw search, and legalAssistant.js's Stage 3 Indian Kanoon fallback both go through
-    // this same function.
-    docs: (result.docs || []).map((doc) => ({ ...doc, title: stripTags(doc.title), headline: sanitizeJudgmentHtml(doc.headline) })),
+    categories: result.categories || [],
+    // Explicit field-picking, not a spread: Indian Kanoon's real response carries several more
+    // fields (catids, doctype, publishdate, authorid, bench, numcites, numcitedby, fragment,
+    // author, authorEncoded, citation, encodedformInput at the top level) than
+    // caseLawSearchResultDto declares, and that DTO is .strict() — a raw passthrough 500s on
+    // every real search instead of just dropping the fields nothing here reads.
+    docs: (result.docs || []).map((doc) => ({
+      tid: doc.tid,
+      // Indian Kanoon wraps the search term it matched in <b> inside `title` the same way it
+      // does `headline` — but unlike headline (rendered as sanitized HTML, see
+      // sanitizeJudgmentHtml), every consumer of `title` (CaseLaw.jsx, the AI Assistant's
+      // evidence/sources list) renders it as plain text, so a literal "<b>" would show up as
+      // visible characters rather than bolding. Strip it fully here, once, for every caller —
+      // CaseLaw search, and legalAssistant.js's Stage 3 Indian Kanoon fallback both go through
+      // this same function.
+      title: stripTags(doc.title),
+      headline: sanitizeJudgmentHtml(doc.headline),
+      docsource: doc.docsource,
+      docsize: doc.docsize,
+    })),
   };
 }
 

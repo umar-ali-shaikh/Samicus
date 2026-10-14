@@ -127,12 +127,68 @@ listing is added on top of it, not urgent on its own). `audit_logs` has no reade
 
 ---
 
-## 4. Summary
+## 4. Load test — 5 hottest endpoints
 
-No urgent fixes — the schema's existing indexes genuinely do cover the query patterns the app
-sends today. The two real gaps (`complaints`, `audit_logs`) are both **forward-looking**: cheap to
-close, but tied to admin features (a complaints triage view, an audit-log viewer) that don't exist
-in the API yet, so there's no real query shape to index against until they do. The one
-architectural note worth carrying forward is advocate matching's full-scan-then-score-in-JS
-design (§2.1) — not a bug, but the one query pattern in this list whose cost scales with overall
-platform size rather than with any one account/thread/matter's own row count.
+Unlike §1-3, this ran for real: a disposable Supabase Auth user (service-role `admin.createUser`,
+deleted afterward) signed in for a real bearer token, apps/api booted against the real
+`.env` (live Supabase + Qdrant + OpenRouter + Indian Kanoon), and `autocannon` fired at it. Each
+endpoint got its own fresh server process — app.js's rate limiters are in-memory, so reusing one
+process across endpoints just measures how fast the *previous* endpoint's burst exhausted the
+budget, not real latency (the first attempt at this hit exactly that: a `connections: 10` /
+`duration: 5` burst against one endpoint sent 15,000+ requests in a few seconds, blew through the
+global 300/min-per-IP limiter almost instantly, and every endpoint tested afterward in that same
+process inherited an already-exhausted budget). Two non-AI endpoints ran a real concurrent burst;
+the three AI endpoints ran 15 requests at low concurrency on purpose — Indian
+Kanoon/OpenRouter bill per call, and `getOrSet()`'s in-flight dedupe plus each service's own cache
+collapse a concurrent burst of *identical* requests into one real paid call, so this still exercises
+the request path under concurrency without re-billing per request.
+
+| Endpoint | Pattern | p50 | p95 | Notes |
+|---|---|---|---|---|
+| `GET /api/me` | 10 connections, 5s burst | ~240–830ms | ~440ms–2.9s | Session hydration — hottest endpoint in the app by call volume (every authenticated page load). Wide run-to-run variance (see below); no errors in any run. |
+| `GET /api/advocates` | 10 connections, 250 requests | ~116–363ms | ~189ms–1.7s | Public directory browse, no auth needed. |
+| `POST /api/legal-assistant/ask` | 3 connections, 15 requests, identical question | ~150–430ms | ~600ms–9.5s | First call does the real OpenRouter + Indian Kanoon work; the dedupe/cache described above makes the rest cheap. The occasional multi-second p95 outlier is a real upstream (OpenRouter) latency spike, not app code. |
+| `GET /api/case-law/search` | 3 connections, 15 requests, identical query | ~160–226ms | ~245–371ms | **Found and fixed a real bug** — see below. |
+| `POST /api/research/retrieve` | 3 connections, 15 requests, identical question | ~4.1–6.8s | ~6.0–8.7s | Consistently slow on **every** request, not just the first — see below. |
+
+**Run-to-run variance**: the two non-AI endpoints' numbers above span a real range across repeated
+runs minutes apart against the same live backend — expected for a load test against shared,
+real internet-routed infrastructure (Supabase/Qdrant network latency, not a controlled benchmark
+rig), not evidence of anything wrong. Treat the ranges, not either single number, as the honest
+result.
+
+**Bug found and fixed**: `GET /api/case-law/search` failed **100% of the time** against the real
+Indian Kanoon API before this fix. `services/indianKanoon.js`'s `search()` returned
+`{ ...result, docs: result.docs.map((doc) => ({ ...doc, ... })) }` — a raw spread of Indian
+Kanoon's actual response, which carries several fields (`catids`, `doctype`, `publishdate`,
+`authorid`, `bench`, `numcites`, `numcitedby`, `fragment`, `author`, `authorEncoded`, `citation`,
+and a top-level `encodedformInput`) that `caseLawSearchResultDto` — `.strict()`, deliberately, per
+this codebase's "explicit field-picking, never leak a raw row" convention — doesn't declare. Every
+test fixture in `indianKanoon.test.js` happened to only include the fields the DTO expects, so this
+never surfaced until a load test hit the *real* API. Fixed by explicitly picking the known fields
+instead of spreading; all 22 existing `indianKanoon`/`caselaw` tests still pass, 304 total across
+apps/api.
+
+**Performance note, not a bug**: `POST /api/research/retrieve` is consistently slow — not just on
+a cold first call, every one of the 15 identical-question requests took multiple seconds. Unlike
+`legal-assistant/ask` and `case-law/search`, `research.js`'s `retrieve()` was never migrated onto
+`platform/cache.ts`'s `getCache()` in the Task 10 Redis work (it wasn't one of the four files that
+work touched), so there's no response-level cache here at all — every call re-runs the full
+embedding + Qdrant retrieval pipeline from scratch even for a question asked seconds earlier. Worth
+a follow-up (give `retrieve()` the same `getOrSet()`-backed caching `legalAssistant.js` already
+has), but out of scope for this load-test pass — flagging it here rather than changing behaviour
+a performance review wasn't asked to change.
+
+---
+
+## 5. Summary
+
+The schema's existing indexes genuinely do cover the query patterns the app sends today (§1-3);
+the two real gaps (`complaints`, `audit_logs`) are both forward-looking, tied to admin features
+that don't exist in the API yet. The load test (§4) is the more consequential half of this
+review: it caught a real, currently-live bug (case-law search 500s on every real query) that no
+existing test had surfaced, now fixed, and surfaced one real performance gap worth a follow-up
+(`research/retrieve` has no caching layer). The one architectural note worth carrying forward from
+§1-3 is advocate matching's full-scan-then-score-in-JS design (§2.1) — not a bug, but the one
+query pattern in this list whose cost scales with overall platform size rather than with any one
+account/thread/matter's own row count.
