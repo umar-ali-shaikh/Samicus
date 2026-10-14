@@ -77,7 +77,7 @@ async function callModel(model, messages, { jsonMode, maxTokens } = {}, token) {
       throw new OpenRouterApiError(`OpenRouter API error ${res.status}${text ? `: ${text}` : ""}`, res.status);
     }
 
-    increment("openrouter");
+    await increment("openrouter");
     const data = await res.json();
     const choice = data.choices?.[0];
     const finishReason = choice?.finish_reason || null;

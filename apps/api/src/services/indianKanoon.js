@@ -94,7 +94,7 @@ async function postToIndianKanoon(path) {
         throw new IndianKanoonApiError(`Indian Kanoon API error ${res.status}${body ? `: ${body}` : ""}`, res.status);
       }
 
-      increment("indianKanoon"); // only successful, cache-missed calls are the ones actually billed
+      await increment("indianKanoon"); // only successful, cache-missed calls are the ones actually billed
       return await res.json();
     } catch (err) {
       if (err instanceof IndianKanoonAuthError || err instanceof IndianKanoonApiError) throw err;

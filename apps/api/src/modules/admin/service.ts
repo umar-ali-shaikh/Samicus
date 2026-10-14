@@ -9,8 +9,8 @@ import { complaints as complaintsReport } from "../../services/analytics/index.j
 import type { AdminStatsDto, ComplaintsReportDto, DecideVerificationInput, UsageDto, VerificationCaseDto, VerificationCaseListItemDto } from "@vidhira/contracts";
 import * as repo from "./repository.js";
 
-export function getUsage(): UsageDto {
-  return { callsSinceStart: getCounts() };
+export async function getUsage(): Promise<UsageDto> {
+  return { callsSinceStart: await getCounts() };
 }
 
 // Shared by trust & safety (admin) and the founder -- see modules/founder for the dedicated

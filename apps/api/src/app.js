@@ -1,10 +1,11 @@
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
-import morgan from "morgan";
+import pinoHttp from "pino-http";
 import { createRateLimiter } from "./platform/rateLimit.js";
 import { HttpError } from "./services/access.js";
 import { getSupabase } from "./config/db.js";
+import { logger } from "./platform/logger.js";
 
 import authRoutes from "./routes/auth.js";
 import accountsRoutes from "./modules/accounts/router.js";
@@ -71,7 +72,10 @@ export function createApp() {
   app.use("/api", paymentWebhook);
 
   app.use(express.json({ limit: "1mb" }));
-  app.use(morgan(process.env.NODE_ENV === "production" ? "combined" : "dev"));
+  // Structured request logging, replacing morgan -- shares platform/logger.ts's pino instance
+  // (and its PII redaction: auth headers, tokens, prompts) so req.log.error(...) calls below
+  // and any other app-level logging land in the same stream with the same redaction rules.
+  app.use(pinoHttp({ logger }));
 
   app.get("/api/health", (req, res) => res.json({ ok: true }));
 
@@ -129,7 +133,9 @@ export function createApp() {
     }
     if (err?.type === "entity.parse.failed") return res.status(400).json({ error: "Invalid JSON body." });
     const status = err.status || 500;
-    if (status >= 500) console.error(err);
+    // req.log is unset only for errors thrown before pino-http's own middleware runs (e.g. the
+    // Razorpay webhook route, mounted earlier so its signature check sees the raw body).
+    if (status >= 500) (req.log || logger).error(err);
     // Never leak database/driver internals for unexpected failures.
     const message = status >= 500 && !err.expose && !(err instanceof HttpError) ? "Something went wrong. Please try again." : err.message;
     const exposeCode = typeof err.code === "string" && /^[A-Z_]+$/.test(err.code) && (status < 500 || err.expose || err instanceof HttpError);

@@ -1,8 +1,8 @@
 /**
- * pino-based structured logger, replacing morgan once wired in (Phase 2+). Not yet adopted
- * by app.js -- morgan stays in place until the module-by-module conversion reaches it.
- * PII redaction paths cover the fields today's console.error(err) calls could otherwise leak
- * (see docs/MASTER-PROMPT.md's "never log prompts containing client matter facts").
+ * pino-based structured logger, wired into app.js via pino-http (replacing morgan) for
+ * request logging, and used directly for the global error handler's err logging. PII
+ * redaction paths cover the fields a bare console.error(err) could otherwise leak (see
+ * docs/MASTER-PROMPT.md's "never log prompts containing client matter facts").
  */
 import pino from "pino";
 

@@ -29,7 +29,7 @@ export default defineConfig({
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: [
     {
-      command: "npx tsx src/index.js",
+      command: "npx tsx --env-file-if-exists=../../.env src/index.js",
       cwd: "../api",
       url: "http://localhost:4000/api/config",
       reuseExistingServer: !process.env.CI,

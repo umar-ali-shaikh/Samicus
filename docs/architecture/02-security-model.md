@@ -64,6 +64,24 @@ Three independent mechanisms, by design:
    deliberately returns **404, not 403**, when the caller isn't a party to the matter, specifically
    so a matter id can't be probed to learn whether it exists (see that function's own test suite
    for the probe case).
+4. **A coarse, advisory edge gate in front of all this**, not a substitute for it.
+   `packages/contracts/src/routes.ts`'s `routeManifest` declares which roles may ever load each
+   `apps/web` URL; `apps/web/src/proxy.ts` (Next 16's renamed `middleware.ts`) checks it on every
+   navigation and redirects a wrong-role request to that role's own home page. Resolving the
+   caller's role here deliberately does **not** add a service-role key to `apps/web` or a Supabase
+   custom access-token hook — it calls apps/api's own `GET /api/me` (the same authority everything
+   else already trusts) and caches the answer in a short-lived cookie. If that resolution ever
+   fails (cold cache, apps/api unreachable), the gate fails **open** — the request is allowed
+   through unchanged, because layers 1–3 above are the actual authority and never trust this one;
+   a wrong decision here can only produce a wrong redirect, never a data leak.
+
+A static scan (`apps/api/scripts/auditRoutes.mjs`, `npm run audit:routes -w apps/api`) walks
+every router file and flags any route with neither a recognizable auth/role gate nor, for
+body-bearing methods, a visible Zod validation call on `req.body` — currently 0 flagged (13
+individually-reviewed exceptions, mostly deliberately-public reference-data GETs, documented in
+the script's own `KNOWN_SAFE` map). It's a heuristic, not a real parser — it can't see
+per-resource ownership checks that live inside `service.ts` files — so it complements layer 3
+above rather than replacing it.
 
 ## 4. Rate limiting
 
@@ -91,13 +109,19 @@ never a public bucket URL. Uploads are **not virus-scanned** (rows are marked `p
 `clean` — this is an honest limitation, not a claim of safety); contract review only ever reads
 text out of PDF/DOCX/TXT, never executes anything from an uploaded file.
 
-## 7. Error handling: no internal leakage
+## 7. Error handling and logging: no internal leakage
 
-`app.js`'s final error handler (line ~125) deliberately collapses any **5xx** that isn't an
-explicit `HttpError`/`err.expose` down to a generic `"Something went wrong. Please try again."` —
-raw database/driver error text never reaches a client response. 4xx errors (validation,
+`app.js`'s final error handler deliberately collapses any **5xx** that isn't an explicit
+`HttpError`/`err.expose` down to a generic `"Something went wrong. Please try again."` — raw
+database/driver error text never reaches a client response. 4xx errors (validation,
 authorization) do surface their real message, since those are expected, actionable-by-the-user
 failures, not internals.
+
+Request logging (`pino-http`, replacing `morgan`) and the error handler's own `.error(err)` call
+both go through `platform/logger.ts`'s shared `pino` instance, which redacts
+`req.headers.authorization`, and any `password`/`token`/`accessToken`/`prompt` field at any
+depth, before anything is written out — so a logged request or error can't leak a bearer token
+or an AI prompt that might contain client matter facts.
 
 ## 8. Known, accepted gaps (tracked, not silently ignored)
 
@@ -119,3 +143,9 @@ failures, not internals.
   `apps/web/e2e/README.md`, not silently suppressed.
 - **No email/SMS notifications** — in-app only (messages poll). Not a security gap, but relevant
   to incident response: a banned/compromised user won't be notified out-of-band.
+- `knip` still reports ~50 unused exports / 9 unused exported types across `apps/api`/`apps/web`
+  (`npx knip` at the repo root) — module-private helpers exported out of habit, not dead code with
+  a security implication. Left as a tidiness backlog item, not actioned here. `pino-pretty` in
+  both `apps/api` and `apps/worker` is a `knip` **false positive** — loaded by `pino` via a string
+  transport target (`{ target: "pino-pretty" }`) that static import analysis can't see; it is
+  genuinely used in dev and must not be removed.

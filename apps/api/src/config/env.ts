@@ -1,19 +1,16 @@
 /**
  * Single shared .env lives at the repo root (not inside apps/api/) so apps/api and apps/worker
- * read the same file. Loaded explicitly by path since cwd varies (npm run dev from apps/api/,
- * or the root workspace scripts). Side-effecting import -- `import "./config/env.js"` at the
+ * read the same file. Loaded by Node's own `--env-file-if-exists` flag (every npm script that
+ * runs this app passes `--env-file-if-exists=../../.env`, relative to apps/api/'s own cwd) --
+ * not dotenv, per docs/MASTER-PROMPT.md's "no dotenv -- use node --env-file" rule. Side-effecting
+ * import -- `import "./config/env.js"` at the
  * top of index.js runs this before anything else touches process.env.
  *
  * Replaces the old plain-dotenv env.js: validates every var with Zod and fails loudly (throws
  * before the server starts listening) on anything missing/malformed, per
  * docs/MASTER-PROMPT.md's "Zod-validated env at boot in each app... fail fast".
  */
-import { fileURLToPath } from "node:url";
-import path from "node:path";
-import dotenv from "dotenv";
 import { z } from "zod";
-
-dotenv.config({ path: path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../.env") });
 
 const schema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),

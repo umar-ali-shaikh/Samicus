@@ -74,7 +74,7 @@ export async function searchTavily(query, { maxResults = 5, domains = TRUSTED_DO
       throw new TavilyApiError(`Tavily API error ${res.status}${text ? `: ${text}` : ""}`, res.status);
     }
 
-    increment("tavily");
+    await increment("tavily");
     const data = await res.json();
     // Web text is untrusted data, never instructions — plain string fields only, nothing
     // from this response is ever interpreted as control flow.

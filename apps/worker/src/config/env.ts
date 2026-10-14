@@ -1,16 +1,13 @@
 /**
  * Same shared-root-.env + Zod-validated-fail-fast pattern as apps/api/src/config/env.ts --
- * both apps read the SAME .env file at the repo root. Side-effecting import: `import
+ * both apps read the SAME .env file at the repo root, loaded by Node's own
+ * `--env-file-if-exists` flag (every npm script that runs this app passes
+ * `--env-file-if-exists=../../.env`), not dotenv. Side-effecting import: `import
  * "./config/env.js"` at the top of index.ts runs this before anything else touches
  * process.env (including @vidhira/rag's functions, which read QDRANT_* and OPENROUTER_*
  * vars directly off process.env rather than through this validated object).
  */
-import { fileURLToPath } from "node:url";
-import path from "node:path";
-import dotenv from "dotenv";
 import { z } from "zod";
-
-dotenv.config({ path: path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../.env") });
 
 const schema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),

@@ -2,18 +2,18 @@ import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { increment, getCounts, __resetCountsForTests } from "./callCounter.js";
 
-beforeEach(() => {
-  __resetCountsForTests();
+beforeEach(async () => {
+  await __resetCountsForTests();
 });
 
-test("increment() tallies calls per provider independently", () => {
-  increment("indianKanoon");
-  increment("indianKanoon");
-  increment("openrouter");
+test("increment() tallies calls per provider independently", async () => {
+  await increment("indianKanoon");
+  await increment("indianKanoon");
+  await increment("openrouter");
 
-  assert.deepEqual(getCounts(), { indianKanoon: 2, openrouter: 1 });
+  assert.deepEqual(await getCounts(), { indianKanoon: 2, openrouter: 1 });
 });
 
-test("getCounts() is empty before any increment", () => {
-  assert.deepEqual(getCounts(), {});
+test("getCounts() is empty before any increment", async () => {
+  assert.deepEqual(await getCounts(), {});
 });

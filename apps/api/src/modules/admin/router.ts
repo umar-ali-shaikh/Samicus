@@ -20,8 +20,8 @@ function parse<T>(schema: z.ZodType<T>, body: unknown): T {
 }
 
 // Lightweight cost/usage visibility for the per-call-billed providers -- in-memory only.
-router.get("/admin/usage", (_req, res) => {
-  res.json(usageDto.parse(service.getUsage()));
+router.get("/admin/usage", async (_req, res) => {
+  res.json(usageDto.parse(await service.getUsage()));
 });
 
 // Complaint triage is shared by trust & safety (admin) and the founder.
