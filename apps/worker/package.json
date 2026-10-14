@@ -15,8 +15,10 @@
     "@supabase/supabase-js": "^2.117.2",
     "@vidhira/contracts": "*",
     "@vidhira/rag": "*",
+    "dotenv": "^16.4.5",
     "pg-boss": "^12.37.1",
-    "pino": "^10.4.0"
+    "pino": "^10.4.0",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@vidhira/config": "*",
