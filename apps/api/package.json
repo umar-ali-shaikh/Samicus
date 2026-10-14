@@ -11,10 +11,6 @@
     "seed:demo-advocates": "node src/seed/demoAdvocates.js",
     "test": "tsx --test --experimental-test-module-mocks",
     "typecheck": "tsc --noEmit",
-    "rag:reindex": "node src/utils/rag.js reindex",
-    "rag:reembed-all": "node src/utils/rag.js reembed-all",
-    "rag:reprocess": "node src/utils/rag.js reprocess",
-    "rag:status": "node src/utils/rag.js status",
     "research:check": "node src/scripts/researchRetrievalCheck.js"
   },
   "dependencies": {
@@ -33,7 +29,6 @@
     "morgan": "^1.10.0",
     "multer": "^2.0.0",
     "pdfkit": "^0.20.2",
-    "pg-boss": "^12.37.1",
     "pino": "^10.4.0",
     "rate-limit-redis": "^6.0.1",
     "sanitize-html": "^2.13.1",

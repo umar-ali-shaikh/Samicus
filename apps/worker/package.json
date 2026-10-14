@@ -3,13 +3,18 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "RAG ingest/reindex/reprocess/reembed and other long-running jobs, split out of apps/api per docs/MASTER-PROMPT.md Phase 4. Currently a minimal boot-only skeleton -- the actual RAG CLI commands (apps/api/src/utils/rag.js, apps/api/src/services/rag/*) move here in Phase 4, not before.",
+  "description": "RAG ingest/reindex/reprocess/reembed and other long-running jobs, split out of apps/api per docs/MASTER-PROMPT.md Phase 4 -- processes pg-boss jobs via src/index.ts; src/cli.ts enqueues them (replacing apps/api's old rag:* scripts).",
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "test": "tsx --test --experimental-test-module-mocks",
+    "rag:reindex": "tsx src/cli.ts reindex",
+    "rag:reembed-all": "tsx src/cli.ts reembed-all",
+    "rag:reprocess": "tsx src/cli.ts reprocess",
+    "rag:status": "tsx src/cli.ts status"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.117.2",

@@ -1,6 +1,8 @@
 import "./config/env.js";
 import { getSupabase } from "./config/db.js";
 import { setSupabaseClient } from "@vidhira/rag/supabaseClient";
+import { getBoss } from "./boss.js";
+import { registerRagJobs } from "./jobs/ragJobs.js";
 import { logger } from "./logger.js";
 
 // @vidhira/rag never imports either app's own config/db.js -- each app wires its own
@@ -9,6 +11,14 @@ import { logger } from "./logger.js";
 // concern, not this one's) -- @vidhira/rag no-ops a request hook that was never set.
 setSupabaseClient(getSupabase());
 
-// Phase 4's job table + handlers (reindex/reembed-all/reprocess, replacing apps/api's
-// utils/rag.js CLI) land in a follow-up slice -- this boots cleanly with nothing registered.
-logger.info("worker: skeleton boot, no jobs registered yet (see Phase 4)");
+async function main() {
+  const boss = getBoss();
+  await boss.start();
+  await registerRagJobs(boss);
+  logger.info("worker: listening for rag:reindex, rag:reembed-all, rag:reprocess jobs");
+}
+
+main().catch((err) => {
+  logger.error({ err }, "worker failed to start");
+  process.exit(1);
+});
