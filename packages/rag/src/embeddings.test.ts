@@ -1,8 +1,8 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { embedTexts, isOpenRouterEmbeddingsConfigured, OpenRouterEmbeddingAuthError, OpenRouterEmbeddingApiError } from "./openRouterEmbeddings.js";
+import { embedTexts, isOpenRouterEmbeddingsConfigured, OpenRouterEmbeddingAuthError, OpenRouterEmbeddingApiError } from "./embeddings.js";
 
-let originalKey;
+let originalKey: string | undefined;
 
 before(() => {
   originalKey = process.env.OPENROUTER_API_KEY;
@@ -12,7 +12,7 @@ after(() => {
   process.env.OPENROUTER_API_KEY = originalKey;
 });
 
-function jsonResponse(status, body) {
+function jsonResponse(status: number, body: unknown) {
   return { ok: status >= 200 && status < 300, status, json: async () => body, text: async () => JSON.stringify(body) };
 }
 
@@ -50,9 +50,9 @@ test("embedTexts() returns [] for an empty input without calling fetch", async (
 
 test("embedTexts() sends one batched request and returns vectors in order", async (t) => {
   process.env.OPENROUTER_API_KEY = "test-key";
-  let seenBody;
-  let seenHeaders;
-  t.mock.method(globalThis, "fetch", async (url, opts) => {
+  let seenBody: any;
+  let seenHeaders: any;
+  t.mock.method(globalThis, "fetch", async (_url: string, opts: any) => {
     seenBody = JSON.parse(opts.body);
     seenHeaders = opts.headers;
     return jsonResponse(200, {

@@ -20,7 +20,7 @@ import {
   caseMismatchNote,
 } from "../../services/research.js";
 import { renderResearchReportPdf } from "../../services/draftRender.js";
-import { knowledgeBaseStats } from "../../services/rag/retrieve.js";
+import { knowledgeBaseStats } from "@vidhira/rag/retrieve";
 import type {
   AnswerResearchInput,
   AskResearchFollowUpInput,

@@ -12,7 +12,9 @@
     "lint": "eslint ."
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.117.2",
     "@vidhira/contracts": "*",
+    "@vidhira/rag": "*",
     "pg-boss": "^12.37.1",
     "pino": "^10.4.0"
   },

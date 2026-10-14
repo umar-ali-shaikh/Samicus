@@ -4,8 +4,12 @@ import { createApp } from "./app.js";
 import { getSupabase } from "./config/db.js";
 import { seedAll } from "./seed/seed.js";
 import { ensureDocumentBucket } from "./services/storage.js";
-import { ensureClauseIndex } from "./services/rag/clauses.js";
-import { ragEnabled } from "./services/rag/ingest.js";
+import { ensureClauseIndex } from "@vidhira/rag/clauses";
+import { ragEnabled } from "@vidhira/rag/ingest";
+import { setSupabaseClient } from "@vidhira/rag/supabaseClient";
+import { setQdrantRequestHook } from "@vidhira/rag/qdrant";
+import { setEmbeddingsRequestHook } from "@vidhira/rag/embeddings";
+import { increment } from "./utils/callCounter.js";
 
 const PORT = process.env.PORT || 4000;
 
@@ -39,6 +43,14 @@ async function warnOnMissingMigrationTables() {
 
 async function main() {
   const supabase = getSupabase();
+
+  // @vidhira/rag is a shared package (also used by apps/worker) -- it never imports this
+  // app's config/db.js or utils/callCounter.js directly, so every app wires its own Supabase
+  // client and billed-call counter in once at boot, before anything in the request path can
+  // reach a RAG function.
+  setSupabaseClient(supabase);
+  setQdrantRequestHook(() => increment("qdrant"));
+  setEmbeddingsRequestHook(() => increment("openrouter_embeddings"));
 
   // Fails fast with a clear message if the schema has not been applied yet.
   const { count, error } = await supabase.from("practice_areas").select("*", { count: "exact", head: true });

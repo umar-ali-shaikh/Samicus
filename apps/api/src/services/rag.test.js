@@ -1,11 +1,12 @@
-﻿import { test, mock, before, after, beforeEach } from "node:test";
+import { test, before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import crypto from "crypto";
-import { createFakeSupabase } from "../../test/fakeSupabase.js";
+import { createFakeSupabase } from "../test/fakeSupabase.js";
+import { setSupabaseClient } from "@vidhira/rag/supabaseClient";
 
 // ---- fakes: Supabase (in-memory), OpenRouter embeddings (bag-of-words), Qdrant (in-memory cosine) ----
 const fake = createFakeSupabase({ unique: { corpus_documents: [{ cols: ["external_id"] }] } });
-mock.module("../../config/db.js", { namedExports: { getSupabase: () => fake.client } });
+setSupabaseClient(fake.client);
 
 const DIM = 768;
 function embedText(text) {
@@ -102,7 +103,7 @@ const NON_COMPETE_HTML = `
 const RENT_HTML = `<p id="p_1" title="Court's Reasoning">The landlord must return the tenant's security deposit after the tenancy ends and possession is handed back.</p>`;
 
 test("ingesting a document stores text in Postgres and vectors in Qdrant, once", async () => {
-  const { ingestIndianKanoonDoc } = await import("./ingest.js");
+  const { ingestIndianKanoonDoc } = await import("@vidhira/rag/ingest");
   const doc = { tid: 101, title: "Golikari v Century", docsource: "Supreme Court of India", html: NON_COMPETE_HTML };
 
   const first = await ingestIndianKanoonDoc(doc);
@@ -129,8 +130,8 @@ test("ingesting a document stores text in Postgres and vectors in Qdrant, once",
 });
 
 test("retrievePassages returns the semantically closest passage and honours the threshold", async () => {
-  const { ingestIndianKanoonDoc } = await import("./ingest.js");
-  const { retrievePassages } = await import("./retrieve.js");
+  const { ingestIndianKanoonDoc } = await import("@vidhira/rag/ingest");
+  const { retrievePassages } = await import("@vidhira/rag/retrieve");
   await ingestIndianKanoonDoc({ tid: 101, title: "Golikari v Century", docsource: "Supreme Court of India", html: NON_COMPETE_HTML });
   await ingestIndianKanoonDoc({ tid: 202, title: "Tenant v Landlord", docsource: "Delhi High Court", html: RENT_HTML });
 
@@ -147,9 +148,9 @@ test("retrievePassages returns the semantically closest passage and honours the 
 });
 
 test("answerLegalQuestion answers from retrieved passages and skips the paid live search once the KB is confident", async () => {
-  const { answerLegalQuestion, __resetCacheForTests } = await import("../legalAssistant.js");
-  const { __resetCacheForTests: resetIk } = await import("../indianKanoon.js");
-  const { __resetCacheForTests: resetQu } = await import("../legalQueryUnderstanding.js");
+  const { answerLegalQuestion, __resetCacheForTests } = await import("./legalAssistant.js");
+  const { __resetCacheForTests: resetIk } = await import("./indianKanoon.js");
+  const { __resetCacheForTests: resetQu } = await import("./legalQueryUnderstanding.js");
   __resetCacheForTests(); resetIk(); resetQu();
 
   let orCalls = 0;
@@ -206,9 +207,9 @@ test("answerLegalQuestion answers from retrieved passages and skips the paid liv
 });
 
 test("answerLegalQuestion() learns Tavily results into the knowledge base without blocking the response, and dedupes by URL", async () => {
-  const { answerLegalQuestion, __resetCacheForTests } = await import("../legalAssistant.js");
-  const { __resetCacheForTests: resetIk } = await import("../indianKanoon.js");
-  const { __resetCacheForTests: resetQu } = await import("../legalQueryUnderstanding.js");
+  const { answerLegalQuestion, __resetCacheForTests } = await import("./legalAssistant.js");
+  const { __resetCacheForTests: resetIk } = await import("./indianKanoon.js");
+  const { __resetCacheForTests: resetQu } = await import("./legalQueryUnderstanding.js");
   __resetCacheForTests(); resetIk(); resetQu();
 
   const UNDERSTANDING = (q) => JSON.stringify({ searchQuery: q, topic: "tenancy", language: "english", isEmergency: false, emergencyReason: null });

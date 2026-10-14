@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { publicPaymentConfig } from "../services/razorpay.js";
-import { ragEnabled } from "../services/rag/ingest.js";
+import { ragEnabled } from "@vidhira/rag/ingest";
 
 const router = Router();
 

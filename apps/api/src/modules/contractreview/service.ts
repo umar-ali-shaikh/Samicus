@@ -3,14 +3,14 @@
  * behaviour, including the 404-not-403 ownership check and the "every identified clause gets a
  * finding row, even unmatched ones" rule. The retrieval/judgement pipeline itself
  * (detectRedFlags/judgeClauses in services/contractReview.js, matchBaselineClauses in
- * services/rag/clauses.js) stays untouched, same precedent as research/assistant.
+ * @vidhira/rag/clauses) stays untouched, same precedent as research/assistant.
  */
 import { Document, HeadingLevel, Packer, Paragraph, TextRun } from "docx";
 import { HttpError, assertAccountMember, memberAccountIds } from "../../services/access.js";
 import { extractDocumentText, segmentContract } from "../../services/docText.js";
 import { detectRedFlags, judgeClauses } from "../../services/contractReview.js";
-import { matchBaselineClauses } from "../../services/rag/clauses.js";
-import { ragEnabled } from "../../services/rag/ingest.js";
+import { matchBaselineClauses } from "@vidhira/rag/clauses";
+import { ragEnabled } from "@vidhira/rag/ingest";
 import { getObject } from "../../services/storage.js";
 import { loadReadableDocument } from "../documents/service.js";
 import type { ContractReviewDetailDto, ContractReviewListItemDto, CreateContractReviewInput } from "@vidhira/contracts";

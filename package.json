@@ -10,7 +10,8 @@
     "apps/web",
     "apps/worker",
     "packages/contracts",
-    "packages/config"
+    "packages/config",
+    "packages/rag"
   ],
   "scripts": {
     "dev": "npm run dev -w frontend",

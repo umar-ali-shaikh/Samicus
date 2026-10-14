@@ -22,14 +22,14 @@ test("htmlToParagraphs reads Indian Kanoon structural titles", () => {
     <p>Plain paragraph without a title.</p>`;
   const paras = htmlToParagraphs(html);
   assert.deepEqual(paras.map((p) => p.paraClass), ["facts", "issues", "reasoning", "reasoning"]);
-  assert.equal(paras[0].paraNumber, "1");
-  assert.equal(paras[3].paraNumber, null);
+  assert.equal(paras[0]!.paraNumber, "1");
+  assert.equal(paras[3]!.paraNumber, null);
 });
 
 test("htmlToParagraphs falls back to plain lines when there are no block tags", () => {
   const paras = htmlToParagraphs("Section 27\nAgreement in restraint of trade is void.", { fallbackClass: "provision" });
   assert.equal(paras.length, 2);
-  assert.equal(paras[0].paraClass, "provision");
+  assert.equal(paras[0]!.paraClass, "provision");
 });
 
 test("classFromTitle keeps arguments distinct from the court's own reasoning", () => {

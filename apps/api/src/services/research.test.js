@@ -1,11 +1,12 @@
-import { test, mock, before, after, beforeEach } from "node:test";
+import { test, before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import crypto from "crypto";
 import { createFakeSupabase } from "../test/fakeSupabase.js";
+import { setSupabaseClient } from "@vidhira/rag/supabaseClient";
 
-// ---- same fake-Supabase/Qdrant/OpenRouter-embeddings harness as rag/rag.test.js ----
+// ---- same fake-Supabase/Qdrant/OpenRouter-embeddings harness as rag.test.js ----
 const fake = createFakeSupabase({ unique: { corpus_documents: [{ cols: ["external_id"] }] } });
-mock.module("../config/db.js", { namedExports: { getSupabase: () => fake.client } });
+setSupabaseClient(fake.client);
 
 const DIM = 768;
 function embedText(text) {
@@ -72,7 +73,11 @@ function stubFetch(extra = () => null) {
 const realFetch = globalThis.fetch;
 const env = {};
 before(() => {
-  for (const [k, v] of Object.entries({ QDRANT_URL: "http://qdrant.test", RAG_MIN_SCORE: "0.3", OPENROUTER_API_KEY: "or" })) {
+  // QDRANT_COLLECTION pinned explicitly too: legalQueryUnderstanding.js's getCache()
+  // (platform/cache.js) now transitively loads config/env.js, which dotenv-loads the real
+  // .env -- whose QDRANT_COLLECTION is NOT the "vidhira_legal" default this file's
+  // qdrantCollections fake is keyed on.
+  for (const [k, v] of Object.entries({ QDRANT_URL: "http://qdrant.test", QDRANT_COLLECTION: "vidhira_legal", RAG_MIN_SCORE: "0.3", OPENROUTER_API_KEY: "or" })) {
     env[k] = process.env[k];
     process.env[k] = v;
   }
@@ -90,7 +95,7 @@ beforeEach(async () => {
 });
 
 test("retrieve() prefers a document's citable passage over its own higher-scoring party argument", async () => {
-  const { ingestIndianKanoonDoc } = await import("./rag/ingest.js");
+  const { ingestIndianKanoonDoc } = await import("@vidhira/rag/ingest");
   const { retrieve } = await import("./research.js");
 
   const html = `
@@ -105,7 +110,7 @@ test("retrieve() prefers a document's citable passage over its own higher-scorin
 });
 
 test("retrieve() boosts a Supreme Court passage above a higher-scoring High Court one when the question names the Supreme Court", async () => {
-  const { ingestIndianKanoonDoc } = await import("./rag/ingest.js");
+  const { ingestIndianKanoonDoc } = await import("@vidhira/rag/ingest");
   const { retrieve } = await import("./research.js");
 
   // Crafted so the High Court chunk starts out scoring higher (more exact word overlap with
@@ -212,7 +217,7 @@ test("answerFromRetrieval() keeps the genuinely relevant passage and marks the r
 });
 
 test("retrieve() also searches using the English-translated query for a Hinglish question, merging in a hit the raw text alone would barely score", async () => {
-  const { ingestIndianKanoonDoc } = await import("./rag/ingest.js");
+  const { ingestIndianKanoonDoc } = await import("@vidhira/rag/ingest");
   const { retrieve } = await import("./research.js");
 
   await ingestIndianKanoonDoc({

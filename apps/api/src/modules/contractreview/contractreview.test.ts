@@ -17,11 +17,11 @@ const AUTH_USERS = { "tok-alice": ALICE, "tok-bob": BOB };
 const DOC_ID = "44444444-4444-4444-8444-444444444444";
 const ALICE_ACCOUNT_ID = "55555555-5555-4555-8555-555555555555";
 
-// Only ragEnabled is overridden; the other exports are stubbed (never called by this test)
-// purely so that app.js's OTHER routers -- which import the real rag/ingest.js for their own
-// unrelated needs (e.g. research's service.ts) -- don't fail to resolve a missing export when
-// createApp() wires up every router in the same process.
-mock.module("../../services/rag/ingest.js", {
+// Only ragEnabled/matchBaselineClauses are overridden; the other exports are stubbed (never
+// called by this test) purely so that app.js's OTHER routers -- which import the real
+// @vidhira/rag/ingest for their own unrelated needs (e.g. research's service.ts) -- don't fail
+// to resolve a missing export when createApp() wires up every router in the same process.
+mock.module("@vidhira/rag/ingest", {
   namedExports: {
     ragEnabled: () => true,
     PAYLOAD_INDEXES: ["source", "document_id", "para_class"],
@@ -39,7 +39,7 @@ mock.module("../../services/rag/ingest.js", {
     },
   },
 });
-mock.module("../../services/rag/clauses.js", { namedExports: { matchBaselineClauses: async (segments: string[]) => segments.map(() => null) } });
+mock.module("@vidhira/rag/clauses", { namedExports: { matchBaselineClauses: async (segments: string[]) => segments.map(() => null) } });
 
 const fake = createFakeSupabase({
   authUsers: AUTH_USERS,

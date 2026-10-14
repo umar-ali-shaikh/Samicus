@@ -10,7 +10,10 @@
 import "../config/env.js";
 import { getSupabase } from "../config/db.js";
 import { retrieve, answerFromRetrieval, generateResearchInsights, relevanceThreshold, findRelatedCases, detectLanguage } from "../services/research.js";
-import { ragEnabled } from "../services/rag/ingest.js";
+import { ragEnabled } from "@vidhira/rag/ingest";
+import { setSupabaseClient } from "@vidhira/rag/supabaseClient";
+
+setSupabaseClient(getSupabase());
 
 const MODEL_VERSION = "sentence-transformers/all-mpnet-base-v2+qdrant";
 const TITLE_MAX = 80;

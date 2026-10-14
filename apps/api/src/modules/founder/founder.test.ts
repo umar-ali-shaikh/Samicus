@@ -22,10 +22,10 @@ const ADVOCATE_ID = "22222222-2222-4222-8222-222222222222";
 const MATTER_ID = "33333333-3333-4333-8333-333333333333";
 
 // Only knowledgeBaseStats is overridden; the rest are stubbed (never called by this test)
-// purely so app.js's OTHER routers, which import the real rag/retrieve.js for their own
+// purely so app.js's OTHER routers, which import the real @vidhira/rag/retrieve for their own
 // unrelated needs (research's service.ts), don't fail to resolve a missing export when
 // createApp() wires up every router in the same process.
-mock.module("../../services/rag/retrieve.js", {
+mock.module("@vidhira/rag/retrieve", {
   namedExports: {
     knowledgeBaseStats: async () => ({ enabled: false }),
     minScore: () => 0.42,

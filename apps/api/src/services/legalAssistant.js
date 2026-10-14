@@ -35,8 +35,8 @@ import { understandQuery, looksLikePromptInjection } from "./legalQueryUnderstan
 import { chatCompletion, chatCompletionWithMeta, OpenRouterAuthError, OpenRouterApiError } from "./openRouter.js";
 import { getCache } from "../platform/cache.js";
 import { rankRelevantDocs } from "./relevanceRanking.js";
-import { ragEnabled, ingestIndianKanoonDoc, ingestWebDoc } from "./rag/ingest.js";
-import { retrievePassages } from "./rag/retrieve.js";
+import { ragEnabled, ingestIndianKanoonDoc, ingestWebDoc } from "@vidhira/rag/ingest";
+import { retrievePassages } from "@vidhira/rag/retrieve";
 import { searchTavily as callTavily, isTavilyConfigured } from "./tavily.js";
 import { CODE_CROSSWALK_REFERENCE, citesOnlyRepealedCode, ACT_YEAR_REFERENCE, citesActWithoutYear } from "../utils/legalAbbrev.js";
 import { isOpenRouterConfigured } from "./openRouter.js";

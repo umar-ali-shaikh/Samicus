@@ -5,7 +5,7 @@ import { buildFormInput } from "./indianKanoonFilters.js";
 import { getCache } from "../platform/cache.js";
 import { sanitizeJudgmentHtml } from "../utils/sanitizeHtml.js";
 import { increment } from "../utils/callCounter.js";
-import { stripTags } from "./rag/chunk.js";
+import { stripTags } from "@vidhira/rag/chunk";
 
 const BASE_URL = "https://api.indiankanoon.org";
 

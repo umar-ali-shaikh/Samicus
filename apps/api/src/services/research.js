@@ -6,8 +6,8 @@
 //      citation resolves by construction (no model can invent one)
 //   5. paragraph-class gate: a party's *arguments* can be shown but never cited as authority.
 import { getSupabase } from "../config/db.js";
-import { retrievePassages, lexicalSearch, minScore } from "./rag/retrieve.js";
-import { ragEnabled, ingestIndianKanoonDoc } from "./rag/ingest.js";
+import { retrievePassages, lexicalSearch, minScore } from "@vidhira/rag/retrieve";
+import { ragEnabled, ingestIndianKanoonDoc } from "@vidhira/rag/ingest";
 import { chatCompletion, isOpenRouterConfigured } from "./openRouter.js";
 import { understandQuery } from "./legalQueryUnderstanding.js";
 import { search as searchIndianKanoon, getDocumentRaw, isIndianKanoonConfigured } from "./indianKanoon.js";

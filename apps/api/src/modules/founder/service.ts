@@ -4,7 +4,7 @@
  * rule. Everything is computed live from the operational tables; nothing is hard-coded.
  */
 import { HttpError } from "../../services/access.js";
-import { knowledgeBaseStats } from "../../services/rag/retrieve.js";
+import { knowledgeBaseStats } from "@vidhira/rag/retrieve";
 import { complaints as complaintsReport } from "../../services/analytics/index.js";
 import type {
   AdvocatePerformanceDto,

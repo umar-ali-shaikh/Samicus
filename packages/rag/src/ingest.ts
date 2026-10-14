@@ -2,31 +2,31 @@
 // and metadata kept in Postgres (corpus_documents / corpus_chunks) so citations resolve and
 // the vector index can always be rebuilt. The point id in Qdrant IS the corpus_chunks row id.
 import crypto from "crypto";
-import { getSupabase } from "../../config/db.js";
-import { embedMany, isOpenRouterEmbeddingsConfigured } from "../openRouterEmbeddings.js";
-import { chunkParagraphs, htmlToParagraphs, mapDocSource, stripTags, textToParagraphs } from "./chunk.js";
+import { getSupabaseClient } from "./supabaseClient.js";
+import { embedMany, isOpenRouterEmbeddingsConfigured } from "./embeddings.js";
+import { chunkParagraphs, htmlToParagraphs, mapDocSource, stripTags, textToParagraphs, type Chunk } from "./chunk.js";
 import { deletePoints, ensureCollection, isQdrantConfigured, legalCollection, matchFilter, upsertPoints } from "./qdrant.js";
 
-export function ragEnabled() {
+export function ragEnabled(): boolean {
   return isQdrantConfigured() && isOpenRouterEmbeddingsConfigured();
 }
 
 export const PAYLOAD_INDEXES = ["source", "document_id", "para_class"];
 
-const inFlight = new Map();
+const inFlight = new Map<string, Promise<any>>();
 
-function indianKanoonUrl(tid) {
+function indianKanoonUrl(tid: number | string): string {
   return `https://indiankanoon.org/doc/${tid}/`;
 }
 
-export async function embedAndStore(chunks, doc) {
+export async function embedAndStore(chunks: (Chunk & { id: string })[], doc: any): Promise<void> {
   const vectors = await embedMany(chunks.map((c) => c.text), "RETRIEVAL_DOCUMENT");
   await ensureCollection(legalCollection(), PAYLOAD_INDEXES);
   await upsertPoints(
     legalCollection(),
     chunks.map((c, i) => ({
       id: c.id,
-      vector: vectors[i],
+      vector: vectors[i]!,
       payload: {
         document_id: doc.id,
         external_id: doc.external_id,
@@ -42,23 +42,36 @@ export async function embedAndStore(chunks, doc) {
       },
     }))
   );
-  const { error } = await getSupabase().from("corpus_chunks").update({ embedded_at: new Date().toISOString() }).in("id", chunks.map((c) => c.id));
+  const { error } = await getSupabaseClient().from("corpus_chunks").update({ embedded_at: new Date().toISOString() }).in("id", chunks.map((c) => c.id));
   if (error) throw error;
+}
+
+export interface IndianKanoonDocInput {
+  tid: number | string;
+  title: string;
+  docsource: string;
+  html: string;
+}
+
+export interface IngestResult {
+  documentId: string | null;
+  chunks: number;
+  skipped: boolean;
 }
 
 /**
  * Indexes one Indian Kanoon document. Returns { documentId, chunks, skipped }.
  * Safe to call repeatedly: a document that is already fully embedded is skipped.
  */
-export async function ingestIndianKanoonDoc({ tid, title, docsource, html }, { maxChunks = 80 } = {}) {
+export async function ingestIndianKanoonDoc({ tid, title, docsource, html }: IndianKanoonDocInput, { maxChunks = 80 }: { maxChunks?: number } = {}): Promise<IngestResult> {
   // Indian Kanoon wraps the search term it matched in <b> inside titles/headlines (its
   // own result-highlighting markup) — never meant to reach a document's permanent title.
   title = stripTags(title);
   const key = `ik:${tid}`;
   if (inFlight.has(key)) return inFlight.get(key);
   const job = (async () => {
-    const supabase = getSupabase();
-    let { data: existing, error } = await supabase.from("corpus_documents").select("id").eq("external_id", key).maybeSingle();
+    const supabase = getSupabaseClient();
+    const { data: existing, error } = await supabase.from("corpus_documents").select("id").eq("external_id", key).maybeSingle();
     if (error) throw error;
 
     // Indian Kanoon sometimes lists the same judgment under two different document ids
@@ -77,13 +90,13 @@ export async function ingestIndianKanoonDoc({ tid, title, docsource, html }, { m
     const chunks = chunkParagraphs(paragraphs, { maxChunks }).map((c) => ({ ...c, id: crypto.randomUUID() }));
     if (chunks.length === 0) return { documentId: existing?.id || null, chunks: 0, skipped: true };
 
-    let doc = existing;
+    let doc: any = existing;
     if (existing) {
       const { count, error: countError } = await supabase.from("corpus_chunks").select("*", { count: "exact", head: true }).eq("document_id", existing.id).is("embedded_at", null);
       if (countError) throw countError;
       const { count: total, error: totalError } = await supabase.from("corpus_chunks").select("*", { count: "exact", head: true }).eq("document_id", existing.id);
       if (totalError) throw totalError;
-      if (total > 0 && count === 0) return { documentId: existing.id, chunks: total, skipped: true };
+      if (total && count === 0) return { documentId: existing.id, chunks: total, skipped: true };
       // Partially indexed earlier (e.g. the embedding call failed): rebuild this document's chunks.
       await ensureCollection(legalCollection(), PAYLOAD_INDEXES);
       await deletePoints(legalCollection(), matchFilter("document_id", existing.id));
@@ -133,6 +146,12 @@ export async function ingestIndianKanoonDoc({ tid, title, docsource, html }, { m
   return job;
 }
 
+export interface WebDocInput {
+  url: string;
+  title?: string;
+  text: string;
+}
+
 /**
  * Indexes one trusted-domain web page found via Tavily (Stage 4 of the legal assistant
  * pipeline). Mirrors ingestIndianKanoonDoc's shape/dedupe behavior; the only differences
@@ -140,12 +159,12 @@ export async function ingestIndianKanoonDoc({ tid, title, docsource, html }, { m
  * and plain-text paragraph splitting instead of Indian Kanoon's HTML.
  * Returns { documentId, chunks, skipped }.
  */
-export async function ingestWebDoc({ url, title, text }, { maxChunks = 40 } = {}) {
+export async function ingestWebDoc({ url, title, text }: WebDocInput, { maxChunks = 40 }: { maxChunks?: number } = {}): Promise<IngestResult> {
   if (!url || !text?.trim()) return { documentId: null, chunks: 0, skipped: true };
   const key = `web:${crypto.createHash("sha256").update(url).digest("hex").slice(0, 32)}`;
   if (inFlight.has(key)) return inFlight.get(key);
   const job = (async () => {
-    const supabase = getSupabase();
+    const supabase = getSupabaseClient();
     const { data: existing, error } = await supabase.from("corpus_documents").select("id").eq("external_id", key).maybeSingle();
     if (error) throw error;
 
@@ -153,13 +172,13 @@ export async function ingestWebDoc({ url, title, text }, { maxChunks = 40 } = {}
     const chunks = chunkParagraphs(paragraphs, { maxChunks }).map((c) => ({ ...c, id: crypto.randomUUID() }));
     if (chunks.length === 0) return { documentId: existing?.id || null, chunks: 0, skipped: true };
 
-    let doc = existing;
+    let doc: any = existing;
     if (existing) {
       const { count, error: countError } = await supabase.from("corpus_chunks").select("*", { count: "exact", head: true }).eq("document_id", existing.id).is("embedded_at", null);
       if (countError) throw countError;
       const { count: total, error: totalError } = await supabase.from("corpus_chunks").select("*", { count: "exact", head: true }).eq("document_id", existing.id);
       if (totalError) throw totalError;
-      if (total > 0 && count === 0) return { documentId: existing.id, chunks: total, skipped: true };
+      if (total && count === 0) return { documentId: existing.id, chunks: total, skipped: true };
       await ensureCollection(legalCollection(), PAYLOAD_INDEXES);
       await deletePoints(legalCollection(), matchFilter("document_id", existing.id));
       const { error: delError } = await supabase.from("corpus_chunks").delete().eq("document_id", existing.id);
@@ -199,19 +218,22 @@ export async function ingestWebDoc({ url, title, text }, { maxChunks = 40 } = {}
   return job;
 }
 
-/** Re-embeds every chunk that never got a vector (used by `npm run rag:reindex`). */
-export async function reindexPending({ pageSize = 200 } = {}) {
-  const supabase = getSupabase();
+/** Re-embeds every chunk that never got a vector (used by apps/worker's reindex job). */
+export async function reindexPending({ pageSize = 200 }: { pageSize?: number } = {}): Promise<number> {
+  const supabase = getSupabaseClient();
   let total = 0;
   for (;;) {
-    const { data, error } = await supabase
+    // supabase-js's select-string type inference can't know this embed is to-one (no real
+    // Database schema is generated for this project) -- cast past its guessed-array shape.
+    const { data: rawData, error } = await supabase
       .from("corpus_chunks")
       .select("id, ordinal, text, paragraph_class, para_number, document:corpus_documents(id, external_id, title, citation, source, court, canonical_url)")
       .is("embedded_at", null)
       .limit(pageSize);
     if (error) throw error;
+    const data = rawData as any[];
     if (data.length === 0) break;
-    const byDoc = new Map();
+    const byDoc = new Map<string, { doc: any; chunks: any[] }>();
     for (const row of data) {
       const list = byDoc.get(row.document.id) || { doc: row.document, chunks: [] };
       list.chunks.push({ id: row.id, ordinal: row.ordinal, text: row.text, paraClass: row.paragraph_class, paraNumber: row.para_number });

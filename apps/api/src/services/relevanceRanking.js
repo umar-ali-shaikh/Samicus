@@ -3,7 +3,7 @@
 // (utils/tfidf.js) whenever embeddings aren't configured or the call fails for any
 // reason. Embeddings are a pure enhancement here — the RAG pipeline in legalAssistant.js
 // must keep producing answers even if OPENROUTER_API_KEY is never set.
-import { embedTexts, isOpenRouterEmbeddingsConfigured } from "./openRouterEmbeddings.js";
+import { embedTexts, isOpenRouterEmbeddingsConfigured } from "@vidhira/rag/embeddings";
 import { cosineSimilarity } from "../utils/cosine.js";
 import { rankWithScores as rankByTfidf } from "../utils/tfidf.js";
 

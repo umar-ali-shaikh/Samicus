@@ -1,32 +1,38 @@
 // One-off maintenance pass over passages indexed BEFORE the entity-decoding, page-artifact-
 // stripping, and paragraph-classification fixes existed (chunk.js) — applies the same fixes
-// to already-stored corpus_chunks rows, so the 1,369 passages indexed under the old pipeline
-// get the benefit without having to re-fetch and re-ingest every source document from
-// scratch. Run via `node src/utils/rag.js reprocess`.
-import { getSupabase } from "../../config/db.js";
+// to already-stored corpus_chunks rows, so passages indexed under an older pipeline get the
+// benefit without having to re-fetch and re-ingest every source document from scratch.
+import { getSupabaseClient } from "./supabaseClient.js";
 import { classifyParagraphText, decodeEntities, looksLikePageArtifact, rejoinBrokenLines } from "./chunk.js";
 import { embedAndStore } from "./ingest.js";
 
-function cleanText(text) {
+function cleanText(text: string): string {
   return rejoinBrokenLines(decodeEntities(text)).trim();
 }
 
-/**
- * @returns {Promise<{ scanned: number, textChanged: number, reclassified: number, dropped: number }>}
- */
-export async function reprocessExistingPassages({ pageSize = 200 } = {}) {
-  const supabase = getSupabase();
+export interface ReprocessResult {
+  scanned: number;
+  textChanged: number;
+  reclassified: number;
+  dropped: number;
+}
+
+export async function reprocessExistingPassages({ pageSize = 200 }: { pageSize?: number } = {}): Promise<ReprocessResult> {
+  const supabase = getSupabaseClient();
   let scanned = 0, textChanged = 0, reclassified = 0, dropped = 0;
   let from = 0;
   for (;;) {
-    const { data, error } = await supabase
+    // supabase-js's select-string type inference can't know this embed is to-one (no real
+    // Database schema is generated for this project) -- cast past its guessed-array shape.
+    const { data: rawData, error } = await supabase
       .from("corpus_chunks")
       .select("id, text, paragraph_class, document:corpus_documents(id, external_id, title, citation, source, court, canonical_url)")
       .range(from, from + pageSize - 1);
     if (error) throw error;
+    const data = rawData as any[];
     if (!data.length) break;
 
-    const toReembedByDoc = new Map();
+    const toReembedByDoc = new Map<string, { doc: any; chunks: any[] }>();
     for (const row of data) {
       scanned++;
       const cleaned = cleanText(row.text);

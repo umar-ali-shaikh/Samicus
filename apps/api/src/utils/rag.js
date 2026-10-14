@@ -9,10 +9,13 @@
 //   npm run rag:status       show Qdrant / Postgres counts
 import "../config/env.js";
 import { getSupabase } from "../config/db.js";
-import { reindexPending, ragEnabled } from "../services/rag/ingest.js";
-import { indexClauseLibrary } from "../services/rag/clauses.js";
-import { knowledgeBaseStats } from "../services/rag/retrieve.js";
-import { reprocessExistingPassages } from "../services/rag/reprocess.js";
+import { reindexPending, ragEnabled } from "@vidhira/rag/ingest";
+import { indexClauseLibrary } from "@vidhira/rag/clauses";
+import { knowledgeBaseStats } from "@vidhira/rag/retrieve";
+import { reprocessExistingPassages } from "@vidhira/rag/reprocess";
+import { setSupabaseClient } from "@vidhira/rag/supabaseClient";
+
+setSupabaseClient(getSupabase());
 
 const cmd = process.argv[2];
 

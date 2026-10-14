@@ -1,16 +1,14 @@
 // OpenRouter embeddings client — used to re-rank Indian Kanoon search candidates by actual
-// semantic meaning instead of only TF-IDF term overlap (see utils/tfidf.js and
-// services/relevanceRanking.js), and to embed chunks/queries for the Qdrant knowledge base
-// (see rag/ingest.js, rag/retrieve.js, rag/clauses.js).
+// semantic meaning instead of only TF-IDF term overlap, and to embed chunks/queries for the
+// Qdrant knowledge base (see ingest.ts, retrieve.ts, clauses.ts).
 //
-// This is a genuinely OPTIONAL enhancement for relevanceRanking.js (it falls back to local
-// TF-IDF), but a hard dependency for the RAG knowledge base itself — ragEnabled() gates on
-// isOpenRouterEmbeddingsConfigured() the same way it used to gate on Gemini.
-import { increment } from "../utils/callCounter.js";
+// This is a genuinely OPTIONAL enhancement for relevance ranking (callers can fall back to
+// local TF-IDF), but a hard dependency for the RAG knowledge base itself — ragEnabled() gates
+// on isOpenRouterEmbeddingsConfigured() the same way it used to gate on Gemini.
 
 const OPENROUTER_EMBEDDINGS_URL = "https://openrouter.ai/api/v1/embeddings";
 // all-mpnet-base-v2 is a well-established, general-purpose sentence-embedding model —
-// chosen specifically because its native output is 768-dim, matching rag/qdrant.js's
+// chosen specifically because its native output is 768-dim, matching qdrant.ts's
 // VECTOR_SIZE exactly, so switching providers never requires resizing/recreating the
 // existing Qdrant collection(s). Override via OPENROUTER_EMBEDDING_MODEL if needed, but any
 // replacement with a different native dimension requires recreating the Qdrant
@@ -26,14 +24,24 @@ export class OpenRouterEmbeddingAuthError extends Error {
 }
 
 export class OpenRouterEmbeddingApiError extends Error {
-  constructor(message, status) {
+  status: number;
+  constructor(message: string, status: number) {
     super(message);
     this.name = "OpenRouterEmbeddingApiError";
     this.status = status;
   }
 }
 
-export function isOpenRouterEmbeddingsConfigured() {
+// Same per-app-injected hook pattern as qdrant.ts's setQdrantRequestHook -- the app that
+// extracted this package tracks per-provider call counts for an admin cost dashboard, but
+// that's the app's concern, not this package's.
+let onRequest: (() => void) | null = null;
+
+export function setEmbeddingsRequestHook(hook: (() => void) | null): void {
+  onRequest = hook;
+}
+
+export function isOpenRouterEmbeddingsConfigured(): boolean {
   return Boolean(process.env.OPENROUTER_API_KEY);
 }
 
@@ -46,11 +54,8 @@ const INPUT_CHAR_LIMIT = 1500;
  * compatibility with call sites written for Gemini's asymmetric (query vs document)
  * embeddings, but is unused here — all-mpnet-base-v2 is a symmetric model with no
  * query/document distinction.
- * @param {string[]} texts
- * @param {"RETRIEVAL_QUERY"|"RETRIEVAL_DOCUMENT"} [taskType] unused, kept for call-site compatibility
- * @returns {Promise<number[][]>} one embedding vector per input text, same order
  */
-export async function embedTexts(texts, taskType) {
+export async function embedTexts(texts: string[], _taskType?: "RETRIEVAL_QUERY" | "RETRIEVAL_DOCUMENT"): Promise<number[][]> {
   const key = process.env.OPENROUTER_API_KEY;
   if (!key) throw new OpenRouterEmbeddingAuthError();
   if (texts.length === 0) return [];
@@ -77,12 +82,12 @@ export async function embedTexts(texts, taskType) {
       throw new OpenRouterEmbeddingApiError(`OpenRouter embeddings API error ${res.status}${text ? `: ${text}` : ""}`, res.status);
     }
 
-    increment("openrouter_embeddings"); // separate bucket from chat completions — very different per-call cost
-    const data = await res.json();
+    onRequest?.(); // separate bucket from chat completions — very different per-call cost
+    const data = (await res.json()) as { data?: { embedding?: number[] }[] };
     return (data.data || []).map((e) => e.embedding || []);
   } catch (err) {
     if (err instanceof OpenRouterEmbeddingAuthError || err instanceof OpenRouterEmbeddingApiError) throw err;
-    throw new OpenRouterEmbeddingApiError(`Network error calling OpenRouter embeddings: ${err.message}`, 0);
+    throw new OpenRouterEmbeddingApiError(`Network error calling OpenRouter embeddings: ${(err as Error).message}`, 0);
   }
 }
 
@@ -94,8 +99,8 @@ const RETRY_BASE_MS = 2000;
  * Like embedTexts, but splits large inputs into API-sized batches and retries 429/5xx with
  * backoff. Order of the returned vectors matches `texts`.
  */
-export async function embedMany(texts, taskType) {
-  const out = [];
+export async function embedMany(texts: string[], taskType?: "RETRIEVAL_QUERY" | "RETRIEVAL_DOCUMENT"): Promise<number[][]> {
+  const out: number[][] = [];
   for (let i = 0; i < texts.length; i += MAX_BATCH) {
     const batch = texts.slice(i, i + MAX_BATCH);
     for (let attempt = 1; ; attempt++) {

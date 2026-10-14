@@ -1,0 +1,38 @@
+{
+  "name": "@vidhira/rag",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared RAG layer (Qdrant client, OpenRouter embeddings, chunking, ingest/retrieve/clauses/reprocess) used at request time by apps/api and as batch jobs by apps/worker, per docs/MASTER-PROMPT.md Phase 4. The Supabase client and the per-provider call counter are injected by each app at boot (setSupabaseClient/setCallHook) rather than imported directly, so this package has no dependency on either app's own config/observability code.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./chunk": "./dist/chunk.js",
+    "./qdrant": "./dist/qdrant.js",
+    "./embeddings": "./dist/embeddings.js",
+    "./supabaseClient": "./dist/supabaseClient.js",
+    "./ingest": "./dist/ingest.js",
+    "./retrieve": "./dist/retrieve.js",
+    "./clauses": "./dist/clauses.js",
+    "./reprocess": "./dist/reprocess.js"
+  },
+  "scripts": {
+    "prepare": "tsc",
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "tsx --test --experimental-test-module-mocks"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.117.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.43",
+    "@vidhira/config": "*",
+    "eslint": "^10.12.0",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3"
+  }
+}

@@ -5,7 +5,7 @@
 // Volume note: these read bounded row sets and aggregate in Node, which is fine for the
 // early-stage scale this targets. Move to SQL views/materialised views as volume grows.
 import { getSupabase } from "../../config/db.js";
-import { knowledgeBaseStats } from "../rag/retrieve.js";
+import { knowledgeBaseStats } from "@vidhira/rag/retrieve";
 
 const ROW_CAP = 20000;
 const DAY = 24 * 3600 * 1000;
