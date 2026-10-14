@@ -1,5 +1,3 @@
-import path from "path";
-import { fileURLToPath } from "url";
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
@@ -32,9 +30,6 @@ import configRoutes from "./routes/config.js";
 import complaintsRoutes from "./modules/complaints/router.js";
 import legalAssistantRoutes from "./modules/assistant/router.js";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const CLIENT_DIST = path.join(__dirname, "../../../frontend/dist");
-
 export function createApp() {
   const app = express();
 
@@ -64,7 +59,7 @@ export function createApp() {
     })
   );
 
-  const allowedOrigins = (process.env.CLIENT_ORIGIN || "http://localhost:5173").split(",").map((o) => o.trim()).filter(Boolean);
+  const allowedOrigins = (process.env.CLIENT_ORIGIN || "http://localhost:3000").split(",").map((o) => o.trim()).filter(Boolean);
   app.use(
     cors({
       origin: (origin, cb) => cb(null, !origin || allowedOrigins.includes(origin)),
@@ -124,19 +119,6 @@ export function createApp() {
   api.use(founderRoutes);
   api.use(privacyRoutes);
   app.use("/api", api);
-
-  // Unknown API paths are a JSON 404, never the SPA shell.
-  app.use("/api", (req, res) => res.status(404).json({ error: "Not found" }));
-
-  // Serves the built client (frontend/dist) so frontend + backend deploy as one
-  // process/origin. No-ops harmlessly if the client hasn't been built (dist missing) —
-  // API-only dev (client run separately via `npm run dev -w frontend`) still works.
-  app.use(express.static(CLIENT_DIST));
-  app.get(/^\/(?!api\/).*/, (req, res, next) => {
-    res.sendFile(path.join(CLIENT_DIST, "index.html"), (err) => {
-      if (err) next();
-    });
-  });
 
   app.use((req, res) => res.status(404).json({ error: "Not found" }));
 

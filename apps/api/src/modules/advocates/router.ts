@@ -31,11 +31,10 @@ function parse<T>(schema: z.ZodType<T>, body: unknown): T {
 
 // --- Public directory / profile / slots ---
 
-// The response body is a plain array -- same wire shape as before pagination was added here,
-// so frontend/src/screens/Find.jsx (the still-running legacy Vite screen, which calls this
-// with no page/pageSize params) keeps working unmodified. Pagination is still real: the query
-// is bounded (default pageSize 50, max 100) rather than unbounded, and metadata is exposed via
-// headers for any client that wants to paginate properly (apps/web's new /advocates page does).
+// The response body is a plain array -- unpaginated callers still get every result back.
+// Pagination is still real: the query is bounded (default pageSize 50, max 100) rather than
+// unbounded, and metadata is exposed via headers for any client that wants to paginate
+// properly (apps/web's /advocates page does).
 router.get("/advocates", async (req, res) => {
   const query = parse(directoryQuerySchema, req.query);
   const result = await service.searchDirectory(query);

@@ -19,7 +19,7 @@ document templates with their clause library).
 | Legal sources | **Indian Kanoon** API | Paid per call — the knowledge base avoids repeat calls |
 | Payments | **Razorpay** (optional) | Pay-per-transaction; the UI says so honestly when it is off |
 | Video | **Jitsi Meet** | No account needed |
-| App | React 19 + Vite (`frontend/`), Node 20+ / Express 5 (`apps/api/`), npm workspaces | One process serves both |
+| App | Next.js 16 (`apps/web/`), Node 20+ / Express 5 (`apps/api/`), npm workspaces | Two services; `apps/web` calls `apps/api` server-to-server |
 
 MongoDB is intentionally not used — see [docs/RAG.md](docs/RAG.md).
 
@@ -47,27 +47,30 @@ See **[docs/SETUP.md](docs/SETUP.md)** for Supabase, Google OAuth, Qdrant and de
 
 ```bash
 npm install
-cp .env.example .env   # single shared file: SUPABASE_*, QDRANT_*, OPENROUTER_API_KEY, IK_API_TOKEN, VITE_*
+cp .env.example .env   # repo-root file: SUPABASE_*, QDRANT_*, OPENROUTER_API_KEY, IK_API_TOKEN
+# apps/web reads its own apps/web/.env.local (NEXT_PUBLIC_SUPABASE_URL/ANON_KEY, API_INTERNAL_URL)
 # run apps/api/src/db/schema.sql once in the Supabase SQL editor
-npm run dev:full                         # API :4000 + web :5173
+npm run dev:full                         # apps/api :4000 + apps/web :3000
 ```
 
 ```bash
-npm run build && npm run start           # single-process production run (PORT, default 4000)
+npm run start -w apps/api && npm run build -w apps/web && npm run start -w apps/web  # two services
 npm test -w apps/api                     # API + RAG tests
-npm run e2e -w frontend                  # browser tests, see frontend/e2e/README.md
+npm run e2e -w apps/web                  # Playwright + axe-core smoke suite, see apps/web/e2e/README.md
 ```
 
 ## Project structure
 
 ```
-frontend/   React app — auth/, screens/, modals/, api/ (react-query hooks), lib/ (api + supabase clients)
+apps/web/   Next.js App Router — auth, every screen, server actions that call apps/api
 apps/api/
-  src/routes/            HTTP handlers (every route authorises; ids from the client are never trusted)
-  src/services/          access.js (authorization helpers), slots, matching, drafting, contract review, analytics
-  src/services/rag/      qdrant.js, chunk.js, ingest.js, retrieve.js, clauses.js
+  src/modules/           one dir per domain (accounts, advocates, matters, drafting, ...): router + service
+  src/services/          access.js (authorization helpers), slots, matching, contract review, analytics
   src/db/                schema.sql (fresh install) + migrations/ (upgrades, incl. RLS lock-down)
-  src/test/              in-memory Supabase stand-in used by the route + RAG tests
+  src/test/              in-memory Supabase stand-in used by the module + RAG tests
+apps/worker/  pg-boss job processor — RAG reindex/reembed-all/reprocess queues
+packages/rag/       shared RAG package — ingest, retrieve, clauses, chunk, embeddings, qdrant
+packages/contracts/ Zod DTOs shared by apps/api and apps/web
 docs/       SETUP.md, RAG.md, legal-assistant-spec.md, architecture/ (migration docs)
 ```
 

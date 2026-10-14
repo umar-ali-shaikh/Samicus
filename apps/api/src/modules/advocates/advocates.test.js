@@ -1,7 +1,7 @@
 // Dedicated tests for behaviour not already exercised elsewhere: the directory's new
-// pagination (headers + bounded query, while the response body stays a plain array for
-// frontend/src/screens/Find.jsx's sake -- see router.ts's comment), and the IDOR boundary on
-// self-service requests (an advocate must never see a request that was never offered to them).
+// pagination (headers + bounded query, while the response body stays a plain array --
+// see router.ts's comment), and the IDOR boundary on self-service requests (an advocate
+// must never see a request that was never offered to them).
 import { test, mock, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { createFakeSupabase } from "../../test/fakeSupabase.js";

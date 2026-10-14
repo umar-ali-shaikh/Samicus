@@ -7,15 +7,12 @@ file storage), a **Qdrant** cluster (vector search) and a **Google Cloud** OAuth
 
 1. Create a project at <https://supabase.com>. Note **Project URL**, the **anon (public) key** and the
    **service_role key** (Project Settings → API). The service-role key is server-only.
-2. SQL editor → paste and run `backend/src/db/schema.sql` once (fresh project).
-   *Upgrading an older Vidhira database?* Run every file in `backend/src/db/migrations/` **in order**
-   that you haven't already applied: `001_supabase_auth.sql`, `002_security.sql`, `003_web_source.sql`
-   (adds the 'web' source for the Tavily fallback below), `004_research_library_v2.sql` (research
-   library pin/tag/follow-up chat), `005_research_fixes.sql` (paragraph classes + dedupe), and
-   `006_notify_requests.sql` (the "notify me when an advocate is available" table). All are
-   idempotent (`if not exists` / `add column if not exists`) — safe to re-run.
-   The server logs a startup warning naming any of these tables it can't find (see
-   `backend/src/index.js`'s `EXPECTED_MIGRATION_TABLES` check), so check the server logs after
+2. SQL editor → paste and run `apps/api/src/db/schema.sql` once (fresh project).
+   *Upgrading an older Vidhira database?* Run every file in `apps/api/src/db/migrations/` **in order**
+   that you haven't already applied — they're numbered and idempotent (`if not exists` /
+   `add column if not exists`) — safe to re-run.
+   The server logs a startup warning naming any expected table it can't find (see
+   `apps/api/src/index.js`'s `EXPECTED_MIGRATION_TABLES` check), so check the server logs after
    upgrading if a feature 500s.
    The schema ends by enabling row-level security with no policies: the public anon key can read
    nothing, so every request must go through the API.
@@ -24,7 +21,7 @@ file storage), a **Qdrant** cluster (vector search) and a **Google Cloud** OAuth
      unverified accounts).
    * **Google**: enabled with the client ID/secret from step 4.
 4. **Authentication → URL Configuration**: set **Site URL** to your deployed origin and add
-   `http://localhost:5173` (dev) and your production URL to **Redirect URLs**.
+   `http://localhost:3000` (dev) and your production URL to **Redirect URLs**.
 5. **Email delivery.** Supabase's built-in mailer is limited to a handful of emails per hour — fine for
    testing, not for launch. Add custom SMTP (Authentication → SMTP Settings); Resend, Brevo and
    Amazon SES all have free tiers.
@@ -61,7 +58,7 @@ enabled and the assistant falls back to live Indian Kanoon search.
 
 ### AI Legal Assistant evidence pipeline
 
-`answerLegalQuestion` (`backend/src/services/legalAssistant.js`) tries sources in order, stopping
+`answerLegalQuestion` (`apps/api/src/services/legalAssistant.js`) tries sources in order, stopping
 as soon as it has enough: the knowledge base (Qdrant) first, then a live Indian Kanoon search if
 that's thin, then Tavily — restricted to a trusted government/legal-aid domain allowlist — if
 Indian Kanoon alone still doesn't cover practical details (procedure, helplines, forms, time
@@ -74,8 +71,11 @@ skips to the next one rather than breaking the answer.
 
 ```bash
 npm install
-cp .env.example .env   # single file at the repo root, shared by backend/ and frontend/ — fill in the values above
-npm run dev:full       # API :4000 + web :5173
+cp .env.example .env   # repo-root file, read by apps/api + apps/worker — fill in the values above
+# apps/web reads its own apps/web/.env.local (Next.js convention, not the root .env) — create it
+# with the NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY / API_INTERNAL_URL values
+# from .env.example's "apps/web (Next.js)" section.
+npm run dev:full       # apps/api :4000 + apps/web :3000
 ```
 
 First boot seeds only the **reference catalogues** (practice areas, the situation picker and the
@@ -97,21 +97,35 @@ analytics all come from real people using the app.
 3. **Moderation**: publish public questions and advocate answers.
 4. Seed the knowledge base by using the AI assistant on real questions (see `docs/RAG.md`).
 
-## 6. Deploy (one service)
+## 6. Deploy (two services)
 
-The Express server serves the built React app and the API from one origin.
+`apps/web` (Next.js) and `apps/api` (Express) deploy as two separate services/origins —
+`apps/web`'s server actions call `apps/api` over `API_INTERNAL_URL` (private network), and the
+browser never talks to `apps/api` directly.
 
 ```bash
-npm install && npm run build   # build with VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY set
-npm run start
+# apps/api — no build step, runs TypeScript directly via tsx
+npm install
+npm run start -w apps/api   # reads the root .env
+
+# apps/web
+npm run build -w apps/web   # NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY must be set at *build* time
+npm run start -w apps/web
 ```
 
-On Render/Railway/Fly set the backend variables as environment variables, **and** the two `VITE_` variables
-at *build* time. Point Razorpay's webhook at `https://<app>/api/payments/webhook` (event `payment.captured`).
+On Render/Railway/Fly/Vercel, set `apps/api`'s environment variables on that service, and
+`apps/web`'s `NEXT_PUBLIC_*` + `API_INTERNAL_URL` on its own service (Vercel: Next.js's native
+target). Point Razorpay's webhook at `https://<apps-api-host>/api/payments/webhook`
+(event `payment.captured`), and `apps/api`'s `CLIENT_ORIGIN` at `apps/web`'s public origin.
+
+If a worker is needed (RAG reindex/reembed/reprocess jobs), deploy `apps/worker` as a third
+service with `DATABASE_URL` set (direct Postgres connection, for `pg-boss` — distinct from
+`SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY`, which hit Supabase's REST API).
 
 ## 7. Tests
 
 ```bash
-npm test -w backend            # 99 tests: route authorization, RAG pipeline, slots, chunking, payments
-npm run build -w frontend && node frontend/e2e/smoke.mjs   # see frontend/e2e/README.md
+npm test -w apps/api     # route authorization, RAG pipeline, slots, chunking, payments
+npm run e2e -w apps/web  # Playwright + axe-core smoke suite against a REAL backend — see apps/web/e2e/README.md
+                          # (never point this at a production Supabase project)
 ```

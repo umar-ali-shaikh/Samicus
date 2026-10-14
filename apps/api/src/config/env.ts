@@ -1,5 +1,5 @@
 /**
- * Single shared .env lives at the repo root (not inside apps/api/ or frontend/) so both apps
+ * Single shared .env lives at the repo root (not inside apps/api/) so apps/api and apps/worker
  * read the same file. Loaded explicitly by path since cwd varies (npm run dev from apps/api/,
  * or the root workspace scripts). Side-effecting import -- `import "./config/env.js"` at the
  * top of index.js runs this before anything else touches process.env.
@@ -23,7 +23,7 @@ const schema = z.object({
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
   SUPABASE_DOCUMENT_BUCKET: z.string().min(1).default("documents"),
 
-  CLIENT_ORIGIN: z.string().min(1).default("http://localhost:5173"),
+  CLIENT_ORIGIN: z.string().min(1).default("http://localhost:3000"),
   ADMIN_EMAILS: z.string().optional().default(""),
   FOUNDER_EMAILS: z.string().optional().default(""),
 
@@ -74,7 +74,7 @@ if (!parsed.success) {
 }
 
 if (parsed.data.NODE_ENV === "production" && !process.env.CLIENT_ORIGIN) {
-  console.warn("CLIENT_ORIGIN is not set — CORS will only allow http://localhost:5173.");
+  console.warn("CLIENT_ORIGIN is not set — CORS will only allow http://localhost:3000.");
 }
 
 export const env: Env = parsed.data;
