@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { createServerSupabaseClient } from "@/server/supabase";
-import { signOutAction } from "@/server/authActions";
+import { SignOutButton } from "@/components/SignOutButton";
 
 export const metadata: Metadata = {
   title: "Dashboard — Vidhira",
@@ -25,11 +25,9 @@ export default async function DashboardPage() {
       <p>
         {data.user.email} ({data.user.app_metadata?.provider ?? "email"})
       </p>
-      <form action={signOutAction}>
-        <button type="submit" style={{ marginTop: 16, padding: "10px 16px", borderRadius: 10, border: "none", background: "var(--color-navy)", color: "#fff", cursor: "pointer" }}>
-          Sign out
-        </button>
-      </form>
+      <div style={{ marginTop: 16 }}>
+        <SignOutButton />
+      </div>
     </main>
   );
 }

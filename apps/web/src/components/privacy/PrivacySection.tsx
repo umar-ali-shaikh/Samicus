@@ -31,6 +31,12 @@ export function PrivacySection() {
         setError(result.error);
         return;
       }
+      try {
+        window.localStorage.clear();
+        window.sessionStorage.clear();
+      } catch {
+        // storage unavailable (private mode) -- nothing to clear
+      }
       await signOutAction();
     });
   }

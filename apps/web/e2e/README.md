@@ -8,8 +8,14 @@ advocate dashboard, plus auth mechanics) is being ported incrementally into sepa
 OAuth redirect, session invalidation), `flows-booking.spec.ts` (the full intake -> slot ->
 pricing -> consent -> consultation wizard), `flows-talknow.spec.ts` (instant request ->
 consent -> real matching), `flows-drafting.spec.ts` (template -> fields autosave -> clause
-toggle -> live preview -> a real DOCX download), `flows-research.spec.ts`, and
-`flows-assistant.spec.ts` are done; the rest are in progress.
+toggle -> live preview -> a real DOCX download), `flows-research.spec.ts`,
+`flows-assistant.spec.ts`, and `flows-signout.spec.ts` are done; the rest are in progress.
+
+`flows-signout.spec.ts` manages its own disposable auth user and signs in through the real UI,
+rather than reusing the shared `client.json` storageState the rest of this suite loads --
+discovered the hard way that Supabase's `auth.signOut()` revokes a session server-side, not just
+locally, so actually signing out with the shared fixture poisons it for every later spec in the
+same run (they'd all land back on `/login`, unexpectedly signed out).
 
 `flows-research.spec.ts` and `flows-assistant.spec.ts` are a step up in cost from the rest of
 this suite: `.env` has a real Gemini API key and a real Qdrant corpus configured, and these two
@@ -97,6 +103,18 @@ noted:
   immediately redirected right back to `/login`. A user would see nothing explaining why signing
   in with the right password appeared to do nothing. Fixed by showing the message inline on
   `/login` instead of redirecting to a page that needs a session that was never there.
+
+## Bugs `flows-signout.spec.ts` found and fixed
+
+- **Signing out never cleared client-side storage, only the server-side session.**
+  `signOutAction` (`server/authActions.ts`) only ever called `supabase.auth.signOut()`, which
+  ends the httpOnly-cookie session -- it has no way to reach into the browser's localStorage/
+  sessionStorage, where client-only state lives (e.g. `AssistantClient.tsx`'s own
+  `legalAssistant.sessionId.<userId>` key, see `flows-assistant.spec.ts`). On a shared device,
+  the next person signing in would still find the previous user's leftover client-side state.
+  Fixed with a new `SignOutButton` client component (`components/SignOutButton.tsx`) that clears
+  both storages immediately before calling `signOutAction`; `PrivacySection.tsx`'s delete-account
+  flow (which also signs out) got the same fix.
 
 ## Bugs `flows-drafting.spec.ts` found and fixed
 
