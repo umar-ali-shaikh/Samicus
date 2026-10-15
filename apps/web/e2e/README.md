@@ -9,7 +9,8 @@ OAuth redirect, session invalidation), `flows-booking.spec.ts` (the full intake 
 pricing -> consent -> consultation wizard), `flows-talknow.spec.ts` (instant request ->
 consent -> real matching), `flows-drafting.spec.ts` (template -> fields autosave -> clause
 toggle -> live preview -> a real DOCX download), `flows-research.spec.ts`,
-`flows-assistant.spec.ts`, and `flows-signout.spec.ts` are done; the rest are in progress.
+`flows-assistant.spec.ts`, `flows-signout.spec.ts`, and `flows-caselaw.spec.ts` are done; the
+rest are in progress.
 
 `flows-signout.spec.ts` manages its own disposable auth user and signs in through the real UI,
 rather than reusing the shared `client.json` storageState the rest of this suite loads --
@@ -23,7 +24,9 @@ specs deliberately make real retrieve/answer calls rather than stubbing anything
 up to ~60-90s and spends real API tokens (confirmed with the user before writing them, given that
 tradeoff). Research's research_queries row may come back `not_found` depending on live corpus/
 model state; the spec treats that as a real, content-dependent outcome and still verifies the row
-landed correctly, rather than failing the whole test over it.
+landed correctly, rather than failing the whole test over it. `flows-caselaw.spec.ts` similarly
+makes real calls against a metered third-party API (`IK_API_TOKEN`, Indian Kanoon) rather than
+stubbing -- cheaper than the two above since it never touches an LLM (it doesn't click "Ask AI").
 
 The legacy suite's "urgent help"
 flow is intentionally not among them -- see `flows-talknow.spec.ts`'s header comment: apps/web
