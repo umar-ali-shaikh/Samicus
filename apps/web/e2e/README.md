@@ -7,12 +7,26 @@ advocate dashboard, plus auth mechanics) is being ported incrementally into sepa
 `flows-*.spec.ts` files -- `flows-auth.spec.ts` (signup, sign-in, email verification, Google
 OAuth redirect, session invalidation), `flows-booking.spec.ts` (the full intake -> slot ->
 pricing -> consent -> consultation wizard), `flows-talknow.spec.ts` (instant request ->
-consent -> real matching), and `flows-drafting.spec.ts` (template -> fields autosave -> clause
-toggle -> live preview -> a real DOCX download) are done; the rest are in progress. The legacy
-suite's "urgent help"
+consent -> real matching), `flows-drafting.spec.ts` (template -> fields autosave -> clause
+toggle -> live preview -> a real DOCX download), `flows-research.spec.ts`, and
+`flows-assistant.spec.ts` are done; the rest are in progress.
+
+`flows-research.spec.ts` and `flows-assistant.spec.ts` are a step up in cost from the rest of
+this suite: `.env` has a real Gemini API key and a real Qdrant corpus configured, and these two
+specs deliberately make real retrieve/answer calls rather than stubbing anything -- each can take
+up to ~60-90s and spends real API tokens (confirmed with the user before writing them, given that
+tradeoff). Research's research_queries row may come back `not_found` depending on live corpus/
+model state; the spec treats that as a real, content-dependent outcome and still verifies the row
+landed correctly, rather than failing the whole test over it.
+
+The legacy suite's "urgent help"
 flow is intentionally not among them -- see `flows-talknow.spec.ts`'s header comment: apps/web
 was never scoped to build that wizard (`docs/MASTER-PROMPT.md`'s target_structure names only
-`talk-now/`), so there is no page left to port it against. One technique from the
+`talk-now/`), so there is no page left to port it against. Similarly, `flows-assistant.spec.ts`
+doesn't use a header "Ask Vidhira" hand-off like the legacy flow did -- apps/web's assistant is a
+self-contained chat page with no such header input -- so it asks directly on `/assistant`
+instead, while keeping the underlying regression check (a second question, asked without the
+screen remounting, must not be silently dropped). One technique from the
 legacy suite does **not** carry over: it asserted on exact request payloads via browser-level
 network interception, which only worked because the legacy app's client-side JS called
 Supabase/the API directly from the browser. This app never does that -- every Supabase/apps/api
