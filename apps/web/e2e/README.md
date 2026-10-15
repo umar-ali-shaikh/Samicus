@@ -6,8 +6,10 @@ flows: booking wizard, urgent help, talk now, drafting, research, assistant, mes
 advocate dashboard, plus auth mechanics) is being ported incrementally into separate
 `flows-*.spec.ts` files -- `flows-auth.spec.ts` (signup, sign-in, email verification, Google
 OAuth redirect, session invalidation), `flows-booking.spec.ts` (the full intake -> slot ->
-pricing -> consent -> consultation wizard), and `flows-talknow.spec.ts` (instant request ->
-consent -> real matching) are done; the rest are in progress. The legacy suite's "urgent help"
+pricing -> consent -> consultation wizard), `flows-talknow.spec.ts` (instant request ->
+consent -> real matching), and `flows-drafting.spec.ts` (template -> fields autosave -> clause
+toggle -> live preview -> a real DOCX download) are done; the rest are in progress. The legacy
+suite's "urgent help"
 flow is intentionally not among them -- see `flows-talknow.spec.ts`'s header comment: apps/web
 was never scoped to build that wizard (`docs/MASTER-PROMPT.md`'s target_structure names only
 `talk-now/`), so there is no page left to port it against. One technique from the
@@ -81,6 +83,21 @@ noted:
   immediately redirected right back to `/login`. A user would see nothing explaining why signing
   in with the right password appeared to do nothing. Fixed by showing the message inline on
   `/login` instead of redirecting to a page that needs a session that was never there.
+
+## Bugs `flows-drafting.spec.ts` found and fixed
+
+- **Clicking a clause card to select it would sometimes silently deselect it again a moment
+  later.** `DraftEditorClient.tsx` wrapped a clause's checkbox in a `<label>` purely for layout;
+  clicking the card's title text (inside that label) makes the browser dispatch a *second*,
+  synthetic click on the wrapped checkbox, and both bubble up to the card's own `onClick`. When
+  the two dispatches land in the same React batch, both read the same stale `selected` and agree
+  ("add" twice, no real double-toggle); when they don't -- the second dispatch fires after React
+  has already re-rendered with the clause selected -- the handler reads the *new* state and
+  immediately removes what the first click just added. First surfaced as an intermittent
+  Playwright timeout (passed in isolation, failed under load) before being traced to this.
+  Fixed by changing that wrapper to a plain `<div>`: the checkbox is read-only decoration, not an
+  independent control, so there was never a reason for the browser's label-activates-control
+  behavior to apply here.
 
 ## Bugs `flows-booking.spec.ts` found and fixed
 

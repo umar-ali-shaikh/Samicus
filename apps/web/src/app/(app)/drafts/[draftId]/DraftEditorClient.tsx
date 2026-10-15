@@ -201,9 +201,10 @@ export function DraftEditorClient({
                 >
                   <Card>
                     <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 6 }}>
-                      <label style={{ display: "flex", gap: 8, alignItems: "center", fontWeight: 600 }}>
+                      {/* Not a <label>: wrapping the checkbox would make the browser dispatch a second, synthetic click on it, double-toggling selection. */}
+                      <div style={{ display: "flex", gap: 8, alignItems: "center", fontWeight: 600 }}>
                         <input type="checkbox" checked={on} readOnly /> {c.title}
-                      </label>
+                      </div>
                       <Badge tone={FAVOR_TONE[c.favors]}>{FAVOR_LABEL[c.favors]}</Badge>
                     </div>
                     {c.rationale_note && <div style={{ fontSize: 12, color: "var(--color-text-muted)", marginTop: 4 }}>{c.rationale_note}</div>}
