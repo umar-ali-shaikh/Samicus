@@ -1,9 +1,20 @@
 # UI tests (Playwright + axe-core, real backend)
 
-Smoke coverage for every screen, across all 4 roles (client, advocate, admin, founder) --
-matches `frontend/e2e/smoke.mjs`'s breadth. Its sibling `flows.mjs` (interactive flows: booking
-wizard, drafting, research, assistant, messaging payload checks) is **not** ported here yet --
-a deliberate, documented scope cut for this pass, not an oversight.
+`smoke.spec.ts` covers every screen, across all 4 roles (client, advocate, admin, founder) --
+matches the legacy `frontend/e2e/smoke.mjs`'s breadth. Its sibling `flows.mjs` (interactive
+flows: booking wizard, urgent help, talk now, drafting, research, assistant, messaging, matters,
+advocate dashboard, plus auth mechanics) is being ported incrementally into separate
+`flows-*.spec.ts` files -- `flows-auth.spec.ts` (signup, sign-in, email verification, Google
+OAuth redirect, session invalidation) is done; the rest are in progress. One technique from the
+legacy suite does **not** carry over: it asserted on exact request payloads via browser-level
+network interception, which only worked because the legacy app's client-side JS called
+Supabase/the API directly from the browser. This app never does that -- every Supabase/apps/api
+call happens server-side in a Server Action, invisible to Playwright's network interception
+entirely (see `docs/architecture/01-target-architecture.md` section 2: "the browser never calls
+Express directly"). Where the legacy suite checked a payload, the ported flows check the
+resulting **database row** instead, via the same service-role admin client `global-setup.ts`
+uses -- arguably a stronger check, since it validates the full round trip, not just the wire
+format.
 
 Unlike the legacy suite (stubbed network, exact-text fixture assertions), this runs against the
 **real** `apps/api` + `apps/web` + the real Supabase/Qdrant project in `.env`. `global-setup.ts`
@@ -54,6 +65,17 @@ noted:
   first render necessarily disagreed. Fixed with the standard `useEffect`-after-mount pattern
   (render `null` until mounted, same as the server, then re-render once client-only feature
   detection has actually run).
+
+## Bugs `flows-auth.spec.ts` found and fixed
+
+- **Signing in before confirming your email silently bounced back to the login screen, with
+  zero feedback.** `signInAction` (`server/authActions.ts`) redirected to `/verify-email` on a
+  "not confirmed" error, but `signInWithPassword()` never actually establishes a session for an
+  unconfirmed user (confirmed via a temporary debug log: `/verify-email`'s own `getUser()` came
+  back `null` when reached this way) -- and that page requires a real session to render, so it
+  immediately redirected right back to `/login`. A user would see nothing explaining why signing
+  in with the right password appeared to do nothing. Fixed by showing the message inline on
+  `/login` instead of redirecting to a page that needs a session that was never there.
 
 ## Known finding: `color-contrast` (not fixed here)
 

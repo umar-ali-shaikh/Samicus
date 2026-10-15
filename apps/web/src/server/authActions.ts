@@ -17,7 +17,12 @@ export async function signInAction(_prev: AuthFormState, formData: FormData): Pr
   const supabase = await createServerSupabaseClient();
   const { error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) {
-    if (/not confirmed/i.test(error.message)) redirect("/verify-email");
+    // signInWithPassword() rejects an unconfirmed user without ever establishing a session
+    // (@supabase/ssr's cookie sync has nothing to persist here) -- redirecting to
+    // /verify-email would only bounce straight back to /login, since that page requires a
+    // real session to render. Show the message right here instead, same as any other
+    // sign-in error -- "check your inbox" is actionable without needing a session at all.
+    if (/not confirmed/i.test(error.message)) return { error: "Please verify your email before signing in — check your inbox for the confirmation link." };
     return { error: friendlyAuthError(error.message) };
   }
   redirect("/dashboard");
