@@ -50,6 +50,16 @@ async function insertThreadParticipant(threadId: string, participantId: string) 
   track("thread_participants", { thread_id: threadId, participant_id: participantId });
 }
 
+// Same composite-key shape as thread_participants, primary key (advocate_id, mode) -- an
+// advocate with zero rows here has consultation_modes: [], which the booking wizard correctly
+// refuses to let a client book through (see components/booking/BookingWizard.tsx), so the
+// seeded E2E advocate needs at least one or flows-booking.spec.ts can never reach "Confirm".
+async function insertAdvocateConsultationMode(advocateId: string, mode: string) {
+  const { error } = await admin.from("advocate_consultation_modes").insert({ advocate_id: advocateId, mode });
+  if (error) throw new Error(`insert advocate_consultation_modes failed: ${error.message}`);
+  track("advocate_consultation_modes", { advocate_id: advocateId, mode });
+}
+
 const RUN = Date.now();
 function email(role: string) {
   return `e2e-${role}-${RUN}@vidhira-e2e.internal`;
@@ -111,6 +121,7 @@ async function main() {
     city: "Bengaluru",
     keywords: ["general advisory"],
   });
+  await insertAdvocateConsultationMode(advocateRow.id, "video");
 
   // ---- shared reference rows already seeded by apps/api's boot-time seedAll() ---------
   const { data: situation, error: situationErr } = await admin.from("situations").select("id").limit(1).single();

@@ -55,7 +55,7 @@ export function BookingWizard({
     urgency: "week",
     state: "",
     city: "",
-    mode: advocate.consultation_modes[0] ?? "video",
+    mode: advocate.consultation_modes[0] ?? "",
     language: "en",
   });
   const [intakeId, setIntakeId] = useState<string | null>(null);
@@ -251,9 +251,11 @@ export function BookingWizard({
 
         {step === 4 && (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {modeOptions.map(([v, t]) => (
-              <RadioCard key={v} selected={form.mode === v} onClick={() => patch({ mode: v })} title={t} />
-            ))}
+            {modeOptions.length === 0 ? (
+              <Callout tone="warning">This advocate hasn&apos;t set up any consultation modes yet. Please choose another advocate or check back later.</Callout>
+            ) : (
+              modeOptions.map(([v, t]) => <RadioCard key={v} selected={form.mode === v} onClick={() => patch({ mode: v })} title={t} />)
+            )}
           </div>
         )}
 

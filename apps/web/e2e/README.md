@@ -5,7 +5,8 @@ matches the legacy `frontend/e2e/smoke.mjs`'s breadth. Its sibling `flows.mjs` (
 flows: booking wizard, urgent help, talk now, drafting, research, assistant, messaging, matters,
 advocate dashboard, plus auth mechanics) is being ported incrementally into separate
 `flows-*.spec.ts` files -- `flows-auth.spec.ts` (signup, sign-in, email verification, Google
-OAuth redirect, session invalidation) is done; the rest are in progress. One technique from the
+OAuth redirect, session invalidation) and `flows-booking.spec.ts` (the full intake -> slot ->
+pricing -> consent -> consultation wizard) are done; the rest are in progress. One technique from the
 legacy suite does **not** carry over: it asserted on exact request payloads via browser-level
 network interception, which only worked because the legacy app's client-side JS called
 Supabase/the API directly from the browser. This app never does that -- every Supabase/apps/api
@@ -76,6 +77,20 @@ noted:
   immediately redirected right back to `/login`. A user would see nothing explaining why signing
   in with the right password appeared to do nothing. Fixed by showing the message inline on
   `/login` instead of redirecting to a page that needs a session that was never there.
+
+## Bugs `flows-booking.spec.ts` found and fixed
+
+- **An advocate with no consultation modes configured let a client sail through the entire
+  9-step booking wizard, only to fail at the very last step with "This advocate does not offer
+  that consultation mode."** `BookingWizard.tsx` defaulted `form.mode` to a hardcoded `"video"`
+  whenever `advocate.consultation_modes` was empty (e.g. a profile that hasn't been fully set up
+  yet), and step 4's own completion check only asked `Boolean(form.mode)` -- true regardless, so
+  it silently let the client past a step that had nothing valid to offer. The client would fill
+  in the issue, urgency, location, language, pick a slot, see pricing, and tick consent, before
+  the server's real validation finally rejected it. Fixed by defaulting `form.mode` to `""` when
+  no modes are configured (so step 4 can no longer be skipped past) and showing an explicit
+  message -- "This advocate hasn't set up any consultation modes yet" -- instead of an empty,
+  silently-passable step.
 
 ## Known finding: `color-contrast` (not fixed here)
 
