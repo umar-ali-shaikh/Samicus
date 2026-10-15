@@ -50,7 +50,11 @@ test("booking wizard: intake -> slot -> pricing -> consent -> consultation (payl
   await page.getByPlaceholder(/Describe the issue/).fill("My vendor has not paid ₹4 lakh for six months despite reminders.");
   await page.getByLabel(/Other party/).fill("Acme Traders Pvt Ltd");
   await page.getByRole("button", { name: "Vendor won't pay / contract breach" }).click();
-  await expect(page.getByText("Contract & commercial recovery")).toBeVisible();
+  // Not getByText: the seeded advocate now also has this listed as a selectable practice area
+  // (needed for flows-talknow.spec.ts's real matching to work at all), so its <option> text and
+  // this routed-area Callout's text both match "Contract & commercial recovery" -- the Callout
+  // renders after the practice-area <select> in DOM order, so .last() is the Callout.
+  await expect(page.getByText("Contract & commercial recovery").last()).toBeVisible();
   const next = () => page.getByRole("button", { name: "Continue" }).click();
   await next();
 

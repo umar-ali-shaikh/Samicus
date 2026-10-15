@@ -5,8 +5,12 @@ matches the legacy `frontend/e2e/smoke.mjs`'s breadth. Its sibling `flows.mjs` (
 flows: booking wizard, urgent help, talk now, drafting, research, assistant, messaging, matters,
 advocate dashboard, plus auth mechanics) is being ported incrementally into separate
 `flows-*.spec.ts` files -- `flows-auth.spec.ts` (signup, sign-in, email verification, Google
-OAuth redirect, session invalidation) and `flows-booking.spec.ts` (the full intake -> slot ->
-pricing -> consent -> consultation wizard) are done; the rest are in progress. One technique from the
+OAuth redirect, session invalidation), `flows-booking.spec.ts` (the full intake -> slot ->
+pricing -> consent -> consultation wizard), and `flows-talknow.spec.ts` (instant request ->
+consent -> real matching) are done; the rest are in progress. The legacy suite's "urgent help"
+flow is intentionally not among them -- see `flows-talknow.spec.ts`'s header comment: apps/web
+was never scoped to build that wizard (`docs/MASTER-PROMPT.md`'s target_structure names only
+`talk-now/`), so there is no page left to port it against. One technique from the
 legacy suite does **not** carry over: it asserted on exact request payloads via browser-level
 network interception, which only worked because the legacy app's client-side JS called
 Supabase/the API directly from the browser. This app never does that -- every Supabase/apps/api

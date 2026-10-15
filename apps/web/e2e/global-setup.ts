@@ -60,6 +60,23 @@ async function insertAdvocateConsultationMode(advocateId: string, mode: string) 
   track("advocate_consultation_modes", { advocate_id: advocateId, mode });
 }
 
+// services/matching.js's passesHardFilters requires BOTH an exact practice-area match and (when
+// the intake specifies one) a language match -- an advocate with zero advocate_practice_areas/
+// advocate_languages rows (true of a freshly-inserted row here) matches nothing, ever, including
+// via Talk Now, which is real matching, not a stub. flows-talknow.spec.ts needs this advocate to
+// actually be matchable.
+async function insertAdvocatePracticeArea(advocateId: string, practiceAreaId: string) {
+  const { error } = await admin.from("advocate_practice_areas").insert({ advocate_id: advocateId, practice_area_id: practiceAreaId });
+  if (error) throw new Error(`insert advocate_practice_areas failed: ${error.message}`);
+  track("advocate_practice_areas", { advocate_id: advocateId, practice_area_id: practiceAreaId });
+}
+
+async function insertAdvocateLanguage(advocateId: string, language: string) {
+  const { error } = await admin.from("advocate_languages").insert({ advocate_id: advocateId, language });
+  if (error) throw new Error(`insert advocate_languages failed: ${error.message}`);
+  track("advocate_languages", { advocate_id: advocateId, language });
+}
+
 const RUN = Date.now();
 function email(role: string) {
   return `e2e-${role}-${RUN}@vidhira-e2e.internal`;
@@ -122,12 +139,16 @@ async function main() {
     keywords: ["general advisory"],
   });
   await insertAdvocateConsultationMode(advocateRow.id, "video");
+  await insertAdvocateLanguage(advocateRow.id, "en");
 
   // ---- shared reference rows already seeded by apps/api's boot-time seedAll() ---------
   const { data: situation, error: situationErr } = await admin.from("situations").select("id").limit(1).single();
   if (situationErr) throw new Error(`no situations row found -- did apps/api seed reference data? ${situationErr.message}`);
   const { data: rentalTemplate, error: templateErr } = await admin.from("doc_templates").select("id").eq("name", "Rental Agreement").single();
   if (templateErr) throw new Error(`"Rental Agreement" template not found -- did apps/api seed reference data? ${templateErr.message}`);
+  const { data: contractArea, error: areaErr } = await admin.from("practice_areas").select("id").eq("name", "Contract & commercial recovery").single();
+  if (areaErr) throw new Error(`"Contract & commercial recovery" practice area not found -- did apps/api seed reference data? ${areaErr.message}`);
+  await insertAdvocatePracticeArea(advocateRow.id, contractArea.id);
 
   // ---- business data: one of nearly everything, enough for each screen to render something
   const intake = await insertOne("intake_requests", {
