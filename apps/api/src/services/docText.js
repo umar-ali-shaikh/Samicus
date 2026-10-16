@@ -1,7 +1,10 @@
-// Text extraction for uploaded contracts (PDF with a text layer, DOCX, TXT). Scanned/image
-// documents are rejected rather than silently producing an empty "review" — there is no OCR.
+// Text extraction for uploaded contracts (PDF with a text layer, DOCX, TXT). A scanned/image-only
+// PDF gets OCR only when it's switched on (DOCUMENT_OCR=anthropic + ANTHROPIC_API_KEY: Claude
+// transcribes the pages); otherwise it's rejected rather than silently producing an empty
+// "review".
 import mammoth from "mammoth";
 import { extractText, getDocumentProxy } from "unpdf";
+import { transcribePdf, isAnthropicConfigured } from "./anthropic.js";
 
 export class UnreadableDocumentError extends Error {
   constructor(message) {
@@ -12,6 +15,13 @@ export class UnreadableDocumentError extends Error {
 }
 
 const MIN_CHARS = 200;
+
+const normalize = (t) => String(t || "").replace(/\r/g, "").replace(/[ \t]+\n/g, "\n").trim();
+
+/** OCR is opt-in: it sends the document's pages to Anthropic, and every scan is a billed call. */
+function ocrEnabled() {
+  return process.env.DOCUMENT_OCR === "anthropic" && isAnthropicConfigured();
+}
 
 export async function extractDocumentText(buffer, mime) {
   let text = "";
@@ -25,7 +35,10 @@ export async function extractDocumentText(buffer, mime) {
   } else {
     throw new UnreadableDocumentError("Contract review supports PDF, DOCX and TXT files.");
   }
-  text = String(text || "").replace(/\r/g, "").replace(/[ \t]+\n/g, "\n").trim();
+  text = normalize(text);
+  if (text.length < MIN_CHARS && mime === "application/pdf" && ocrEnabled()) {
+    text = normalize(await transcribePdf(buffer));
+  }
   if (text.length < MIN_CHARS) {
     throw new UnreadableDocumentError("We couldn't read text from this file. Scanned or image-only documents aren't supported — upload a text PDF or a DOCX.");
   }

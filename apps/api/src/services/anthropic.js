@@ -33,6 +33,16 @@ export function __setAnthropicClientForTests(stub) {
   client = stub;
 }
 
+// SDK errors -> the shared provider error classes every caller already handles.
+function toProviderError(err) {
+  if (err instanceof Anthropic.AuthenticationError || err instanceof Anthropic.PermissionDeniedError) {
+    return new OpenRouterAuthError("AI generation is unavailable: invalid or missing Anthropic API key");
+  }
+  if (err instanceof Anthropic.APIConnectionError) return new OpenRouterApiError(`Network error calling Anthropic: ${err.message}`, 0);
+  if (err instanceof Anthropic.APIError) return new OpenRouterApiError(`Anthropic API error ${err.status}: ${err.message}`, err.status ?? 0);
+  return err;
+}
+
 /**
  * OpenAI-style messages -> Messages API request: system turns are lifted into `system`
  * (the API has no "system" role at the top of `messages`), everything else passes through.
@@ -72,12 +82,7 @@ export async function chatCompletionWithMeta(messages, opts = {}) {
       fallbacks: "default",
     });
   } catch (err) {
-    if (err instanceof Anthropic.AuthenticationError || err instanceof Anthropic.PermissionDeniedError) {
-      throw new OpenRouterAuthError("AI generation is unavailable: invalid or missing Anthropic API key");
-    }
-    if (err instanceof Anthropic.APIConnectionError) throw new OpenRouterApiError(`Network error calling Anthropic: ${err.message}`, 0);
-    if (err instanceof Anthropic.APIError) throw new OpenRouterApiError(`Anthropic API error ${err.status}: ${err.message}`, err.status ?? 0);
-    throw err;
+    throw toProviderError(err);
   }
 
   await increment("anthropic");
@@ -94,4 +99,49 @@ export async function chatCompletionWithMeta(messages, opts = {}) {
   const finishReason = response.stop_reason === "max_tokens" ? "length" : response.stop_reason;
   if (finishReason === "length") console.warn(`Anthropic: response truncated (stop_reason=max_tokens) for model ${response.model} — consider raising max_tokens.`);
   return { content, finishReason, model: response.model };
+}
+
+const TRANSCRIBE_INSTRUCTION =
+  "Transcribe all of the text in this document verbatim, in reading order, page by page. Keep clause numbers and headings on their own lines. Output only the document's text — no commentary, no summary, no markdown.";
+
+/**
+ * OCR for scanned/image-only PDFs (services/docText.js, opt-in via DOCUMENT_OCR=anthropic):
+ * Claude reads the PDF pages directly and returns a verbatim transcription. Streamed, since a
+ * long contract's transcription can be large. Throws the same error classes as
+ * chatCompletionWithMeta.
+ * @param {Buffer} buffer
+ * @returns {Promise<string>}
+ */
+export async function transcribePdf(buffer) {
+  const anthropic = getClient();
+  let response;
+  try {
+    response = await anthropic.beta.messages
+      .stream({
+        model: process.env.CLAUDE_MODEL || DEFAULT_CLAUDE_MODEL,
+        max_tokens: 64000,
+        output_config: { effort: "low" }, // transcription, not reasoning
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "document", source: { type: "base64", media_type: "application/pdf", data: buffer.toString("base64") } },
+              { type: "text", text: TRANSCRIBE_INSTRUCTION },
+            ],
+          },
+        ],
+        betas: ["server-side-fallback-2026-07-01"],
+        fallbacks: "default",
+      })
+      .finalMessage();
+  } catch (err) {
+    throw toProviderError(err);
+  }
+  await increment("anthropic");
+  if (response.stop_reason === "refusal") throw new OpenRouterApiError("Anthropic declined to transcribe this document", 200);
+  return response.content
+    .filter((b) => b.type === "text")
+    .map((b) => b.text)
+    .join("")
+    .trim();
 }

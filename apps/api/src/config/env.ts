@@ -43,6 +43,8 @@ const schema = z.object({
   ANTHROPIC_API_KEY: z.string().optional(),
   CLAUDE_MODEL: z.string().default("claude-opus-5-5"),
   CLAUDE_EFFORT: z.enum(["low", "medium", "high", "xhigh", "max"]).default("medium"),
+  // Opt-in OCR for scanned PDFs in contract review (services/docText.js); needs ANTHROPIC_API_KEY.
+  DOCUMENT_OCR: z.enum(["off", "anthropic"]).default("off"),
 
   RESEARCH_NOTE_V2: z.string().optional(),
 
