@@ -12,6 +12,7 @@ import { understandQuery } from "./legalQueryUnderstanding.js";
 import { search as searchIndianKanoon, getDocumentRaw, isIndianKanoonConfigured } from "./indianKanoon.js";
 import { rankRelevantDocs } from "./relevanceRanking.js";
 import { rankWithScores } from "../utils/tfidf.js";
+import { getCache } from "../platform/cache.js";
 import { expandLegalQuery, extractLexicalTerms, extractCaseNameTerms, detectCourtIntent } from "../utils/legalAbbrev.js";
 
 class KnowledgeBaseUnavailableError extends Error {
@@ -218,7 +219,45 @@ const MAX_TRANSLATED_QUERIES = 3;
  *   own gates run (see routes/research.js, which persists it onto the query row since the
  *   /retrieve and /answer steps are separate requests).
  */
-export async function retrieve(queryText, { sourcesEnabled } = {}) {
+// Response-level cache for retrieve() (docs/architecture/04-performance.md §4 follow-up): every
+// call used to re-run query understanding, embeddings, Qdrant and lexical search from scratch,
+// even for a question asked seconds earlier. Deliberately conservative:
+//   - only a result with at least one passage is cached -- an empty/not-found result is never
+//     cached, so asking again still gets a fresh live-fetch attempt;
+//   - a result whose live-fetch ingest partly failed isn't cached either (the next call may do
+//     better);
+//   - `fresh: true` (the "Refresh" action) skips the read and overwrites the entry;
+//   - a short TTL bounds how stale a re-run of the same question can be after the corpus changes.
+const RETRIEVE_CACHE_TTL_MS = 10 * 60 * 1000;
+const retrieveCache = getCache();
+
+function retrieveCacheKey(queryText, sourcesEnabled) {
+  const text = String(queryText).trim().toLowerCase().replace(/\s+/g, " ");
+  const sources = [...(sourcesEnabled || [])].sort().join(",");
+  return `research-retrieve:v1:${sources}:${text}`;
+}
+
+/**
+ * @param {string} queryText
+ * @param {{ sourcesEnabled?: string[] | null, fresh?: boolean }} [opts]
+ */
+export async function retrieve(queryText, { sourcesEnabled, fresh = false } = {}) {
+  const key = retrieveCacheKey(queryText, sourcesEnabled);
+  if (!fresh) {
+    const cached = await retrieveCache.get(key);
+    if (cached) return cached;
+  }
+  const result = await retrieveUncached(queryText, { sourcesEnabled });
+  if (result.results.length > 0 && result.liveFetch.ingestErrors === 0) await retrieveCache.set(key, result, RETRIEVE_CACHE_TTL_MS);
+  return result;
+}
+
+// Test-only: clears retrieve()'s cache so tests don't leak state into each other.
+export async function __resetRetrieveCacheForTests() {
+  await retrieveCache.clear();
+}
+
+async function retrieveUncached(queryText, { sourcesEnabled } = {}) {
   if (!ragEnabled()) throw new KnowledgeBaseUnavailableError();
   const threshold = minScore();
   const tag = logTag(queryText);

@@ -179,6 +179,14 @@ a follow-up (give `retrieve()` the same `getOrSet()`-backed caching `legalAssist
 has), but out of scope for this load-test pass — flagging it here rather than changing behaviour
 a performance review wasn't asked to change.
 
+> **Follow-up done (after Phase 5):** `services/research.js`'s `retrieve()` now has a
+> `getCache()`-backed response cache (`research-retrieve:v1:`, 10-minute TTL, key = sources +
+> case/whitespace-normalised question). Kept conservative on purpose: an empty result, or one whose
+> live-fetch ingest partly failed, is never cached (so asking again still re-tries the live fetch),
+> and the "Refresh" action passes `fresh: true` to bypass and overwrite the entry. Re-running the
+> same question within 10 minutes is now served from cache — the accepted trade-off is that a corpus
+> change can take up to the TTL to show up for that exact question, unless the user hits Refresh.
+
 ---
 
 ## 5. Summary
@@ -188,7 +196,7 @@ the two real gaps (`complaints`, `audit_logs`) are both forward-looking, tied to
 that don't exist in the API yet. The load test (§4) is the more consequential half of this
 review: it caught a real, currently-live bug (case-law search 500s on every real query) that no
 existing test had surfaced, now fixed, and surfaced one real performance gap worth a follow-up
-(`research/retrieve` has no caching layer). The one architectural note worth carrying forward from
+(`research/retrieve` had no caching layer — since fixed, see §4). The one architectural note worth carrying forward from
 §1-3 is advocate matching's full-scan-then-score-in-JS design (§2.1) — not a bug, but the one
 query pattern in this list whose cost scales with overall platform size rather than with any one
 account/thread/matter's own row count.

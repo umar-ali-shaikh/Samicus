@@ -93,6 +93,8 @@ beforeEach(async () => {
   globalThis.fetch = stubFetch();
   const { __resetCacheForTests } = await import("./legalQueryUnderstanding.js");
   __resetCacheForTests();
+  const { __resetRetrieveCacheForTests } = await import("./research.js");
+  await __resetRetrieveCacheForTests();
 });
 
 test("retrieve() prefers a document's citable passage over its own higher-scoring party argument", async () => {
@@ -136,6 +138,41 @@ test("retrieve() boosts a Supreme Court passage above a higher-scoring High Cour
   assert.ok(scResult && hcResult, "both documents are retrieved");
   assert.equal(scResult.chunk.document.source, "supreme_court");
   assert.ok(scResult.score > hcResult.score, "the Supreme Court passage must outrank the High Court one once boosted");
+});
+
+test("retrieve() serves a repeat of the same question from cache, but fresh:true re-runs it", async () => {
+  const { ingestIndianKanoonDoc } = await import("@vidhira/rag/ingest");
+  const { retrieve } = await import("./research.js");
+  await ingestIndianKanoonDoc({ tid: 7, title: "Cached Case", docsource: "Supreme Court of India", html: `<p id="p_1" title="Court's Reasoning">tenant security deposit refund landlord</p>` });
+
+  const inner = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = (...args) => {
+    calls++;
+    return inner(...args);
+  };
+  const first = await retrieve("tenant security deposit refund landlord");
+  assert.ok(first.results.length > 0);
+  const afterFirst = calls;
+  assert.ok(afterFirst > 0, "the first call must actually retrieve");
+
+  const second = await retrieve("  Tenant security deposit   refund landlord ");
+  assert.deepEqual(second, first, "case/whitespace-only differences hit the same cache entry");
+  assert.equal(calls, afterFirst, "a cached repeat makes no embedding/Qdrant calls");
+
+  await retrieve("tenant security deposit refund landlord", { fresh: true });
+  assert.ok(calls > afterFirst, "fresh: true (Refresh) must bypass the cache");
+});
+
+test("retrieve() never caches an empty result, so asking again still tries a live fetch", async () => {
+  const { retrieve } = await import("./research.js");
+  const first = await retrieve("question with nothing in the library");
+  assert.equal(first.results.length, 0);
+
+  const { ingestIndianKanoonDoc } = await import("@vidhira/rag/ingest");
+  await ingestIndianKanoonDoc({ tid: 8, title: "Arrived Later", docsource: "Supreme Court of India", html: `<p id="p_1" title="Court's Reasoning">question with nothing in the library</p>` });
+  const second = await retrieve("question with nothing in the library");
+  assert.ok(second.results.some((r) => r.chunk.document.title === "Arrived Later"), "the earlier empty result must not have been cached");
 });
 
 test("retrieve() fetches and indexes a live source when the library has nothing for the question, and returns it in the same call", async () => {

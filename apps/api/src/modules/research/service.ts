@@ -402,7 +402,8 @@ export async function refreshQuery(user: { id: string }, id: string): Promise<Re
   const query = await loadOwnedQuery(user, id);
   const threshold = relevanceThreshold();
   const [{ liveFetch, results: scored }, locale] = await Promise.all([
-    retrieve(query.text, { sourcesEnabled: query.sources_enabled }),
+    // fresh: "Refresh" must never be served from retrieve()'s short-lived cache.
+    retrieve(query.text, { sourcesEnabled: query.sources_enabled, fresh: true }),
     detectLanguage(query.text),
   ]);
 
