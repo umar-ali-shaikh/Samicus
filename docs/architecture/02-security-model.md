@@ -149,9 +149,9 @@ or an AI prompt that might contain client matter facts.
   is lint-tooling only — a devDependency that never ships, runs only on a developer's own machine
   during `npm run lint`, with no attacker-reachable input. Not fixed for the same breaking-
   downgrade reason as above.
-- **Color-contrast** (`--color-label` design token) falls short of WCAG AA on 34/50 screens per
-  `apps/web/e2e`'s real axe-core run — a design-token decision, not an engineering one; tracked in
-  `apps/web/e2e/README.md`, not silently suppressed.
+- **Color-contrast** — the `--color-label` token and danger-button colours that failed WCAG AA on
+  34/50 screens are fixed (`#6C685E`, `--color-rust`); awaiting one confirming axe run before
+  `smoke.spec.ts`'s carve-out is removed — tracked in `apps/web/e2e/README.md`.
 - **No email/SMS notifications** — in-app only (messages poll). Not a security gap, but relevant
   to incident response: a banned/compromised user won't be notified out-of-band.
 - `npx knip` at the repo root is clean (`knip.json` ignores `pino-pretty` specifically — a

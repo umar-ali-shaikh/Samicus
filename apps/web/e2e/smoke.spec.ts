@@ -60,12 +60,12 @@ for (const [role, screens] of Object.entries(ROLE_SCREENS)) {
 
         const axeResults = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze();
         const serious = axeResults.violations.filter((v) => v.impact === "serious" || v.impact === "critical");
-        // color-contrast is a KNOWN, pre-existing finding (not new here): the --color-label
-        // design token (#8A8578) ported from the legacy frontend falls short of WCAG AA's 4.5:1
-        // against several of the app's own backgrounds -- found on 34/50 screens across every
-        // role during this suite's first full run. Fixing it means picking a new token color,
-        // which is a design call, not an engineering one -- logged so it stays visible instead
-        // of silently blocking every other check in this suite.
+        // color-contrast was a KNOWN finding on 34/50 screens: the legacy --color-label token
+        // (#8A8578) and the danger button (white on --color-rust-alt). Both are now fixed
+        // (--color-label #6C685E, danger on --color-rust -- calculated >= 4.5:1 on every app
+        // background, see e2e/README.md) but not yet confirmed by a real run of this suite. Still
+        // logged rather than failed until one clean run shows zero color-contrast nodes; then
+        // drop this carve-out so a regression fails the build.
         const contrastOnly = serious.filter((v) => v.id === "color-contrast");
         const other = serious.filter((v) => v.id !== "color-contrast");
         if (contrastOnly.length) console.warn(`[known] ${url}: color-contrast (${contrastOnly.reduce((n, v) => n + v.nodes.length, 0)} node(s)) -- see e2e/README.md`);

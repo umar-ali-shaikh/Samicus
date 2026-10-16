@@ -176,18 +176,24 @@ noted:
   message -- "This advocate hasn't set up any consultation modes yet" -- instead of an empty,
   silently-passable step.
 
-## Known finding: `color-contrast` (not fixed here)
+## Finding: `color-contrast` -- fixed, awaiting a confirming run
 
-34 of the 50 screens across all 4 roles log a `color-contrast` warning: the `--color-label`
-design token (`#8A8578`, `apps/web/src/styles/tokens.css`) — ported as-is from the legacy
-frontend — falls short of WCAG AA's 4.5:1 ratio against several of the app's own backgrounds
-(measured as low as 3.06:1). One `/profile` screen also flags the "Delete account" button's rust
-background against white text (4.05:1).
+34 of the 50 screens across all 4 roles logged a `color-contrast` warning on this suite's first
+full run: the `--color-label` design token (`#8A8578`, ported as-is from the legacy frontend) fell
+short of WCAG AA's 4.5:1 against the app's own backgrounds (as low as 3.07:1 on `--color-bg`), and
+the "Delete account" button on `/profile` (white on `--color-rust-alt`) measured 4.05:1.
 
-This is a **design decision** (picking a new token color), not an engineering one, so it's
-logged rather than fixed by this suite. If/when a new value is approved, re-run
-`npm run e2e -w apps/web` to confirm it clears every screen this flagged, then remove the
-`color-contrast` carve-out in `smoke.spec.ts`.
+Fixed in `apps/web/src/styles/tokens.css` and `components/ui.tsx`:
+
+| What | Before | After | Contrast after (lowest background) |
+|---|---|---|---|
+| `--color-label` | `#8A8578` | `#6C685E` (same hue, darker) | 4.63:1 on `--color-bg`; 4.68-5.56:1 on surfaces, callouts and white |
+| `Button variant="danger"` background | `--color-rust-alt` `#DB4F35` | `--color-rust` `#B23A22` | 5.96:1 (white text) |
+
+Those ratios are calculated from the token values, not yet measured by axe in a real run. Next
+time `npm run e2e -w apps/web` runs: if no screen logs `[known] ... color-contrast`, remove the
+`color-contrast` carve-out in `smoke.spec.ts` so a regression fails the suite instead of warning.
+If anything still logs, it's a different colour than these two -- fix that one the same way.
 
 ## Resolved finding: `/founder/fadv` React duplicate-key warning
 

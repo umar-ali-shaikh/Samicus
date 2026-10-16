@@ -43,7 +43,8 @@ type ButtonVariant = "primary" | "danger" | "outline" | "ghost";
 
 const BUTTON_VARIANTS: Record<ButtonVariant, { bg: string; fg: string; border: string }> = {
   primary: { bg: "var(--color-navy)", fg: "#fff", border: "none" },
-  danger: { bg: "var(--color-rust-alt)", fg: "#fff", border: "none" },
+  // --color-rust, not --color-rust-alt: white on rust-alt is 4.05:1 (fails WCAG AA), on rust 5.96:1.
+  danger: { bg: "var(--color-rust)", fg: "#fff", border: "none" },
   outline: { bg: "#fff", fg: "var(--color-ink)", border: "1px solid var(--color-border)" },
   ghost: { bg: "transparent", fg: "var(--color-rust)", border: "none" },
 };
