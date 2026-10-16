@@ -100,7 +100,31 @@ analytics all come from real people using the app.
 3. **Moderation**: publish public questions and advocate answers.
 4. Seed the knowledge base by using the AI assistant on real questions (see `docs/RAG.md`).
 
-## 6. Deploy (two services)
+## 6. Deploy
+
+### One service (e.g. Render) -- `npm start`
+
+The root `npm start` runs **both** apps in one process group (`scripts/render-start.mjs`):
+`apps/web` on the platform's `$PORT`, `apps/api` on an internal port (`API_PORT`, default
+`4001`), with `apps/web` pointed at it over `127.0.0.1`. The browser never calls `apps/api`
+directly, so it needs no public URL; the one exception, Razorpay's webhook, is forwarded by
+`apps/web` (`/api/payments/webhook` on the web host). If either process exits, both are stopped
+so the platform restarts the service.
+
+Render settings for this mode (`render.yaml` has the same as a Blueprint):
+
+| Setting | Value |
+|---|---|
+| Root Directory | *(empty -- repo root)* |
+| Build Command | `npm install && npm run build` |
+| Start Command | `npm run start` |
+| Health Check Path | `/login` (`/` redirects there) |
+| Node | 22 (from `.nvmrc` / `engines`; or env `NODE_VERSION=22`) |
+| Env | everything from `.env.example` you use -- **but don't set `PORT`, `API_PORT` or `API_INTERNAL_URL`**: Render provides `PORT`, and the script sets the other two. `NEXT_PUBLIC_SUPABASE_URL`/`_ANON_KEY` must be present at build time. `CLIENT_ORIGIN` = the service's own URL. |
+
+Razorpay's webhook then points at `https://<service-host>/api/payments/webhook`.
+
+### Two services
 
 `apps/web` (Next.js) and `apps/api` (Express) deploy as two separate services/origins —
 `apps/web`'s server actions call `apps/api` over `API_INTERNAL_URL` (private network), and the
@@ -109,7 +133,7 @@ browser never talks to `apps/api` directly.
 ```bash
 # apps/api — no build step, runs TypeScript directly via tsx
 npm install
-npm run start -w apps/api   # reads the root .env
+npm run start -w apps/api   # reads the root .env (or `npm run start:api` from the root)
 
 # apps/web
 npm run build -w apps/web   # NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY must be set at *build* time

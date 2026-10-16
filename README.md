@@ -58,7 +58,8 @@ npm run dev:full                         # apps/api :4000 + apps/web :3000
 ```
 
 ```bash
-npm run start -w apps/api && npm run build -w apps/web && npm run start -w apps/web  # two services
+npm run build && npm start               # one service: web on $PORT + api internally (docs/SETUP.md §6)
+npm run start:api / npm run start:web     # or run them as two services
 npm test -w apps/api                     # API + RAG tests
 npm run e2e -w apps/web                  # Playwright + axe-core smoke + flow suites (real backend; 3 specs make
                                          # metered AI/Indian Kanoon calls), see apps/web/e2e/README.md

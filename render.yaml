@@ -1,0 +1,39 @@
+# Render Blueprint -- one web service running both apps/web and apps/api (scripts/render-start.mjs).
+# Only used if you create the service from this Blueprint; an existing service uses its dashboard
+# settings, which should match the values below (see docs/SETUP.md §6).
+services:
+  - type: web
+    name: samicus
+    runtime: node
+    rootDir: .
+    buildCommand: npm install && npm run build
+    startCommand: npm run start
+    healthCheckPath: /login
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      # Supabase -- apps/api (server) and apps/web (NEXT_PUBLIC_* are baked in at *build* time)
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        sync: false
+      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
+        sync: false
+      # apps/web's own public origin, e.g. https://samicus.onrender.com
+      - key: CLIENT_ORIGIN
+        sync: false
+      - key: ADMIN_EMAILS
+        sync: false
+      - key: FOUNDER_EMAILS
+        sync: false
+      # Optional integrations -- leave unset to keep them off
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: IK_API_TOKEN
+        sync: false
+      - key: QDRANT_URL
+        sync: false
+      - key: QDRANT_API_KEY
+        sync: false

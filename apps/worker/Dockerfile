@@ -1,7 +1,7 @@
 # Build context is the repo root (npm workspaces). Build with:
 #   docker build -f apps/worker/Dockerfile -t vidhira-worker .
 
-FROM node:20-alpine AS deps
+FROM node:22-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY apps/worker/package.json apps/worker/package.json
@@ -18,7 +18,7 @@ COPY packages/config packages/config
 COPY apps/worker apps/worker
 RUN npm run build -w @vidhira/contracts && npm run build -w @vidhira/worker
 
-FROM node:20-alpine AS runner
+FROM node:22-alpine AS runner
 ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=build /app /app

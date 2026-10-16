@@ -17,7 +17,9 @@
     "dev:full": "concurrently -n SERVER,CLIENT -c blue,green \"npm run dev -w apps/api\" \"npm run dev -w apps/web\"",
     "seed": "npm run seed -w apps/api",
     "build": "npm run build -w apps/web",
-    "start": "npm run start -w apps/api",
+    "start": "node scripts/render-start.mjs",
+    "start:api": "npm run start -w apps/api",
+    "start:web": "npm run start -w apps/web",
     "test": "npm test -w apps/api",
     "lint": "npm run lint -w apps/web",
     "e2e": "npm run e2e -w apps/web",
@@ -32,7 +34,7 @@
     "turbo": "^2.11.7"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "overrides": {
     "shell-quote": "^1.12.0",

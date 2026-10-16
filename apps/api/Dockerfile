@@ -4,7 +4,7 @@
 # apps/api runs via tsx (see package.json's "start" script) rather than a tsc/tsup build --
 # there is no separate compile step for this app yet (a known gap, not introduced here).
 
-FROM node:20-alpine AS deps
+FROM node:22-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY apps/api/package.json apps/api/package.json
@@ -21,7 +21,7 @@ COPY packages/config packages/config
 COPY apps/api apps/api
 RUN npm run build -w @vidhira/contracts
 
-FROM node:20-alpine AS runner
+FROM node:22-alpine AS runner
 ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=build /app /app

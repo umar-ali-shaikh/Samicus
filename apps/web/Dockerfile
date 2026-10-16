@@ -3,7 +3,7 @@
 # Uses Next's `output: "standalone"` (apps/web/next.config.ts) -- the runner stage copies only
 # the traced, pruned server bundle, not the full node_modules tree.
 
-FROM node:20-alpine AS deps
+FROM node:22-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY apps/web/package.json apps/web/package.json
@@ -25,7 +25,7 @@ ENV NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL
 ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY
 RUN npm run build -w @vidhira/contracts && npm run build -w @vidhira/web
 
-FROM node:20-alpine AS runner
+FROM node:22-alpine AS runner
 ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=build /app/apps/web/public ./apps/web/public
