@@ -8,7 +8,7 @@ import { fmtDate } from "@/lib/format";
 import { updateComplaintAction } from "@/server/complaintsActions";
 
 const STATUS_TONE: Record<string, "warning" | "danger" | "success"> = { open: "warning", escalated: "danger", resolved: "success" };
-const SEVERITY_COLOR: Record<string, string> = { low: "#8A8578", medium: "#B8863B", high: "#B23A22" };
+const SEVERITY_COLOR: Record<string, string> = { low: "#6C685E", medium: "#B8863B", high: "#B23A22" };
 const FILTERS = ["All", "Open", "Escalated", "Resolved", "High severity"] as const;
 
 function ComplaintCard({ c, onSaved }: { c: ComplaintDto; onSaved: (updated: ComplaintDto) => void }) {

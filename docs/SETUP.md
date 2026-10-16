@@ -55,6 +55,9 @@ enabled and the assistant falls back to live Indian Kanoon search.
 | `IK_API_TOKEN` | <https://api.indiankanoon.org> (paid per call) | live case-law search / assistant |
 | `TAVILY_API_KEY` | <https://tavily.com> (free tier) | web-search fallback, see below (optional) |
 | `RAZORPAY_KEY_ID/SECRET/WEBHOOK_SECRET` | <https://razorpay.com> | online payments (optional) |
+| `LLM_PROVIDER` + `ANTHROPIC_API_KEY` | <https://platform.claude.com> | use Claude instead of OpenRouter for chat (optional; embeddings stay on OpenRouter) |
+| `DOCUMENT_OCR=anthropic` (+ `ANTHROPIC_API_KEY`) | <https://platform.claude.com> | OCR for scanned PDFs in contract review (optional, opt-in; sends the pages to Anthropic) |
+| `CLAMAV_HOST` (+ `CLAMAV_PORT`) | self-hosted ClamAV — `docker compose up` includes one | malware-scan uploads before storing them (optional; unscanned uploads stay `pending`) |
 
 ### AI Legal Assistant evidence pipeline
 

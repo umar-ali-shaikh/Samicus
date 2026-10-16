@@ -6,7 +6,7 @@
 import { Router } from "express";
 import { requireAuth, requireRole } from "../../middleware/auth.js";
 import { HttpError } from "../../services/access.js";
-import { decideVerificationSchema, adminStatsDto, usageDto, verificationCaseListItemDto, verificationCaseDto, complaintsReportDto } from "@vidhira/contracts";
+import { adminMatterAccessSchema, adminMatterReviewDto, adminAccessGrantListItemDto, decideVerificationSchema, adminStatsDto, usageDto, verificationCaseListItemDto, verificationCaseDto, complaintsReportDto } from "@vidhira/contracts";
 import { z } from "zod";
 import * as service from "./service.js";
 
@@ -42,6 +42,18 @@ router.get("/admin/verification-cases", async (_req, res) => {
 router.post("/admin/verification-cases/:id/decide", requireRole("admin"), async (req, res) => {
   const input = parse(decideVerificationSchema, req.body);
   res.json(verificationCaseDto.parse(await service.decideVerification(req.user!, String(req.params.id), input)));
+});
+
+// Break-glass matter access -- admin only (trust & safety), never founder. Every attempt is
+// logged; see service.accessMatter.
+router.post("/admin/matter-access", requireRole("admin"), async (req, res) => {
+  const input = parse(adminMatterAccessSchema, req.body);
+  res.json(adminMatterReviewDto.parse(await service.accessMatter(req.user!, input)));
+});
+
+// The access log itself is readable by the founder too -- oversight of trust & safety.
+router.get("/admin/matter-access", async (_req, res) => {
+  res.json(z.array(adminAccessGrantListItemDto).parse(await service.listAccessGrants()));
 });
 
 export default router;

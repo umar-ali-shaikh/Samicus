@@ -10,6 +10,7 @@ import { setSupabaseClient } from "@vidhira/rag/supabaseClient";
 import { setQdrantRequestHook } from "@vidhira/rag/qdrant";
 import { setEmbeddingsRequestHook } from "@vidhira/rag/embeddings";
 import { increment } from "./utils/callCounter.js";
+import { isClamavConfigured } from "./platform/clamav.js";
 
 const PORT = process.env.PORT || 4000;
 
@@ -68,6 +69,10 @@ async function main() {
     ensureClauseIndex().catch((err) => console.error("Clause library indexing failed:", err.message));
   } else {
     console.warn("RAG is off: set QDRANT_URL and OPENROUTER_API_KEY to enable the knowledge base, research library and contract review.");
+  }
+
+  if (!isClamavConfigured()) {
+    console.warn("Malware scanning is off: set CLAMAV_HOST to scan uploads (they're stored as \"pending\" until then).");
   }
 
   const app = createApp();

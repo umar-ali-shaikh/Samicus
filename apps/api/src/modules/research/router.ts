@@ -23,9 +23,23 @@ import {
   corpusStatusDto,
 } from "@vidhira/contracts";
 import { z } from "zod";
+import { createRateLimiter } from "../../platform/rateLimit.js";
 import * as service from "./service.js";
 
 const router = Router();
+
+// retrieve/answer/refresh/ask each spend real embeddings + LLM (and possibly live Indian Kanoon)
+// money, so they share a per-user limit tighter than the global per-IP backstop. One research
+// question is a retrieve + an answer, so this allows ~20 questions (or follow-ups) per window.
+const researchAiLimiter = createRateLimiter("rl:research-ai:", {
+  windowMs: 15 * 60 * 1000,
+  limit: 40,
+  keyGenerator: (req) => req.user?.id || req.ip || "unknown",
+  validate: { keyGeneratorIpFallback: false },
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many research requests — please wait a few minutes and try again." },
+});
 
 function parse<T>(schema: z.ZodType<T>, body: unknown): T {
   const result = schema.safeParse(body);
@@ -33,13 +47,13 @@ function parse<T>(schema: z.ZodType<T>, body: unknown): T {
   return result.data;
 }
 
-router.post("/research/retrieve", requireAuth, async (req, res) => {
+router.post("/research/retrieve", requireAuth, researchAiLimiter, async (req, res) => {
   const input = parse(retrieveResearchSchema, req.body);
   const result = await service.retrieveStep(req.user!, input);
   res.json(researchRetrieveResultDto.parse(result));
 });
 
-router.post("/research/answer", requireAuth, async (req, res) => {
+router.post("/research/answer", requireAuth, researchAiLimiter, async (req, res) => {
   const input = parse(answerResearchSchema, req.body);
   const result = await service.answerStep(req.user!, input);
   res.json(researchReportDto.parse(result));
@@ -73,12 +87,12 @@ router.delete("/research/queries/:id", requireAuth, async (req, res) => {
   res.json({ deleted: true });
 });
 
-router.post("/research/queries/:id/refresh", requireAuth, async (req, res) => {
+router.post("/research/queries/:id/refresh", requireAuth, researchAiLimiter, async (req, res) => {
   const result = await service.refreshQuery(req.user!, String(req.params.id));
   res.json(result);
 });
 
-router.post("/research/queries/:id/ask", requireAuth, async (req, res) => {
+router.post("/research/queries/:id/ask", requireAuth, researchAiLimiter, async (req, res) => {
   const input = parse(askResearchFollowUpSchema, req.body);
   const result = await service.askFollowUp(req.user!, String(req.params.id), input);
   res.json(researchChatTurnDto.parse(result));

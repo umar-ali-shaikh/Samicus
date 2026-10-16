@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
+import Link from "next/link";
 import { createServerSupabaseClient } from "@/server/supabase";
 import { SignOutButton } from "@/components/SignOutButton";
 
@@ -24,6 +25,12 @@ export default async function DashboardPage() {
       <h1 style={{ fontFamily: "var(--font-serif)" }}>Signed in</h1>
       <p>
         {data.user.email} ({data.user.app_metadata?.provider ?? "email"})
+      </p>
+      <p style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+        <Link href="/talk-now">Talk to an advocate now</Link>
+        <Link href="/urgent-help" style={{ color: "var(--color-rust)", fontWeight: 700 }}>
+          Get urgent help now
+        </Link>
       </p>
       <div style={{ marginTop: 16 }}>
         <SignOutButton />

@@ -35,7 +35,9 @@ const schema = z.object({
 
 export type Env = z.infer<typeof schema>;
 
-const parsed = schema.safeParse(process.env);
+// Blank (`QDRANT_URL=`, as .env.example ships it) means unset -- same rule as apps/api's
+// config/env.ts parseEnv(), so one shared .env boots both apps.
+const parsed = schema.safeParse(Object.fromEntries(Object.entries(process.env).filter(([, v]) => v !== undefined && v.trim() !== "")));
 if (!parsed.success) {
   const lines = parsed.error.issues.map((i) => `  - ${i.path.join(".")}: ${i.message}`).join("\n");
   throw new Error(`Invalid environment configuration:\n${lines}\nSee .env.example.`);

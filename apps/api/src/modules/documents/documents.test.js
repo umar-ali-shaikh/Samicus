@@ -173,3 +173,61 @@ test("delete: the uploader or an account admin/owner can delete; another ordinar
   assert.equal(ok.status, 204);
   assert.equal((await call("GET", `/documents/${doc.id}/download`, { token: "tok-alice" })).status, 404, "actually gone");
 });
+
+// A minimal fake clamd: reads one INSTREAM upload and answers with `verdict` (or drops the
+// connection when verdict is null), so the real platform/clamav.ts protocol code is exercised.
+async function withFakeClamd(verdict, fn) {
+  const net = await import("node:net");
+  const received = [];
+  const server = net.createServer((socket) => {
+    let buf = Buffer.alloc(0);
+    socket.on("data", (d) => {
+      buf = Buffer.concat([buf, d]);
+      if (buf.length >= 14 && buf.subarray(buf.length - 4).readUInt32BE(0) === 0) {
+        received.push(buf.subarray(14, buf.length - 4).toString("utf8")); // skip "zINSTREAM\0" (10 bytes) + the first 4-byte length
+        if (verdict === null) return socket.destroy();
+        socket.end(`stream: ${verdict}\0`);
+      }
+    });
+  });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  process.env.CLAMAV_HOST = "127.0.0.1";
+  process.env.CLAMAV_PORT = String(server.address().port);
+  try {
+    await fn(received);
+  } finally {
+    delete process.env.CLAMAV_HOST;
+    delete process.env.CLAMAV_PORT;
+    await new Promise((r) => server.close(r));
+  }
+}
+
+test("upload + ClamAV: a clean verdict marks the document clean, and the file bytes were what got scanned", async () => {
+  await withFakeClamd("OK", async (received) => {
+    const res = await upload("tok-alice", { name: "scanned.pdf", type: "application/pdf", accountId: account.id });
+    assert.equal(res.status, 201);
+    assert.equal(res.body.virus_scan_status, "clean");
+    assert.deepEqual(received, ["hello contract"]);
+  });
+});
+
+test("upload + ClamAV: an infected file is refused with 422, never stored, and audit-logged", async () => {
+  const before = Object.keys(fake.storage).length;
+  const docsBefore = fake.db.documents.length;
+  await withFakeClamd("Eicar-Test-Signature FOUND", async () => {
+    const res = await upload("tok-alice", { name: "eicar.pdf", type: "application/pdf", accountId: account.id });
+    assert.equal(res.status, 422);
+    assert.match(res.body.error, /flagged by our malware scanner/);
+  });
+  assert.equal(Object.keys(fake.storage).length, before, "nothing reached the bucket");
+  assert.equal(fake.db.documents.length, docsBefore, "no document row");
+  assert.ok(fake.db.audit_logs.some((l) => l.action === "document_upload_blocked_malware" && l.reason === "Eicar-Test-Signature" && l.outcome === "denied"));
+});
+
+test("upload + ClamAV: an unreachable scanner leaves the upload pending, not clean, and doesn't block it", async () => {
+  await withFakeClamd(null, async () => {
+    const res = await upload("tok-alice", { name: "unscanned.pdf", type: "application/pdf", accountId: account.id });
+    assert.equal(res.status, 201);
+    assert.equal(res.body.virus_scan_status, "pending");
+  });
+});

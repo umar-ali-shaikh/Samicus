@@ -38,7 +38,19 @@ const schema = z.object({
   OPENROUTER_MODEL: z.string().default("openai/gpt-oss-20b"),
   OPENROUTER_FALLBACK_MODEL: z.string().optional(),
 
+  // Chat provider switch (services/llm.js). Embeddings stay on OpenRouter either way.
+  LLM_PROVIDER: z.enum(["openrouter", "anthropic"]).default("openrouter"),
+  ANTHROPIC_API_KEY: z.string().optional(),
+  CLAUDE_MODEL: z.string().default("claude-opus-5-5"),
+  CLAUDE_EFFORT: z.enum(["low", "medium", "high", "xhigh", "max"]).default("medium"),
+  // Opt-in OCR for scanned PDFs in contract review (services/docText.js); needs ANTHROPIC_API_KEY.
+  DOCUMENT_OCR: z.enum(["off", "anthropic"]).default("off"),
+
   RESEARCH_NOTE_V2: z.string().optional(),
+
+  // Upload malware scanning (platform/clamav.ts). Unset = uploads stay "pending" (unscanned).
+  CLAMAV_HOST: z.string().optional(),
+  CLAMAV_PORT: z.coerce.number().int().default(3310),
 
   IK_API_TOKEN: z.string().optional(),
   TAVILY_API_KEY: z.string().optional(),
@@ -64,7 +76,17 @@ const schema = z.object({
 
 export type Env = z.infer<typeof schema>;
 
-const parsed = schema.safeParse(process.env);
+/**
+ * A blank value (`QDRANT_URL=`, the way .env.example ships every optional integration) means
+ * "not set", same as leaving the line out -- the docs say blank turns a feature off, so it must
+ * not fail validation (`""` is not a URL) or silently coerce (`z.coerce.number()` turns `""` into
+ * 0). Required vars still fail loudly when blank, since blank now reads as missing.
+ */
+export function parseEnv(source: Record<string, string | undefined>) {
+  return schema.safeParse(Object.fromEntries(Object.entries(source).filter(([, v]) => v !== undefined && v.trim() !== "")));
+}
+
+const parsed = parseEnv(process.env);
 if (!parsed.success) {
   const lines = parsed.error.issues.map((i) => `  - ${i.path.join(".")}: ${i.message}`).join("\n");
   throw new Error(`Invalid environment configuration:\n${lines}\nSee .env.example.`);

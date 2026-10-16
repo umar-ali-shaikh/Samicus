@@ -17,7 +17,7 @@ const DEFAULT_MODEL = "openai/gpt-oss-20b";
 
 // Each a different upstream provider, so a single provider's outage/rate-limit/retired
 // model string doesn't take down the whole chain — see the "only stop early on a genuine
-// auth failure" comment in chatCompletion below. All paid, all cheap (sub-$0.20/M tokens),
+// auth failure" comment in chatCompletionWithMeta below. All paid, all cheap (sub-$0.20/M tokens),
 // and all support structured_outputs (amazon/nova-micro-v1 — tried first — does not
 // support response_format at all, and was dropped for that reason).
 const FALLBACK_MODELS = [
@@ -129,15 +129,4 @@ export async function chatCompletionWithMeta(messages, opts = {}) {
     }
   }
   throw lastErr;
-}
-
-/**
- * @param {Array<{role: string, content: string}>} messages
- * @param {{model?: string, jsonMode?: boolean, maxTokens?: number}} [opts]
- * @returns {Promise<string>} the raw assistant message content — see chatCompletionWithMeta
- *   for finish_reason/model when a caller needs to detect truncation.
- */
-export async function chatCompletion(messages, opts = {}) {
-  const { content } = await chatCompletionWithMeta(messages, opts);
-  return content;
 }

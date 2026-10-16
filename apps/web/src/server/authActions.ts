@@ -49,6 +49,11 @@ export async function signUpAction(_prev: AuthFormState, formData: FormData): Pr
   if (data.user && data.user.identities?.length === 0) {
     return { error: "An account with this email already exists. Sign in instead." };
   }
+  // With email confirmation required (Supabase's default), signUp() creates the user but returns
+  // no session -- so /verify-email can't find a signed-in user and would bounce straight to
+  // /login with no explanation (same trap signInAction's comment describes). Pass the address
+  // along instead; the page renders a session-less "check your inbox" state from it.
+  if (!data.session) redirect(`/verify-email?email=${encodeURIComponent(email)}`);
   redirect("/verify-email");
 }
 
@@ -73,7 +78,9 @@ export async function resendVerificationAction(_prev: AuthFormState, formData: F
   const supabase = await createServerSupabaseClient();
   const { error } = await supabase.auth.resend({ type: "signup", email, options: { emailRedirectTo: `${origin}/api/bff/auth/callback` } });
   if (error) {
-    if (/rate limit/i.test(error.message)) return { error: "Please wait a little before requesting another email." };
+    // Supabase's per-address resend cooldown comes back as "For security purposes, you can only
+    // request this after N seconds." -- not worded as a rate limit, so match it explicitly.
+    if (/rate limit|only request this after/i.test(error.message)) return { error: "Please wait a little before requesting another email." };
     return { error: friendlyAuthError(error.message) };
   }
   return { notice: "Verification email sent. Check your inbox (and spam folder)." };

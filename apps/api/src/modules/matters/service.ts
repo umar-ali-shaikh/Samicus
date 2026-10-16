@@ -138,6 +138,40 @@ export async function patchMatter(user: { id: string; role: string }, matterId: 
   return updated as unknown as MatterDto;
 }
 
+/**
+ * Break-glass read for trust & safety (modules/admin's matter-access flow) -- deliberately NOT
+ * routed through loadMatterContext: an admin is never a party to the matter. The caller is
+ * responsible for having recorded an admin_access_grants row first. Returns only what's needed
+ * to investigate (timeline, tasks, hearings, document metadata) -- no fees, invoices, messages
+ * or download links -- and leaves a timeline event both parties can see. The admin's free-text
+ * reason is kept in the access log, not shown to the parties, since it may quote one side's
+ * complaint about the other.
+ */
+export async function getMatterForAdminReview(adminUserId: string, matterId: string) {
+  const [matter, timeline, tasks, hearings, documents] = await Promise.all([
+    repo.findMatterJoinedById(matterId),
+    repo.listTimelineForMatter(matterId),
+    repo.listTasksForMatter(matterId),
+    repo.listHearingsForMatter(matterId),
+    repo.listDocumentsForMatter(matterId, null),
+  ]);
+  await repo.insertTimelineEvent({
+    matterId,
+    type: "admin_access",
+    title: "Vidhira trust & safety reviewed this matter",
+    body: "The reason was recorded in Vidhira's access log.",
+    actorType: "platform",
+    actorId: adminUserId,
+  });
+  return {
+    matter: matter as unknown as MatterDto,
+    timeline: timeline as unknown as MatterDetailDto["timeline"],
+    tasks: tasks as unknown as MatterDetailDto["tasks"],
+    hearings: hearings as unknown as MatterDetailDto["hearings"],
+    documents: (documents as Array<{ id: string; filename: string; kind: string; created_at: string }>).map((d) => ({ id: d.id, filename: d.filename, kind: d.kind, created_at: d.created_at })),
+  };
+}
+
 export async function addTask(user: { id: string }, matterId: string, input: TaskInput): Promise<TaskDto> {
   const ctx = await loadMatterForUser(user, matterId);
   requireSide(ctx, "advocate", "Only the engaged advocate can add tasks.");

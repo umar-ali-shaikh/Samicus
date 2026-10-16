@@ -4,7 +4,7 @@
 // Indian Kanoon's search is keyword-oriented, so a conversational sentence like
 // "Mere landlord ne security deposit return nahi kiya, kya kar sakta hoon?" needs to
 // become something like "landlord security deposit not returned tenant remedy" first.
-import { chatCompletion, OpenRouterAuthError, OpenRouterApiError } from "./openRouter.js";
+import { chatCompletion, OpenRouterAuthError, OpenRouterApiError } from "./llm.js";
 import { getCache } from "../platform/cache.js";
 
 const TTL_MS = 60 * 60 * 1000;

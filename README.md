@@ -15,8 +15,11 @@ document templates with their clause library).
 | Relational data + files | **Supabase** Postgres + private Storage bucket | Row-level security denies the public key everything; only the API touches data |
 | Vector search (RAG) | **Qdrant** (Cloud free tier or self-hosted) | 768-d, int8-quantised, payload on disk |
 | Embeddings | **OpenRouter** `sentence-transformers/all-mpnet-base-v2` | Paid per call, sub-cent per request |
-| LLM | **OpenRouter** (paid models) | Query understanding, grounded answers, contract review |
+| LLM | **OpenRouter** (paid models) by default, or **Claude** via `LLM_PROVIDER=anthropic` | Query understanding, grounded answers, contract review — one switch in `apps/api/src/services/llm.js` |
 | Legal sources | **Indian Kanoon** API | Paid per call — the knowledge base avoids repeat calls |
+| Web fallback | **Tavily** (optional) | Government/legal-aid domain allowlist only; skipped when `TAVILY_API_KEY` is blank |
+| Cache + rate limits | **Redis** (optional) | Shared across instances when `REDIS_URL` is set; in-process otherwise |
+| Background jobs | **pg-boss** on Postgres (`DATABASE_URL`) | `apps/worker` — RAG ingest/reindex/re-embed |
 | Payments | **Razorpay** (optional) | Pay-per-transaction; the UI says so honestly when it is off |
 | Video | **Jitsi Meet** | No account needed |
 | App | Next.js 16 (`apps/web/`), Node 20+ / Express 5 (`apps/api/`), npm workspaces | Two services; `apps/web` calls `apps/api` server-to-server |
@@ -28,8 +31,9 @@ MongoDB is intentionally not used — see [docs/RAG.md](docs/RAG.md).
 * **Accounts & trust** — Google/email sign-in with verified email; personal, family and business accounts with
   members; advocate onboarding with admin verification of Bar Council enrolment before anyone is listed.
 * **Find & book** — verified-advocate directory, neutral ranking (never paid), real availability slots with
-  no double-booking, a 10-step booking wizard, instant "Talk now" and urgent flows with a real conflict check
-  and consent before facts are shared.
+  no double-booking, a 9-step booking wizard, instant "Talk now" with real matching, and an urgent-help flow
+  (safety check with a 112 call button first, then the first available urgent-accepting advocate) — all with a
+  real conflict check and consent before facts are shared.
 * **Consultations** — Jitsi rooms that open 15 minutes before the start, notes, ratings, convert-to-matter.
 * **Matters** — timeline, tasks, hearings, fee proposals the client must accept, itemised invoices
   (professional / government / platform fee separate), access grants, secure per-matter messaging.
@@ -56,7 +60,8 @@ npm run dev:full                         # apps/api :4000 + apps/web :3000
 ```bash
 npm run start -w apps/api && npm run build -w apps/web && npm run start -w apps/web  # two services
 npm test -w apps/api                     # API + RAG tests
-npm run e2e -w apps/web                  # Playwright + axe-core smoke suite, see apps/web/e2e/README.md
+npm run e2e -w apps/web                  # Playwright + axe-core smoke + flow suites (real backend; 3 specs make
+                                         # metered AI/Indian Kanoon calls), see apps/web/e2e/README.md
 ```
 
 ## Project structure
@@ -77,11 +82,14 @@ docs/       SETUP.md, RAG.md, legal-assistant-spec.md, architecture/ (migration 
 ## Honest limits
 
 * **Payments** need a Razorpay account; without keys bookings are held and settled directly with the advocate.
-* **Uploaded files are not virus-scanned** (marked `pending`, never "clean"); contract review reads text PDFs,
-  DOCX and TXT only — there is no OCR.
+* **Virus scanning needs ClamAV.** With `CLAMAV_HOST` set (docker compose runs one), uploads are scanned before
+  they're stored and infected files are refused; without it, uploads are marked `pending`, never "clean".
+  Contract review reads text PDFs, DOCX and TXT; scanned PDFs need OCR, which is opt-in
+  (`DOCUMENT_OCR=anthropic` — Claude transcribes the pages, a billed call per scan).
 * **e-Stamping** is not integrated (the drafting flow says so).
 * **No email/SMS notifications** yet — updates are in-app (messages poll every few seconds).
 * The **document templates, clause rationale notes and any pack-compliance rulesets are legal content**:
-  have a qualified advocate review them before launch.
+  have a qualified advocate review them before launch — [docs/legal-review-checklist.md](docs/legal-review-checklist.md)
+  lists every item and where it lives.
 * Review **Indian Kanoon's API terms** for the persistent passage index the RAG pipeline builds; set
   `QDRANT_URL` empty to turn it off.

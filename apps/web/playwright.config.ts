@@ -2,10 +2,10 @@ import { defineConfig, devices } from "@playwright/test";
 
 /**
  * Smoke-level e2e coverage (Phase 5 of docs/MASTER-PROMPT.md): every screen renders, no
- * console/page errors, no serious/critical axe-core a11y violations. Scope deliberately
- * matches the legacy frontend/e2e/smoke.mjs's breadth (every screen, every role), not its
- * sibling flows.mjs (interactive flows -- booking, drafting, messaging payload checks) --
- * that deeper pass is a documented fast-follow, not done here.
+ * console/page errors, no serious/critical axe-core a11y violations -- matching the legacy
+ * frontend/e2e/smoke.mjs's breadth (every screen, every role). Its sibling flows.mjs
+ * (interactive flows) is ported as e2e/flows-*.spec.ts; see e2e/README.md for the list and
+ * which of them make metered AI/Indian Kanoon calls.
  *
  * Runs against REAL apps/api + apps/web (webServer below), backed by the real Supabase/Qdrant
  * project in .env -- not a stubbed network like the legacy suite. e2e/global-setup.ts creates

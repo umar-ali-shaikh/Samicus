@@ -32,14 +32,13 @@
 import { z } from "zod";
 import { search, getDocument, getDocumentRaw, getFragment } from "./indianKanoon.js";
 import { understandQuery, looksLikePromptInjection } from "./legalQueryUnderstanding.js";
-import { chatCompletion, chatCompletionWithMeta, OpenRouterAuthError, OpenRouterApiError } from "./openRouter.js";
+import { chatCompletion, chatCompletionWithMeta, OpenRouterAuthError, OpenRouterApiError, isLlmConfigured } from "./llm.js";
 import { getCache } from "../platform/cache.js";
 import { rankRelevantDocs } from "./relevanceRanking.js";
 import { ragEnabled, ingestIndianKanoonDoc, ingestWebDoc } from "@vidhira/rag/ingest";
 import { retrievePassages } from "@vidhira/rag/retrieve";
 import { searchTavily as callTavily, isTavilyConfigured } from "./tavily.js";
 import { CODE_CROSSWALK_REFERENCE, citesOnlyRepealedCode, ACT_YEAR_REFERENCE, citesActWithoutYear } from "../utils/legalAbbrev.js";
-import { isOpenRouterConfigured } from "./openRouter.js";
 import { stripHtml } from "../utils/stripHtml.js";
 
 export { OpenRouterAuthError, OpenRouterApiError };
@@ -657,7 +656,7 @@ function staticGeneralGuidanceFallback() {
 
 /** @returns {Promise<{outcome: "general_guidance", sections: object, rawAnswer: null}>} */
 async function generateGeneralGuidance(question, topic, language, history = []) {
-  if (!isOpenRouterConfigured()) return { outcome: "general_guidance", sections: staticGeneralGuidanceFallback(), rawAnswer: null };
+  if (!isLlmConfigured()) return { outcome: "general_guidance", sections: staticGeneralGuidanceFallback(), rawAnswer: null };
   try {
     const raw = await chatCompletion(buildGeneralGuidanceMessages(question, topic, language, history), { jsonMode: true, maxTokens: maxTokensFor(language) });
     const candidate = extractJson(raw);

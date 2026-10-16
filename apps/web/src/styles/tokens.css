@@ -12,7 +12,9 @@
   --color-ink: #1B2333;
   --color-text: #3D4657;
   --color-text-muted: #5C6577;
-  --color-label: #8A8578;
+  /* Was #8A8578 (legacy) -- 3.07:1 on --color-bg, below WCAG AA's 4.5:1. Same hue, darker:
+     4.63:1 on --color-bg, 4.94:1 on --color-surface, 5.24:1 on --color-surface-alt, 5.56:1 on white. */
+  --color-label: #6C685E;
   --color-label-2: #8A94A8;
 
   /* Accent */

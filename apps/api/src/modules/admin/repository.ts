@@ -97,3 +97,29 @@ export async function insertVerificationAuditLog(input: { actorId: string; subje
   });
   if (error) throw error;
 }
+
+export async function findMatterIdByReference(reference: string): Promise<string | null> {
+  const { data, error } = await getSupabase().from("matters").select("id").eq("reference", reference).maybeSingle();
+  if (error) throw error;
+  return (data as { id: string } | null)?.id ?? null;
+}
+
+export async function insertAdminAccessGrant(input: { actorId: string; matterId: string; reason: string; outcome: "recorded" | "denied" }): Promise<{ id: string; reason: string; created_at: string }> {
+  const { data, error } = await getSupabase()
+    .from("admin_access_grants")
+    .insert({ actor_id: input.actorId, matter_id: input.matterId, reason: input.reason, outcome: input.outcome })
+    .select("id, reason, created_at")
+    .single();
+  if (error) throw error;
+  return data as { id: string; reason: string; created_at: string };
+}
+
+export async function listAdminAccessGrants(limit = 100): Promise<Record<string, unknown>[]> {
+  const { data, error } = await getSupabase()
+    .from("admin_access_grants")
+    .select("id, reason, outcome, created_at, actor:users(full_name, email), matter:matters(id, reference, title)")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return data as Record<string, unknown>[];
+}

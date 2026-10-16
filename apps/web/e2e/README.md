@@ -3,14 +3,42 @@
 `smoke.spec.ts` covers every screen, across all 4 roles (client, advocate, admin, founder) --
 matches the legacy `frontend/e2e/smoke.mjs`'s breadth. Its sibling `flows.mjs` (interactive
 flows: booking wizard, urgent help, talk now, drafting, research, assistant, messaging, matters,
-advocate dashboard, plus auth mechanics) is being ported incrementally into separate
-`flows-*.spec.ts` files -- `flows-auth.spec.ts` (signup, sign-in, email verification, Google
-OAuth redirect, session invalidation), `flows-booking.spec.ts` (the full intake -> slot ->
-pricing -> consent -> consultation wizard), `flows-talknow.spec.ts` (instant request ->
-consent -> real matching), `flows-drafting.spec.ts` (template -> fields autosave -> clause
-toggle -> live preview -> a real DOCX download), `flows-research.spec.ts`,
-`flows-assistant.spec.ts`, `flows-signout.spec.ts`, and `flows-caselaw.spec.ts` are done; the
-rest are in progress.
+advocate dashboard, plus auth mechanics) has been ported into separate `flows-*.spec.ts` files,
+one per legacy flow -- all of them -- plus flows that are new in apps/web:
+
+| Spec | Flow | External cost |
+|---|---|---|
+| `flows-auth.spec.ts` | signup, sign-in, email verification, Google OAuth redirect, session invalidation | none |
+| `flows-booking.spec.ts` | the full intake -> slot -> pricing -> consent -> consultation wizard | none |
+| `flows-talknow.spec.ts` | instant request -> consent -> real matching | none |
+| `flows-urgent-help.spec.ts` | safety screen -> category -> consent -> offered to an available advocate | none |
+| `flows-drafting.spec.ts` | template -> fields autosave -> clause toggle -> live preview -> a real DOCX download | none |
+| `flows-research.spec.ts` | research library: retrieve -> answer -> trail | **metered** (LLM + embeddings) |
+| `flows-assistant.spec.ts` | AI assistant, incl. a second question without a remount | **metered** (LLM + embeddings; Indian Kanoon when the knowledge base can't answer) |
+| `flows-signout.spec.ts` | sign out clears the session and client-side storage | none |
+| `flows-caselaw.spec.ts` | case law search: empty-search validation, opening a result scrolls it into view | **metered** (Indian Kanoon) |
+| `flows-messages.spec.ts` | sending a message posts the trimmed body to the thread | none |
+| `flows-matters.spec.ts` | client completes their own task, sees the fee proposal, never sees advocate-only forms | none |
+| `flows-advocate-dashboard.spec.ts` | conflict check gates "Accept request"; a real check clears it | none |
+| `flows-admin-matter-access.spec.ts` | break-glass admin matter access: short reason refused + logged, real reason opens a read-only view and notifies the parties (new in apps/web, no legacy counterpart) | none |
+
+To run only the non-metered flows (no LLM/embeddings/Indian Kanoon spend), exclude the three
+metered specs, e.g. `npx playwright test --grep-invert "research library|AI assistant|case law"`
+from `apps/web` -- or pass the file names you want explicitly. Setup/teardown and the smoke
+suite still talk to the real Supabase project in `.env`; the smoke suite only loads each screen
+and never submits a question or search.
+
+`flows-messages.spec.ts`, `flows-matters.spec.ts` and `flows-advocate-dashboard.spec.ts` each
+insert the extra rows they need (a task and fee proposal; an intake offered to the seeded
+advocate) with the service-role client and delete them -- plus any rows the app wrote as a side
+effect, like a `task_completed` timeline event or a `conflict_checks` row -- in their own
+`afterAll`, because `global-teardown.ts` only knows about rows `global-setup.ts` tracked and
+anything left referencing the seeded matter/account would block it via FK violation. Two legacy
+assertions were deliberately not carried over: the matters flow's "Online payment isn't
+enabled" copy (it only renders on an unpaid invoice *and* only while Razorpay keys are absent,
+so it would test local `.env` configuration, not app behaviour), and the advocate dashboard
+stops before clicking "Accept request" (accepting opens a real matter/thread via RPC -- a much
+larger cleanup surface for no extra coverage of the gate).
 
 `flows-signout.spec.ts` manages its own disposable auth user and signs in through the real UI,
 rather than reusing the shared `client.json` storageState the rest of this suite loads --
@@ -19,7 +47,7 @@ locally, so actually signing out with the shared fixture poisons it for every la
 same run (they'd all land back on `/login`, unexpectedly signed out).
 
 `flows-research.spec.ts` and `flows-assistant.spec.ts` are a step up in cost from the rest of
-this suite: `.env` has a real Gemini API key and a real Qdrant corpus configured, and these two
+this suite: `.env` has a real OpenRouter API key and a real Qdrant corpus configured, and these two
 specs deliberately make real retrieve/answer calls rather than stubbing anything -- each can take
 up to ~60-90s and spends real API tokens (confirmed with the user before writing them, given that
 tradeoff). Research's research_queries row may come back `not_found` depending on live corpus/
@@ -28,10 +56,9 @@ landed correctly, rather than failing the whole test over it. `flows-caselaw.spe
 makes real calls against a metered third-party API (`IK_API_TOKEN`, Indian Kanoon) rather than
 stubbing -- cheaper than the two above since it never touches an LLM (it doesn't click "Ask AI").
 
-The legacy suite's "urgent help"
-flow is intentionally not among them -- see `flows-talknow.spec.ts`'s header comment: apps/web
-was never scoped to build that wizard (`docs/MASTER-PROMPT.md`'s target_structure names only
-`talk-now/`), so there is no page left to port it against. Similarly, `flows-assistant.spec.ts`
+The legacy suite's "urgent help" flow was originally left out because apps/web had no urgent-help page;
+`/urgent-help` now exists (ported from the legacy `UrgentModal.jsx`) and `flows-urgent-help.spec.ts` covers
+it. Similarly, `flows-assistant.spec.ts`
 doesn't use a header "Ask Vidhira" hand-off like the legacy flow did -- apps/web's assistant is a
 self-contained chat page with no such header input -- so it asks directly on `/assistant`
 instead, while keeping the underlying regression check (a second question, asked without the
@@ -107,6 +134,32 @@ noted:
   in with the right password appeared to do nothing. Fixed by showing the message inline on
   `/login` instead of redirecting to a page that needs a session that was never there.
 
+## Bugs found and fixed running the suite against a local Supabase
+
+The whole non-metered suite (smoke + every flow except research/assistant/case law) was run against
+a local Supabase stack in Docker (`supabase start`, with asymmetric JWT signing keys and email
+confirmation on, to match a hosted project). Two real app bugs and one startup bug surfaced:
+
+- **"Run conflict check" always showed "Something went wrong", even though the check had saved.**
+  `upsertConflictCheck` (`apps/api/src/modules/advocates/repository.ts`) returned the whole row via a
+  bare `.select()`, including `created_at`/`updated_at`, which the `.strict()` `conflictCheckDto`
+  rejects -- a 500 on every real conflict check. `fakeSupabase` never added `updated_at`, so no unit
+  test noticed. Fixed by selecting exactly the DTO's columns; `advocates.test.js` now models the
+  real row and covers the success path.
+- **Signing up with email confirmation on bounced straight to `/login` with no explanation.** With
+  confirmation required, Supabase's `signUp()` returns no session, and `/verify-email` required one
+  -- the same trap the sign-in fix below describes. `signUpAction` now passes the address along and
+  `/verify-email` renders a session-less "check your inbox, then sign in" state. Resending inside
+  Supabase's per-address cooldown also showed the raw "For security purposes…" text; it's now the
+  same friendly "please wait" as a rate limit.
+- **A blank optional env var crashed the API at startup.** `.env.example` ships `QDRANT_URL=` (and
+  the docs say blank turns it off), but `config/env.ts` validated `""` as a URL. Blank now means
+  unset in both `apps/api` and `apps/worker` (`config/env.test.ts`).
+
+Two specs had selector bugs of their own: `flows-messages.spec.ts` matched the seed message twice
+(the thread list previews it), and `flows-matters.spec.ts` used `check()` on a checkbox that only
+flips after the server action round-trip.
+
 ## Bugs `flows-signout.spec.ts` found and fixed
 
 - **Signing out never cleared client-side storage, only the server-side session.**
@@ -148,18 +201,22 @@ noted:
   message -- "This advocate hasn't set up any consultation modes yet" -- instead of an empty,
   silently-passable step.
 
-## Known finding: `color-contrast` (not fixed here)
+## Resolved finding: `color-contrast`
 
-34 of the 50 screens across all 4 roles log a `color-contrast` warning: the `--color-label`
-design token (`#8A8578`, `apps/web/src/styles/tokens.css`) — ported as-is from the legacy
-frontend — falls short of WCAG AA's 4.5:1 ratio against several of the app's own backgrounds
-(measured as low as 3.06:1). One `/profile` screen also flags the "Delete account" button's rust
-background against white text (4.05:1).
+34 of the 50 screens across all 4 roles logged a `color-contrast` warning on this suite's first
+full run: the `--color-label` design token (`#8A8578`, ported as-is from the legacy frontend) fell
+short of WCAG AA's 4.5:1 against the app's own backgrounds (as low as 3.07:1 on `--color-bg`), and
+the "Delete account" button on `/profile` (white on `--color-rust-alt`) measured 4.05:1.
 
-This is a **design decision** (picking a new token color), not an engineering one, so it's
-logged rather than fixed by this suite. If/when a new value is approved, re-run
-`npm run e2e -w apps/web` to confirm it clears every screen this flagged, then remove the
-`color-contrast` carve-out in `smoke.spec.ts`.
+Fixed in `apps/web/src/styles/tokens.css` and `components/ui.tsx`:
+
+| What | Before | After | Contrast after (lowest background) |
+|---|---|---|---|
+| `--color-label` | `#8A8578` | `#6C685E` (same hue, darker) | 4.63:1 on `--color-bg`; 4.68-5.56:1 on surfaces, callouts and white |
+| `Button variant="danger"` background | `--color-rust-alt` `#DB4F35` | `--color-rust` `#B23A22` | 5.96:1 (white text) |
+
+Confirmed by a full run (all 52 smoke screens, zero `color-contrast` nodes), after which the
+`color-contrast` carve-out in `smoke.spec.ts` was removed: a contrast regression now fails the suite.
 
 ## Resolved finding: `/founder/fadv` React duplicate-key warning
 

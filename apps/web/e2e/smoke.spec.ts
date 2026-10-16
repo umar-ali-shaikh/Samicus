@@ -18,7 +18,7 @@ const ids = JSON.parse(fs.readFileSync(path.join(AUTH_DIR, "ids.json"), "utf8"))
 
 const ROLE_SCREENS: Record<string, string[]> = {
   client: [
-    "/dashboard", "/advocates", "/talk-now", "/assistant", "/research", "/case-law",
+    "/dashboard", "/advocates", "/talk-now", "/urgent-help", "/assistant", "/research", "/case-law",
     `/drafts`, `/drafts/new`, `/drafts/${ids.draftId}`, "/contract-review",
     "/pack-compliance", "/services", "/consultations", `/matters`, `/matters/${ids.matterId}`,
     "/documents", "/messages", `/messages/${ids.threadId}`, "/learn", "/profile",
@@ -31,7 +31,7 @@ const ROLE_SCREENS: Record<string, string[]> = {
   ],
   admin: [
     "/admin/verification", "/admin/moderation", "/admin/orders", "/admin/catalogue",
-    "/admin/complaints", "/advocates", "/profile",
+    "/admin/complaints", "/admin/matter-access", "/advocates", "/profile",
   ],
   founder: [
     "/founder", "/founder/fdemand", "/founder/fservices", "/founder/ffunnel",
@@ -60,16 +60,10 @@ for (const [role, screens] of Object.entries(ROLE_SCREENS)) {
 
         const axeResults = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze();
         const serious = axeResults.violations.filter((v) => v.impact === "serious" || v.impact === "critical");
-        // color-contrast is a KNOWN, pre-existing finding (not new here): the --color-label
-        // design token (#8A8578) ported from the legacy frontend falls short of WCAG AA's 4.5:1
-        // against several of the app's own backgrounds -- found on 34/50 screens across every
-        // role during this suite's first full run. Fixing it means picking a new token color,
-        // which is a design call, not an engineering one -- logged so it stays visible instead
-        // of silently blocking every other check in this suite.
-        const contrastOnly = serious.filter((v) => v.id === "color-contrast");
-        const other = serious.filter((v) => v.id !== "color-contrast");
-        if (contrastOnly.length) console.warn(`[known] ${url}: color-contrast (${contrastOnly.reduce((n, v) => n + v.nodes.length, 0)} node(s)) -- see e2e/README.md`);
-        expect(other, `${url} has serious/critical a11y violations:\n${other.map((v) => `  ${v.id}: ${v.help} (${v.nodes.length} node(s))`).join("\n")}`).toHaveLength(0);
+        // color-contrast included: the 34/50-screen finding from the legacy --color-label token and
+        // danger button is fixed and was confirmed clean by a full run (see e2e/README.md), so a
+        // contrast regression now fails like any other serious violation.
+        expect(serious, `${url} has serious/critical a11y violations:\n${serious.map((v) => `  ${v.id}: ${v.help} (${v.nodes.length} node(s))`).join("\n")}`).toHaveLength(0);
       });
     }
   });

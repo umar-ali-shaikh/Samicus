@@ -1,6 +1,6 @@
 # Local/integration run of the production images -- NOT hot-reload dev (that's still
 # `npm run dev:full` from the README). Supabase (Postgres + Auth + Storage) stays on the
-# cloud project named in .env; only Qdrant and Redis are self-hosted here, per
+# cloud project named in .env; only Qdrant, Redis and ClamAV are self-hosted here, per
 # docs/MASTER-PROMPT.md's scalability_requirements ("Dockerfiles + docker-compose for local
 # (web + api + worker + qdrant)" -- redis added alongside it for the same local-infra reason).
 #
@@ -23,6 +23,15 @@ services:
       - "6379:6379"
     restart: unless-stopped
 
+  # Malware scanning for uploads (apps/api/src/platform/clamav.ts). The first start downloads
+  # the virus definitions and can take a few minutes before clamd accepts connections; uploads
+  # made meanwhile are stored as "pending" (unscanned), never "clean".
+  clamav:
+    image: clamav/clamav:stable
+    volumes:
+      - clamav-data:/var/lib/clamav
+    restart: unless-stopped
+
   api:
     build:
       context: .
@@ -32,12 +41,14 @@ services:
       PORT: "4000"
       QDRANT_URL: "http://qdrant:6333"
       REDIS_URL: "redis://redis:6379"
+      CLAMAV_HOST: "clamav"
       CLIENT_ORIGIN: "http://localhost:3000"
     ports:
       - "4000:4000"
     depends_on:
       - qdrant
       - redis
+      - clamav
     restart: unless-stopped
 
   worker:
@@ -71,3 +82,4 @@ services:
 
 volumes:
   qdrant-data:
+  clamav-data:

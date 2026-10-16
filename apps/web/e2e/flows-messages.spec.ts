@@ -30,7 +30,8 @@ test("messages: send posts the trimmed body to the thread", async ({ page }) => 
   const testStart = new Date().toISOString();
 
   await page.goto(`/messages/${ids.threadId}`);
-  await expect(page.getByText("E2E smoke test message.")).toBeVisible();
+  // exact: the thread list beside the conversation also previews it, as "You: E2E smoke test message."
+  await expect(page.getByText("E2E smoke test message.", { exact: true })).toBeVisible();
 
   await page.getByPlaceholder("Type a message…").fill("  Documents attached.  ");
   await page.getByRole("button", { name: "Send" }).click();
