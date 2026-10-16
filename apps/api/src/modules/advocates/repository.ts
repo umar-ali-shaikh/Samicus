@@ -258,7 +258,9 @@ export async function upsertConflictCheck(intakeId: string, advocateId: string, 
   const { data, error } = await getSupabase()
     .from("conflict_checks")
     .upsert({ intake_id: intakeId, advocate_id: advocateId, status, checked_at: new Date().toISOString() }, { onConflict: "intake_id,advocate_id" })
-    .select()
+    // Explicit columns, never "*": conflictCheckDto is .strict(), and the real row also carries
+    // created_at/updated_at -- a bare .select() 500ed every real conflict check (found by e2e).
+    .select("id, status, checked_at")
     .single();
   if (error) throw error;
   return data as { id: string; status: string; checked_at: string };

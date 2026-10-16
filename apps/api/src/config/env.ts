@@ -76,7 +76,17 @@ const schema = z.object({
 
 export type Env = z.infer<typeof schema>;
 
-const parsed = schema.safeParse(process.env);
+/**
+ * A blank value (`QDRANT_URL=`, the way .env.example ships every optional integration) means
+ * "not set", same as leaving the line out -- the docs say blank turns a feature off, so it must
+ * not fail validation (`""` is not a URL) or silently coerce (`z.coerce.number()` turns `""` into
+ * 0). Required vars still fail loudly when blank, since blank now reads as missing.
+ */
+export function parseEnv(source: Record<string, string | undefined>) {
+  return schema.safeParse(Object.fromEntries(Object.entries(source).filter(([, v]) => v !== undefined && v.trim() !== "")));
+}
+
+const parsed = parseEnv(process.env);
 if (!parsed.success) {
   const lines = parsed.error.issues.map((i) => `  - ${i.path.join(".")}: ${i.message}`).join("\n");
   throw new Error(`Invalid environment configuration:\n${lines}\nSee .env.example.`);

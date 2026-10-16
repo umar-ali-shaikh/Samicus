@@ -44,6 +44,9 @@ function advocateRow(id, overrides = {}) {
 const fake = createFakeSupabase({
   authUsers: AUTH_USERS,
   unique: { users: [{ cols: ["auth_id"] }] },
+  // The real conflict_checks row also carries updated_at (and created_at, which the fake adds on
+  // insert); modelling it here is what catches a response that leaks the whole row.
+  defaults: { conflict_checks: { updated_at: "2026-01-01T00:00:00.000Z" } },
   tables: {
     practice_areas: [{ id: PA, name: "Family" }],
     advocates: [
@@ -116,6 +119,16 @@ test("IDOR: an advocate cannot see a request that was never offered to them", as
 
   const decline = await call("POST", `/advocate/requests/${INTAKE_OFFERED_TO_A}/decline`, { token: "tok-adv-b" });
   assert.equal(decline.status, 404);
+});
+
+test("conflict check on an offered request: 200 with only the DTO's fields, and the request moves to advocate_reviewing", async () => {
+  const res = await call("POST", `/advocate/requests/${INTAKE_OFFERED_TO_A}/conflict-check`, { token: "tok-adv-a" });
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.equal(res.body.status, "clear");
+  assert.equal(res.body.counterpartyChecked, false);
+  assert.equal(res.body.created_at, undefined);
+  assert.equal(res.body.updated_at, undefined);
+  assert.equal(fake.db.intake_requests.find((i) => i.id === INTAKE_OFFERED_TO_A).status, "advocate_reviewing");
 });
 
 test("advocate's own requests list only shows requests actually offered to them", async () => {
