@@ -17,6 +17,9 @@ document templates with their clause library).
 | Embeddings | **OpenRouter** `sentence-transformers/all-mpnet-base-v2` | Paid per call, sub-cent per request |
 | LLM | **OpenRouter** (paid models) | Query understanding, grounded answers, contract review |
 | Legal sources | **Indian Kanoon** API | Paid per call — the knowledge base avoids repeat calls |
+| Web fallback | **Tavily** (optional) | Government/legal-aid domain allowlist only; skipped when `TAVILY_API_KEY` is blank |
+| Cache + rate limits | **Redis** (optional) | Shared across instances when `REDIS_URL` is set; in-process otherwise |
+| Background jobs | **pg-boss** on Postgres (`DATABASE_URL`) | `apps/worker` — RAG ingest/reindex/re-embed |
 | Payments | **Razorpay** (optional) | Pay-per-transaction; the UI says so honestly when it is off |
 | Video | **Jitsi Meet** | No account needed |
 | App | Next.js 16 (`apps/web/`), Node 20+ / Express 5 (`apps/api/`), npm workspaces | Two services; `apps/web` calls `apps/api` server-to-server |
@@ -28,8 +31,9 @@ MongoDB is intentionally not used — see [docs/RAG.md](docs/RAG.md).
 * **Accounts & trust** — Google/email sign-in with verified email; personal, family and business accounts with
   members; advocate onboarding with admin verification of Bar Council enrolment before anyone is listed.
 * **Find & book** — verified-advocate directory, neutral ranking (never paid), real availability slots with
-  no double-booking, a 10-step booking wizard, instant "Talk now" and urgent flows with a real conflict check
-  and consent before facts are shared.
+  no double-booking, a 9-step booking wizard, and instant "Talk now" with real matching, a conflict check
+  and consent before facts are shared. (The API also has an urgent-request endpoint, but no urgent-help
+  screen is built in `apps/web`.)
 * **Consultations** — Jitsi rooms that open 15 minutes before the start, notes, ratings, convert-to-matter.
 * **Matters** — timeline, tasks, hearings, fee proposals the client must accept, itemised invoices
   (professional / government / platform fee separate), access grants, secure per-matter messaging.
@@ -56,7 +60,8 @@ npm run dev:full                         # apps/api :4000 + apps/web :3000
 ```bash
 npm run start -w apps/api && npm run build -w apps/web && npm run start -w apps/web  # two services
 npm test -w apps/api                     # API + RAG tests
-npm run e2e -w apps/web                  # Playwright + axe-core smoke suite, see apps/web/e2e/README.md
+npm run e2e -w apps/web                  # Playwright + axe-core smoke + flow suites (real backend; 3 specs make
+                                         # metered AI/Indian Kanoon calls), see apps/web/e2e/README.md
 ```
 
 ## Project structure

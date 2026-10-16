@@ -9,6 +9,19 @@
 > back to the live Indian Kanoon search as described below. See [RAG.md](RAG.md) for the current
 > architecture; sections 2–3 describe the live-search path, which is still used when the
 > knowledge base cannot answer confidently or is not configured.
+>
+> **Current pipeline, in one place** (`answerLegalQuestion` in `services/legalAssistant.js`,
+> re-checked against the code after Phase 5 — sections 2 and 4 below predate some of this, so
+> where they disagree, this summary and the code win):
+> prompt-injection check (short-circuits before any model call) → **Stage 1** query
+> understanding → **Stage 2** Qdrant knowledge-base search → **Stage 3** Indian Kanoon live
+> search, skipped once Stage 2 is confident → **Stage 4** Tavily web search over a
+> government/legal-aid domain allowlist (optional, `TAVILY_API_KEY`), skipped once Stages 2–3
+> already have enough evidence → **Stage 5** grounded answer → **Stage 6** fire-and-forget
+> write-back of whatever Indian Kanoon/Tavily found into the knowledge base. When no stage
+> finds any source, a clearly-labelled *general guidance* answer is generated instead of an
+> empty "insufficient sources" card. The whole result is cached by question + filters +
+> history (`getCache()`). See [SETUP.md](SETUP.md)'s pipeline notes too.
 
 This replaces an earlier draft spec that assumed a fresh, standalone `legal-bot/` project
 (separate repo, MongoDB-backed API cache, `cheerio` for HTML stripping, an `openai`-package
@@ -95,21 +108,28 @@ either surface is cached once for both.
    query-targeted `getFragment` snippet if that fails/empties, fall back to the search
    headline as a last resort. Each is capped at 3000 chars after HTML is stripped (`utils/stripHtml.js`,
    not the XSS-safe sanitizer — this is plain-text extraction for an LLM prompt, a different
-   job), to fit `topN` sources into one free-model-sized prompt.
+   job), to keep `topN` sources inside one prompt for the small, cheap paid models in use.
 4. **Answer generation** — one LLM call, `response_format: json_object`, grounded strictly in
-   the numbered evidence, returning **six structured fields**
-   (`statute`/`judgments`/`interpretation`/`generalInformation`/`practicalNextSteps`/
-   `insufficiencyNote` + `hasSufficientEvidence`) — not a single prose `answer` string. The
+   the numbered evidence, returning **structured sections** validated by `AnswerSchema`:
+   `summary`, `immediateActions`, `stepByStep`, `yourRights`, `applicableLaws`, `caseLaw`,
+   `whereToGetHelp`, `gaps`, `followUpQuestions`, `confidence` — not a single prose `answer`
+   string. (An earlier version of this doc listed six fields — `statute`/`judgments`/
+   `interpretation`/`generalInformation`/`practicalNextSteps`/`insufficiencyNote` — that shape
+   has since been replaced.) Citations are `sourceId`/`sourceIds` evidence indices that the
+   server, not the model, resolves to URLs. The
    system prompt enforces inline `[n]` citations tied to real evidence indices and a strict
    per-language **script** contract (Devanagari for hindi/marathi, Nastaliq for urdu, Latin-only
    for hinglish/marathlish — no script-mixing). If the model's output isn't valid JSON, the raw
    text is recovered as `generalInformation` (`outcome: "unparsed"`) rather than discarded.
 5. **Safety copy is fixed, not generated.** The disclaimer and the emergency banner are
-   hardcoded strings on the server (`DISCLAIMER`, `EMERGENCY_MESSAGE`) and mirrored, pre-translated,
-   client-side (`AssistantClient.tsx`) for all six language/scripts. This is deliberate:
+   hardcoded strings on the server (`DISCLAIMER`, and `EMERGENCY_MESSAGES` — keyed by Stage 1's
+   emergency type and by language, replacing the single `EMERGENCY_MESSAGE` this doc used to
+   name; emergency helplines and custody rights are likewise server-constructed) and mirrored,
+   pre-translated, client-side (`AssistantClient.tsx`) for all six language/scripts. This is deliberate:
    safety-critical framing must never depend on a model choosing to say it.
 6. **Response shape** returned to the client:
-   `{ outcome, understanding, emergency, sections, rawAnswer, sources, disclaimer }` — richer
+   `{ outcome, understanding, emergency, sections, rawAnswer, sources, evidenceIndex,
+   lawCurrencyWarning, actCitationWarning, evidenceOrigin, retrieval, disclaimer }` — richer
    than a flat `{ answer, sources, model }`, because the UI renders distinct labelled sections
    and an emergency callout, not one paragraph.
 
@@ -121,10 +141,12 @@ either surface is cached once for both.
   query-understanding step, and the whole-answer cache in `legalAssistant.js`.
   (Persistence of *sources* is the job of the Qdrant knowledge base; see [RAG.md](RAG.md).)
 - **LLM access**: raw `fetch` to OpenRouter's `chat/completions`
-  ([openRouter.js](../apps/api/src/services/openRouter.js)) — no `openai` npm package. On a 429
-  it doesn't just retry once; it **chains through a list of fallback free models** from
-  different upstream providers (`FALLBACK_MODELS`), since free-tier pools rate-limit
-  independently of each other.
+  ([openRouter.js](../apps/api/src/services/openRouter.js)) — no `openai` npm package. On a
+  failure it doesn't just retry once; it **chains through a list of fallback models** from
+  different upstream providers (`FALLBACK_MODELS`), so one provider's outage or rate limit
+  doesn't take the assistant down. These are **paid** models now (default
+  `openai/gpt-oss-20b`, override via `OPENROUTER_MODEL`) — free-tier slugs were retired/renamed
+  too often to rely on in production.
 - **No Anthropic/Claude integration yet.** `openRouter.js` is the only provider; there's no
   `LLM_PROVIDER` switch or `llm.js` facade today.
 - **HTML handling**: `sanitize-html` (allowlist-based), not `cheerio`. `sanitizeJudgmentHtml`
@@ -148,7 +170,8 @@ either surface is cached once for both.
   real Express app via `createApp().listen(0)` and hit it with real HTTP requests; this closes
   the gap this doc used to flag ("no route-level tests exist anywhere").
 - **Route requires a signed-in, email-verified user** (Supabase Auth) and is rate-limited per
-  user (`express-rate-limit`, 20/15min) since every hit spends real money. The case-law routes
+  user (`createRateLimiter("rl:assistant-ask:")`, 20/15min, Redis-backed when `REDIS_URL` is
+  set) since every hit spends real money. The case-law routes
   sit behind the same gate.
 
 ## 4. Gaps worth closing (recommended new tech, scoped)
@@ -176,11 +199,13 @@ behaviour otherwise.
    brand-new session, not a 404). Additive to the existing in-memory/Redis answer cache, not a
    replacement for it.
 
-3. **No rate limiting on a costly, unauthenticated route** — ✅ **done.** `express-rate-limit`,
-   20 requests/15min per IP, on `POST /api/legal-assistant/ask`
-   (`modules/assistant/router.ts`). Requires `app.set("trust proxy", 1)` in `app.js` — most PaaS
-   hosts sit in front as a single reverse-proxy hop, and without this `req.ip` resolves to the
-   proxy's address for every request.
+3. **No rate limiting on a costly, unauthenticated route** — ✅ **done.** The route now
+   requires sign-in and is limited to 20 requests/15min **per signed-in user** (it started as
+   per-IP before the auth boundary existed) on `POST /api/legal-assistant/ask`
+   (`modules/assistant/router.ts`). `app.set("trust proxy", 1)` in `app.js` still matters for the
+   global per-IP limiter and the per-IP fallback key — most PaaS hosts sit in front as a single
+   reverse-proxy hop, and without it `req.ip` resolves to the proxy's address for every
+   request.
 
 4. **Informal JSON-shape enforcement** — ✅ **done.** A `zod` schema (`AnswerSchema` in
    `legalAssistant.js`) validates the six-field shape via `.safeParse` after `extractJson()`
