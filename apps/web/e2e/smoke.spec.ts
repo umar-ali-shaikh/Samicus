@@ -18,7 +18,7 @@ const ids = JSON.parse(fs.readFileSync(path.join(AUTH_DIR, "ids.json"), "utf8"))
 
 const ROLE_SCREENS: Record<string, string[]> = {
   client: [
-    "/dashboard", "/advocates", "/talk-now", "/assistant", "/research", "/case-law",
+    "/dashboard", "/advocates", "/talk-now", "/urgent-help", "/assistant", "/research", "/case-law",
     `/drafts`, `/drafts/new`, `/drafts/${ids.draftId}`, "/contract-review",
     "/pack-compliance", "/services", "/consultations", `/matters`, `/matters/${ids.matterId}`,
     "/documents", "/messages", `/messages/${ids.threadId}`, "/learn", "/profile",

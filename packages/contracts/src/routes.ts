@@ -40,6 +40,8 @@ export const routeManifest: readonly RouteManifestEntry[] = [
   // --- Client ---
   { path: "/dashboard", roles: CLIENT },
   { path: "/talk-now", roles: CLIENT },
+  // POST /urgent-requests has no role restriction beyond requireAuth -- same audience as /talk-now.
+  { path: "/urgent-help", roles: CLIENT },
   { path: "/research", roles: CLIENT },
   { path: "/research/[queryId]", roles: CLIENT },
   { path: "/research/judgments/[docId]", roles: CLIENT },

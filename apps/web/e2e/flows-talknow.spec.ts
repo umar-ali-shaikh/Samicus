@@ -5,12 +5,8 @@
 // server-action-only architecture.
 //
 // Its sibling in the legacy suite, "urgent help: safety screen -> category -> waits -> advocate
-// accepts -> join call", is NOT ported: docs/MASTER-PROMPT.md's target_structure only names
-// `talk-now/` among the client-facing intake routes apps/web was scoped to build (plus
-// `advocates/[advocateId]/book/`) -- there never was an "urgent help" wizard page (safety
-// screen, danger check, category-to-practice-area routing) built in this app to test. The
-// backend endpoint it depended on (`POST /urgent-requests`) does still exist
-// (docs/architecture/00-inventory.md), unused by any apps/web page.
+// accepts -> join call", was originally left unported because apps/web had no urgent-help page;
+// that page now exists (/urgent-help) and the flow is covered by flows-urgent-help.spec.ts.
 import path from "node:path";
 import fs from "node:fs";
 import dotenv from "dotenv";

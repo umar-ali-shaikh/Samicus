@@ -31,9 +31,9 @@ MongoDB is intentionally not used — see [docs/RAG.md](docs/RAG.md).
 * **Accounts & trust** — Google/email sign-in with verified email; personal, family and business accounts with
   members; advocate onboarding with admin verification of Bar Council enrolment before anyone is listed.
 * **Find & book** — verified-advocate directory, neutral ranking (never paid), real availability slots with
-  no double-booking, a 9-step booking wizard, and instant "Talk now" with real matching, a conflict check
-  and consent before facts are shared. (The API also has an urgent-request endpoint, but no urgent-help
-  screen is built in `apps/web`.)
+  no double-booking, a 9-step booking wizard, instant "Talk now" with real matching, and an urgent-help flow
+  (safety check with a 112 call button first, then the first available urgent-accepting advocate) — all with a
+  real conflict check and consent before facts are shared.
 * **Consultations** — Jitsi rooms that open 15 minutes before the start, notes, ratings, convert-to-matter.
 * **Matters** — timeline, tasks, hearings, fee proposals the client must accept, itemised invoices
   (professional / government / platform fee separate), access grants, secure per-matter messaging.

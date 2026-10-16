@@ -4,14 +4,14 @@
 matches the legacy `frontend/e2e/smoke.mjs`'s breadth. Its sibling `flows.mjs` (interactive
 flows: booking wizard, urgent help, talk now, drafting, research, assistant, messaging, matters,
 advocate dashboard, plus auth mechanics) has been ported into separate `flows-*.spec.ts` files,
-one per legacy flow -- every one of them except urgent help (see below) -- plus flows that are new in
-apps/web:
+one per legacy flow -- all of them -- plus flows that are new in apps/web:
 
 | Spec | Flow | External cost |
 |---|---|---|
 | `flows-auth.spec.ts` | signup, sign-in, email verification, Google OAuth redirect, session invalidation | none |
 | `flows-booking.spec.ts` | the full intake -> slot -> pricing -> consent -> consultation wizard | none |
 | `flows-talknow.spec.ts` | instant request -> consent -> real matching | none |
+| `flows-urgent-help.spec.ts` | safety screen -> category -> consent -> offered to an available advocate | none |
 | `flows-drafting.spec.ts` | template -> fields autosave -> clause toggle -> live preview -> a real DOCX download | none |
 | `flows-research.spec.ts` | research library: retrieve -> answer -> trail | **metered** (LLM + embeddings) |
 | `flows-assistant.spec.ts` | AI assistant, incl. a second question without a remount | **metered** (LLM + embeddings; Indian Kanoon when the knowledge base can't answer) |
@@ -56,10 +56,9 @@ landed correctly, rather than failing the whole test over it. `flows-caselaw.spe
 makes real calls against a metered third-party API (`IK_API_TOKEN`, Indian Kanoon) rather than
 stubbing -- cheaper than the two above since it never touches an LLM (it doesn't click "Ask AI").
 
-The legacy suite's "urgent help"
-flow is intentionally not among them -- see `flows-talknow.spec.ts`'s header comment: apps/web
-was never scoped to build that wizard (`docs/MASTER-PROMPT.md`'s target_structure names only
-`talk-now/`), so there is no page left to port it against. Similarly, `flows-assistant.spec.ts`
+The legacy suite's "urgent help" flow was originally left out because apps/web had no urgent-help page;
+`/urgent-help` now exists (ported from the legacy `UrgentModal.jsx`) and `flows-urgent-help.spec.ts` covers
+it. Similarly, `flows-assistant.spec.ts`
 doesn't use a header "Ask Vidhira" hand-off like the legacy flow did -- apps/web's assistant is a
 self-contained chat page with no such header input -- so it asks directly on `/assistant`
 instead, while keeping the underlying regression check (a second question, asked without the
