@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { publicPaymentConfig } from "../services/razorpay.js";
 import { ragEnabled } from "@vidhira/rag/ingest";
+import { isLlmConfigured } from "../services/llm.js";
 
 const router = Router();
 
@@ -9,7 +10,7 @@ router.get("/config", (req, res) => {
   res.json({
     payments: publicPaymentConfig(),
     research: { enabled: ragEnabled() },
-    legalAssistant: { enabled: Boolean(process.env.OPENROUTER_API_KEY && process.env.IK_API_TOKEN) },
+    legalAssistant: { enabled: Boolean(isLlmConfigured() && process.env.IK_API_TOKEN) },
     video: { provider: "jitsi" },
   });
 });

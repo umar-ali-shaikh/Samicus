@@ -38,6 +38,12 @@ const schema = z.object({
   OPENROUTER_MODEL: z.string().default("openai/gpt-oss-20b"),
   OPENROUTER_FALLBACK_MODEL: z.string().optional(),
 
+  // Chat provider switch (services/llm.js). Embeddings stay on OpenRouter either way.
+  LLM_PROVIDER: z.enum(["openrouter", "anthropic"]).default("openrouter"),
+  ANTHROPIC_API_KEY: z.string().optional(),
+  CLAUDE_MODEL: z.string().default("claude-opus-5-5"),
+  CLAUDE_EFFORT: z.enum(["low", "medium", "high", "xhigh", "max"]).default("medium"),
+
   RESEARCH_NOTE_V2: z.string().optional(),
 
   IK_API_TOKEN: z.string().optional(),

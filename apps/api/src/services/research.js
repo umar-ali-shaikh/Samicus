@@ -7,7 +7,7 @@
 //   5. paragraph-class gate: a party's *arguments* can be shown but never cited as authority.
 import { retrievePassages, lexicalSearch, minScore } from "@vidhira/rag/retrieve";
 import { ragEnabled, ingestIndianKanoonDoc } from "@vidhira/rag/ingest";
-import { chatCompletion, isOpenRouterConfigured } from "./openRouter.js";
+import { chatCompletion, isLlmConfigured } from "./llm.js";
 import { understandQuery } from "./legalQueryUnderstanding.js";
 import { search as searchIndianKanoon, getDocumentRaw, isIndianKanoonConfigured } from "./indianKanoon.js";
 import { rankRelevantDocs } from "./relevanceRanking.js";
@@ -510,7 +510,7 @@ function verifySummaryGrounding(summary, segmentCount) {
  */
 export async function generateResearchInsights(question, segments, { language } = {}) {
   const empty = { summary: null, glosses: {}, caseCards: {}, relatedSearches: [] };
-  if (!isOpenRouterConfigured() || segments.length === 0) return empty;
+  if (!isLlmConfigured() || segments.length === 0) return empty;
   try {
     const lang = language || "unknown";
     const userContent =
@@ -620,7 +620,7 @@ Output STRICT JSON only, no markdown fences, no commentary, matching exactly:
  */
 export async function answerFollowUp(question, segments, { language, priorTurns = [] } = {}) {
   const empty = { text: null, citedIndexes: [] };
-  if (!isOpenRouterConfigured() || segments.length === 0) return empty;
+  if (!isLlmConfigured() || segments.length === 0) return empty;
   try {
     const history = priorTurns.map((t, i) => `Q${i + 1}: ${t.question}\nA${i + 1}: ${t.answer?.text || ""}`).join("\n\n");
     const lang = language || "unknown";
@@ -745,7 +745,7 @@ function parseNoteJson(raw) {
  * @returns {Promise<{jurisdiction:string,position:{label:string|null,note:string},sections:object[],authorities:object[]}|null>}
  */
 export async function generateStructuredNote(question, segments, { language } = {}) {
-  if (!isOpenRouterConfigured() || segments.length === 0) return null;
+  if (!isLlmConfigured() || segments.length === 0) return null;
   const lang = language || "unknown";
   const userContent =
     `Question: ${question}\n\nPassages:\n${evidenceFromSegments(segments)}` +

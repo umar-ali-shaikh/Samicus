@@ -147,8 +147,11 @@ either surface is cached once for both.
   doesn't take the assistant down. These are **paid** models now (default
   `openai/gpt-oss-20b`, override via `OPENROUTER_MODEL`) — free-tier slugs were retired/renamed
   too often to rely on in production.
-- **No Anthropic/Claude integration yet.** `openRouter.js` is the only provider; there's no
-  `LLM_PROVIDER` switch or `llm.js` facade today.
+- **Provider switch: `services/llm.js`.** Every chat call goes through it; `LLM_PROVIDER`
+  picks `openrouter` (default) or `anthropic` (`services/anthropic.js`, official
+  `@anthropic-ai/sdk`, `CLAUDE_MODEL` default `claude-opus-5-5`, `CLAUDE_EFFORT` default
+  `medium`, server-side refusal fallbacks on). Both throw the same error classes, so callers
+  didn't change. Embeddings stay on OpenRouter regardless.
 - **HTML handling**: `sanitize-html` (allowlist-based), not `cheerio`. `sanitizeJudgmentHtml`
   (`utils/sanitizeHtml.js`) is applied at the IK client layer for the Case Law screen, which
   renders it via `dangerouslySetInnerHTML` (so it must be safe HTML); `legalAssistant.js`
@@ -176,19 +179,24 @@ either surface is cached once for both.
 
 ## 4. Gaps worth closing (recommended new tech, scoped)
 
-Status: #2, #3, #4, #6, #7 are done. #1 (Anthropic) was explicitly deferred — OpenRouter remains
-the only *chat* provider, no new API key needed there. #5 (multi-instance cache) is now also
+Status: all seven are done. #1 (Anthropic) was deferred for a while and is now implemented —
+OpenRouter stays the default, and Claude is one env change away. #5 (multi-instance cache) is now also
 done — both the cache and the call counter are Redis-backed when `REDIS_URL` is configured
 (Phase 4/5 of the Next.js/Express-TS migration), falling back to the original single-process
 behaviour otherwise.
 
-1. **Claude/Anthropic switch** — *deferred, not implemented.* Genuinely missing. Add
-   `apps/api/src/services/anthropic.js` using `@anthropic-ai/sdk`, matching
-   `openRouter.js`'s call shape (`chatCompletion(messages, opts) -> string`). Introduce a thin
-   `LLM_PROVIDER` env switch (`openrouter` default, `anthropic`) at one seam — either inline in
-   the two call sites (`legalAssistant.js`, `legalQueryUnderstanding.js`) or behind a new
-   `services/llm.js` facade so neither file imports a provider SDK directly. New dependency:
-   `@anthropic-ai/sdk`. New env vars: `LLM_PROVIDER`, `ANTHROPIC_API_KEY`, `CLAUDE_MODEL`.
+1. **Claude/Anthropic switch** — ✅ **done.** `services/anthropic.js` (official
+   `@anthropic-ai/sdk`) matches `openRouter.js`'s `chatCompletionWithMeta` shape and error
+   classes; `services/llm.js` is the single seam all five chat callers (`legalAssistant.js`,
+   `legalQueryUnderstanding.js`, `research.js`, `contractReview.js`, `aiCaseLawAnswer.js`) import
+   from. Details worth knowing: system turns are lifted into the Messages API's `system`;
+   `jsonMode` becomes a system instruction (callers already parse defensively); a caller-pinned
+   OpenRouter slug (e.g. `OPENROUTER_FALLBACK_MODEL`) is ignored in favour of `CLAUDE_MODEL`;
+   `max_tokens` is floored at 16000 because thinking counts against it; `fallbacks: "default"`
+   (beta `server-side-fallback-2026-07-01`) re-runs a safety decline on a fallback model, and a
+   decline that survives that becomes an `OpenRouterApiError` so callers take their existing
+   "generation failed" path. Billed calls count under `anthropic` in `GET /api/admin/usage`.
+   Tests: `services/llm.test.js` (stub client, no real calls).
 
 2. **Chat history persistence** — ✅ **done.** `modules/assistant/repository.ts` (Supabase
    `legal_assistant_sessions`/`legal_assistant_turns` tables). Client generates a `sessionId`
@@ -255,15 +263,16 @@ behaviour otherwise.
      required (switching embedding models/providers always needs one, since old and new
      vectors live in incomparable coordinate spaces).
 
-## 5. Env vars to add (root `.env.example`)
+## 5. Env vars (root `.env.example`)
 
 ```env
-# LLM provider switch — "openrouter" (default, current) or "anthropic"
+# LLM provider switch — "openrouter" (default) or "anthropic" (now in .env.example)
 LLM_PROVIDER=openrouter
 
-# Anthropic API key + model, used only when LLM_PROVIDER=anthropic
+# Anthropic API key + model + effort, used only when LLM_PROVIDER=anthropic
 ANTHROPIC_API_KEY=
-CLAUDE_MODEL=claude-sonnet-5
+CLAUDE_MODEL=claude-opus-5-5
+CLAUDE_EFFORT=medium
 ```
 
 ## 6. Do not regress

@@ -2,7 +2,7 @@
 // The model only ever sees the uploaded clause, the matched baseline clause and the library's
 // own rationale note — it is told not to introduce law or numbers that are not in them.
 import { z } from "zod";
-import { chatCompletion } from "./openRouter.js";
+import { chatCompletion } from "./llm.js";
 
 const MAX_JUDGED = 20;
 

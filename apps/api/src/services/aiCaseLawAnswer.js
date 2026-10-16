@@ -2,7 +2,7 @@
 // then hand the top hits to an LLM (via OpenRouter's free tier) as its only context, so
 // the model can cite real cases instead of inventing them.
 import { search } from "./indianKanoon.js";
-import { chatCompletion, OpenRouterAuthError, OpenRouterApiError } from "./openRouter.js";
+import { chatCompletion, OpenRouterAuthError, OpenRouterApiError } from "./llm.js";
 import { getCache } from "../platform/cache.js";
 import { stripHtml } from "../utils/stripHtml.js";
 

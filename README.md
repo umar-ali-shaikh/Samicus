@@ -15,7 +15,7 @@ document templates with their clause library).
 | Relational data + files | **Supabase** Postgres + private Storage bucket | Row-level security denies the public key everything; only the API touches data |
 | Vector search (RAG) | **Qdrant** (Cloud free tier or self-hosted) | 768-d, int8-quantised, payload on disk |
 | Embeddings | **OpenRouter** `sentence-transformers/all-mpnet-base-v2` | Paid per call, sub-cent per request |
-| LLM | **OpenRouter** (paid models) | Query understanding, grounded answers, contract review |
+| LLM | **OpenRouter** (paid models) by default, or **Claude** via `LLM_PROVIDER=anthropic` | Query understanding, grounded answers, contract review — one switch in `apps/api/src/services/llm.js` |
 | Legal sources | **Indian Kanoon** API | Paid per call — the knowledge base avoids repeat calls |
 | Web fallback | **Tavily** (optional) | Government/legal-aid domain allowlist only; skipped when `TAVILY_API_KEY` is blank |
 | Cache + rate limits | **Redis** (optional) | Shared across instances when `REDIS_URL` is set; in-process otherwise |
