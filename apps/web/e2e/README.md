@@ -3,14 +3,40 @@
 `smoke.spec.ts` covers every screen, across all 4 roles (client, advocate, admin, founder) --
 matches the legacy `frontend/e2e/smoke.mjs`'s breadth. Its sibling `flows.mjs` (interactive
 flows: booking wizard, urgent help, talk now, drafting, research, assistant, messaging, matters,
-advocate dashboard, plus auth mechanics) is being ported incrementally into separate
-`flows-*.spec.ts` files -- `flows-auth.spec.ts` (signup, sign-in, email verification, Google
-OAuth redirect, session invalidation), `flows-booking.spec.ts` (the full intake -> slot ->
-pricing -> consent -> consultation wizard), `flows-talknow.spec.ts` (instant request ->
-consent -> real matching), `flows-drafting.spec.ts` (template -> fields autosave -> clause
-toggle -> live preview -> a real DOCX download), `flows-research.spec.ts`,
-`flows-assistant.spec.ts`, `flows-signout.spec.ts`, and `flows-caselaw.spec.ts` are done; the
-rest are in progress.
+advocate dashboard, plus auth mechanics) has been ported into separate `flows-*.spec.ts` files,
+one per legacy flow -- every one of them except urgent help (see below):
+
+| Spec | Flow | External cost |
+|---|---|---|
+| `flows-auth.spec.ts` | signup, sign-in, email verification, Google OAuth redirect, session invalidation | none |
+| `flows-booking.spec.ts` | the full intake -> slot -> pricing -> consent -> consultation wizard | none |
+| `flows-talknow.spec.ts` | instant request -> consent -> real matching | none |
+| `flows-drafting.spec.ts` | template -> fields autosave -> clause toggle -> live preview -> a real DOCX download | none |
+| `flows-research.spec.ts` | research library: retrieve -> answer -> trail | **metered** (LLM + embeddings) |
+| `flows-assistant.spec.ts` | AI assistant, incl. a second question without a remount | **metered** (LLM + embeddings; Indian Kanoon when the knowledge base can't answer) |
+| `flows-signout.spec.ts` | sign out clears the session and client-side storage | none |
+| `flows-caselaw.spec.ts` | case law search: empty-search validation, opening a result scrolls it into view | **metered** (Indian Kanoon) |
+| `flows-messages.spec.ts` | sending a message posts the trimmed body to the thread | none |
+| `flows-matters.spec.ts` | client completes their own task, sees the fee proposal, never sees advocate-only forms | none |
+| `flows-advocate-dashboard.spec.ts` | conflict check gates "Accept request"; a real check clears it | none |
+
+To run only the non-metered flows (no LLM/embeddings/Indian Kanoon spend), exclude the three
+metered specs, e.g. `npx playwright test --grep-invert "research library|AI assistant|case law"`
+from `apps/web` -- or pass the file names you want explicitly. Setup/teardown and the smoke
+suite still talk to the real Supabase project in `.env`; the smoke suite only loads each screen
+and never submits a question or search.
+
+`flows-messages.spec.ts`, `flows-matters.spec.ts` and `flows-advocate-dashboard.spec.ts` each
+insert the extra rows they need (a task and fee proposal; an intake offered to the seeded
+advocate) with the service-role client and delete them -- plus any rows the app wrote as a side
+effect, like a `task_completed` timeline event or a `conflict_checks` row -- in their own
+`afterAll`, because `global-teardown.ts` only knows about rows `global-setup.ts` tracked and
+anything left referencing the seeded matter/account would block it via FK violation. Two legacy
+assertions were deliberately not carried over: the matters flow's "Online payment isn't
+enabled" copy (it only renders on an unpaid invoice *and* only while Razorpay keys are absent,
+so it would test local `.env` configuration, not app behaviour), and the advocate dashboard
+stops before clicking "Accept request" (accepting opens a real matter/thread via RPC -- a much
+larger cleanup surface for no extra coverage of the gate).
 
 `flows-signout.spec.ts` manages its own disposable auth user and signs in through the real UI,
 rather than reusing the shared `client.json` storageState the rest of this suite loads --
@@ -19,7 +45,7 @@ locally, so actually signing out with the shared fixture poisons it for every la
 same run (they'd all land back on `/login`, unexpectedly signed out).
 
 `flows-research.spec.ts` and `flows-assistant.spec.ts` are a step up in cost from the rest of
-this suite: `.env` has a real Gemini API key and a real Qdrant corpus configured, and these two
+this suite: `.env` has a real OpenRouter API key and a real Qdrant corpus configured, and these two
 specs deliberately make real retrieve/answer calls rather than stubbing anything -- each can take
 up to ~60-90s and spends real API tokens (confirmed with the user before writing them, given that
 tradeoff). Research's research_queries row may come back `not_found` depending on live corpus/
