@@ -13,7 +13,6 @@
 // away -- the same "does state correctly accumulate across turns in one mount" question, just
 // reached through this app's real entry point instead of a page that was never built.
 import path from "node:path";
-import fs from "node:fs";
 import dotenv from "dotenv";
 import { test, expect } from "@playwright/test";
 import { createClient } from "@supabase/supabase-js";
