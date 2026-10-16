@@ -4,6 +4,7 @@
  */
 import { z } from "zod";
 import { complaintDto } from "./complaints.js";
+import { matterDto, timelineEventDto, taskDto, hearingDto } from "./matters.js";
 
 export const decideVerificationSchema = z.object({ decision: z.enum(["approved", "sent_back"]), note: z.string().trim().max(500).optional() });
 export type DecideVerificationInput = z.infer<typeof decideVerificationSchema>;
@@ -69,3 +70,41 @@ export const verificationCaseDto = z
   })
   .strict();
 export type VerificationCaseDto = z.infer<typeof verificationCaseDto>;
+
+// Break-glass matter access (admin_access_grants). An admin can only see a matter they aren't a
+// party to by recording a reason first; every attempt -- granted or denied -- is a row in
+// admin_access_grants plus an audit_logs entry, and a granted one also leaves a timeline event
+// both parties can see. Reference rather than id, since that's what complaints quote.
+export const ADMIN_ACCESS_REASON_MIN = 20;
+export const adminMatterAccessSchema = z
+  .object({
+    reference: z.string().trim().min(1, "Enter the matter reference.").max(64),
+    reason: z.string().trim().max(500),
+  })
+  .strict();
+export type AdminMatterAccessInput = z.infer<typeof adminMatterAccessSchema>;
+
+export const adminMatterReviewDto = z
+  .object({
+    grant: z.object({ id: z.string(), reason: z.string(), created_at: z.string() }).strict(),
+    matter: matterDto,
+    timeline: z.array(timelineEventDto),
+    tasks: z.array(taskDto),
+    hearings: z.array(hearingDto),
+    // Metadata only -- no signed download links, no fee/invoice detail, no messages.
+    documents: z.array(z.object({ id: z.string(), filename: z.string(), kind: z.string(), created_at: z.string() }).strict()),
+  })
+  .strict();
+export type AdminMatterReviewDto = z.infer<typeof adminMatterReviewDto>;
+
+export const adminAccessGrantListItemDto = z
+  .object({
+    id: z.string(),
+    reason: z.string(),
+    outcome: z.enum(["recorded", "denied"]),
+    created_at: z.string(),
+    actor: z.object({ full_name: z.string().nullable(), email: z.string().nullable() }).strict().nullable(),
+    matter: z.object({ id: z.string(), reference: z.string(), title: z.string() }).strict().nullable(),
+  })
+  .strict();
+export type AdminAccessGrantListItemDto = z.infer<typeof adminAccessGrantListItemDto>;

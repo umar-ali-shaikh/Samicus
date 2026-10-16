@@ -87,6 +87,9 @@ export const routeManifest: readonly RouteManifestEntry[] = [
   // GET /admin/complaints inherits the router-level admin+founder gate, no stricter override --
   // admin/router.ts's own comment: "shared by trust & safety (admin) and the founder".
   { path: "/admin/complaints", roles: ADMIN_FOUNDER },
+  // GET /admin/matter-access (the log) inherits the admin+founder gate; POST (opening a matter)
+  // has its own stricter requireRole("admin") override.
+  { path: "/admin/matter-access", roles: ADMIN_FOUNDER },
 
   // --- Founder (requireRole("founder") only -- not shared with admin, unlike /admin/*) ---
   { path: "/founder", roles: ["founder"] },

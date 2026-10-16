@@ -6,7 +6,10 @@
 import { getCounts } from "../../utils/callCounter.js";
 import { HttpError } from "../../services/access.js";
 import { complaints as complaintsReport } from "../../services/analytics/index.js";
-import type { AdminStatsDto, ComplaintsReportDto, DecideVerificationInput, UsageDto, VerificationCaseDto, VerificationCaseListItemDto } from "@vidhira/contracts";
+import { ADMIN_ACCESS_REASON_MIN } from "@vidhira/contracts";
+import type { AdminAccessGrantListItemDto, AdminMatterAccessInput, AdminMatterReviewDto, AdminStatsDto, ComplaintsReportDto, DecideVerificationInput, UsageDto, VerificationCaseDto, VerificationCaseListItemDto } from "@vidhira/contracts";
+import { logAudit } from "../../platform/audit.js";
+import { getMatterForAdminReview } from "../matters/service.js";
 import * as repo from "./repository.js";
 
 export async function getUsage(): Promise<UsageDto> {
@@ -69,4 +72,26 @@ export async function decideVerification(user: { id: string }, caseId: string, i
     reviewer_id: verificationCase.reviewer_id,
     created_at: verificationCase.created_at,
   };
+}
+
+/**
+ * Break-glass matter access (admin_access_grants). An admin is never a party to a matter, so
+ * loadMatterForUser would (correctly) 404 them; this is the one, logged, way in. A reason is
+ * mandatory -- an attempt without a real one is still recorded, as `denied`, so the log shows
+ * attempts and not just successes. Each view needs its own reason: there is no standing grant.
+ */
+export async function accessMatter(user: { id: string; role: string }, input: AdminMatterAccessInput): Promise<AdminMatterReviewDto> {
+  const matterId = await repo.findMatterIdByReference(input.reference);
+  if (!matterId) throw new HttpError(404, "No matter with that reference.");
+
+  const granted = input.reason.length >= ADMIN_ACCESS_REASON_MIN;
+  const grant = await repo.insertAdminAccessGrant({ actorId: user.id, matterId, reason: input.reason, outcome: granted ? "recorded" : "denied" });
+  await logAudit({ actorId: user.id, actorRole: user.role, action: "admin_matter_access", subjectType: "matter", subjectId: matterId, reason: input.reason, outcome: granted ? "recorded" : "denied" });
+  if (!granted) throw new HttpError(400, `Give a reason of at least ${ADMIN_ACCESS_REASON_MIN} characters (e.g. the complaint reference and what you need to check).`);
+
+  return { grant, ...(await getMatterForAdminReview(user.id, matterId)) };
+}
+
+export async function listAccessGrants(): Promise<AdminAccessGrantListItemDto[]> {
+  return (await repo.listAdminAccessGrants()) as unknown as AdminAccessGrantListItemDto[];
 }

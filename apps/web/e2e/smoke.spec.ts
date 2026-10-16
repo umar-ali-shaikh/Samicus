@@ -31,7 +31,7 @@ const ROLE_SCREENS: Record<string, string[]> = {
   ],
   admin: [
     "/admin/verification", "/admin/moderation", "/admin/orders", "/admin/catalogue",
-    "/admin/complaints", "/advocates", "/profile",
+    "/admin/complaints", "/admin/matter-access", "/advocates", "/profile",
   ],
   founder: [
     "/founder", "/founder/fdemand", "/founder/fservices", "/founder/ffunnel",

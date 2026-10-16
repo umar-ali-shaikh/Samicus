@@ -44,7 +44,7 @@ immediately even though raw token validity briefly doesn't.
 
 ## 3. AuthZ: what this request is allowed to touch
 
-Three independent mechanisms, by design:
+Independent mechanisms, by design:
 
 1. **Row-level security, default-deny.** `schema.sql` ends by enabling RLS on every table with
    **zero policies** — the Supabase anon/public key can read or write nothing at all. Every piece
@@ -74,6 +74,18 @@ Three independent mechanisms, by design:
    fails (cold cache, apps/api unreachable), the gate fails **open** — the request is allowed
    through unchanged, because layers 1–3 above are the actual authority and never trust this one;
    a wrong decision here can only produce a wrong redirect, never a data leak.
+
+5. **Break-glass admin access to a matter** (`admin_access_grants`). Admins are never a party
+   to a matter, so layer 3 404s them like anyone else. The only way in is
+   `POST /admin/matter-access` (`requireRole("admin")` — not founder) with a matter reference and
+   a written reason of at least 20 characters. Every attempt writes an `admin_access_grants` row
+   and an `audit_logs` entry, as `recorded` or (reason too short) `denied`; there is no standing
+   grant, so each view needs its own reason. A successful view returns a read-only subset
+   (timeline, tasks, hearings, document *names*) — never fees, invoices, messages or signed
+   download links — and adds a `platform` timeline event that the client and advocate both see.
+   The reason itself stays in the log, not on the parties' timeline, since it may quote one side's
+   complaint about the other. The log (`GET /admin/matter-access`) is readable by admin and
+   founder.
 
 A static scan (`apps/api/scripts/auditRoutes.mjs`, `npm run audit:routes -w apps/api`) walks
 every router file and flags any route with neither a recognizable auth/role gate nor, for
@@ -137,9 +149,6 @@ or an AI prompt that might contain client matter facts.
   is lint-tooling only — a devDependency that never ships, runs only on a developer's own machine
   during `npm run lint`, with no attacker-reachable input. Not fixed for the same breaking-
   downgrade reason as above.
-- **`admin_access_grants`** table (`schema.sql`) is fully defined but has no route reading or
-  writing it yet — looks like a half-built feature, not confirmed dead. Needs a product decision
-  (finish it or formally drop it); see `DELETE-LIST.md` item 4. Left untouched either way.
 - **Color-contrast** (`--color-label` design token) falls short of WCAG AA on 34/50 screens per
   `apps/web/e2e`'s real axe-core run — a design-token decision, not an engineering one; tracked in
   `apps/web/e2e/README.md`, not silently suppressed.

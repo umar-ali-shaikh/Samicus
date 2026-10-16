@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
+import Link from "next/link";
 import { createServerSupabaseClient } from "@/server/supabase";
 import { getAdminStatsAction, listVerificationCasesAction } from "@/server/adminVerificationActions";
 import { Card } from "@/components/ui";
@@ -34,7 +35,10 @@ export default async function AdminVerificationPage() {
     <div style={{ padding: 24, maxWidth: 900, display: "flex", flexDirection: "column", gap: 16 }}>
       <div>
         <h1 style={{ fontFamily: "var(--font-serif)", margin: 0 }}>Verification &amp; trust operations</h1>
-        <p style={{ color: "var(--color-text-muted)", fontSize: 13 }}>Admins never see matter contents.</p>
+        <p style={{ color: "var(--color-text-muted)", fontSize: 13 }}>
+          Admins don&apos;t see matter contents unless they record a reason in <Link href="/admin/matter-access">Matter access</Link> — every view is
+          logged and both parties are notified.
+        </p>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10 }}>
         {tiles.map(([label, value]) => (

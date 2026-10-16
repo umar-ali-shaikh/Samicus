@@ -4,7 +4,8 @@
 matches the legacy `frontend/e2e/smoke.mjs`'s breadth. Its sibling `flows.mjs` (interactive
 flows: booking wizard, urgent help, talk now, drafting, research, assistant, messaging, matters,
 advocate dashboard, plus auth mechanics) has been ported into separate `flows-*.spec.ts` files,
-one per legacy flow -- every one of them except urgent help (see below):
+one per legacy flow -- every one of them except urgent help (see below) -- plus flows that are new in
+apps/web:
 
 | Spec | Flow | External cost |
 |---|---|---|
@@ -19,6 +20,7 @@ one per legacy flow -- every one of them except urgent help (see below):
 | `flows-messages.spec.ts` | sending a message posts the trimmed body to the thread | none |
 | `flows-matters.spec.ts` | client completes their own task, sees the fee proposal, never sees advocate-only forms | none |
 | `flows-advocate-dashboard.spec.ts` | conflict check gates "Accept request"; a real check clears it | none |
+| `flows-admin-matter-access.spec.ts` | break-glass admin matter access: short reason refused + logged, real reason opens a read-only view and notifies the parties (new in apps/web, no legacy counterpart) | none |
 
 To run only the non-metered flows (no LLM/embeddings/Indian Kanoon spend), exclude the three
 metered specs, e.g. `npx playwright test --grep-invert "research library|AI assistant|case law"`
