@@ -119,9 +119,13 @@ hosted flow; `apps/api` never sees card/bank details.
 
 Documents go to a **private** Supabase Storage bucket (created on first boot if missing), served
 back only via signed, time-limited download URLs generated per-request after an ownership check —
-never a public bucket URL. Uploads are **not virus-scanned** (rows are marked `pending`, never
-`clean` — this is an honest limitation, not a claim of safety); contract review only ever reads
-text out of PDF/DOCX/TXT, never executes anything from an uploaded file.
+never a public bucket URL. Uploads are **scanned by ClamAV before they're stored** when
+`CLAMAV_HOST` is set (`platform/clamav.ts`, clamd's INSTREAM protocol over TCP, no extra
+dependency): an infected file is refused with a 422, never reaches the bucket, and is audit-logged
+(`document_upload_blocked_malware`, `denied`). A clean verdict stores the row as `clean`. With no
+scanner configured, or clamd unreachable, the upload still goes through but stays `pending` —
+never `clean` without a real scan — and the UI says so. Contract review only ever reads text out of
+PDF/DOCX/TXT, never executes anything from an uploaded file.
 
 ## 7. Error handling and logging: no internal leakage
 

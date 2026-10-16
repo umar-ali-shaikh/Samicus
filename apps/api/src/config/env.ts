@@ -46,6 +46,10 @@ const schema = z.object({
 
   RESEARCH_NOTE_V2: z.string().optional(),
 
+  // Upload malware scanning (platform/clamav.ts). Unset = uploads stay "pending" (unscanned).
+  CLAMAV_HOST: z.string().optional(),
+  CLAMAV_PORT: z.coerce.number().int().default(3310),
+
   IK_API_TOKEN: z.string().optional(),
   TAVILY_API_KEY: z.string().optional(),
 

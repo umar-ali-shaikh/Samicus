@@ -34,6 +34,7 @@ export interface NewDocumentInput {
   kind: string;
   storageKey: string;
   uploadedBy: string;
+  virusScanStatus: "clean" | "pending";
 }
 
 export async function insertDocument(input: NewDocumentInput): Promise<DocumentListRow> {
@@ -48,7 +49,7 @@ export async function insertDocument(input: NewDocumentInput): Promise<DocumentL
       kind: input.kind,
       storage_key: input.storageKey,
       uploaded_by: input.uploadedBy,
-      virus_scan_status: "pending", // no malware scanner is wired in -- never claim "clean"
+      virus_scan_status: input.virusScanStatus, // see platform/clamav.ts
     })
     .select(LIST_COLUMNS)
     .single();

@@ -82,8 +82,9 @@ docs/       SETUP.md, RAG.md, legal-assistant-spec.md, architecture/ (migration 
 ## Honest limits
 
 * **Payments** need a Razorpay account; without keys bookings are held and settled directly with the advocate.
-* **Uploaded files are not virus-scanned** (marked `pending`, never "clean"); contract review reads text PDFs,
-  DOCX and TXT only — there is no OCR.
+* **Virus scanning needs ClamAV.** With `CLAMAV_HOST` set (docker compose runs one), uploads are scanned before
+  they're stored and infected files are refused; without it, uploads are marked `pending`, never "clean".
+  Contract review reads text PDFs, DOCX and TXT only — there is no OCR.
 * **e-Stamping** is not integrated (the drafting flow says so).
 * **No email/SMS notifications** yet — updates are in-app (messages poll every few seconds).
 * The **document templates, clause rationale notes and any pack-compliance rulesets are legal content**:

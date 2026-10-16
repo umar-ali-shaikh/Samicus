@@ -7,6 +7,8 @@ import crypto from "crypto";
 import path from "path";
 import { HttpError, advocateForUser, assertAccountMember, defaultAccountId, memberAccountIds } from "../../services/access.js";
 import { putObject, removeObject, signedUrl } from "../../services/storage.js";
+import { scanBuffer } from "../../platform/clamav.js";
+import { logAudit } from "../../platform/audit.js";
 import { DOCUMENT_KINDS } from "@vidhira/contracts";
 import type { DocumentDto, DocumentDownloadDto, DocumentListItemDto, ShareDocumentInput } from "@vidhira/contracts";
 import * as repo from "./repository.js";
@@ -54,6 +56,13 @@ export async function uploadDocument(user: { id: string }, file: UploadedFile | 
     if (!matter) throw new HttpError(404, "Matter not found on this account.");
   }
 
+  // Scanned before anything is stored: an infected file never reaches the bucket.
+  const scan = await scanBuffer(file.buffer);
+  if (scan.status === "infected") {
+    await logAudit({ actorId: user.id, action: "document_upload_blocked_malware", subjectType: "account", subjectId: accountId, reason: scan.signature, outcome: "denied" }).catch(() => {}); // a failed audit write must not turn a malware block into a 500
+    throw new HttpError(422, "This file was flagged by our malware scanner and wasn't uploaded. If you think that's a mistake, contact support.");
+  }
+
   const key = `${accountId}/${crypto.randomUUID()}-${safeName(file.originalname)}`;
   await putObject(key, file.buffer, file.mimetype);
 
@@ -67,6 +76,9 @@ export async function uploadDocument(user: { id: string }, file: UploadedFile | 
       kind,
       storageKey: key,
       uploadedBy: user.id,
+      // "pending" whenever no real scan happened (scanner not configured or unreachable) --
+      // never claim "clean" without one.
+      virusScanStatus: scan.status === "clean" ? "clean" : "pending",
     });
     return doc as unknown as DocumentDto;
   } catch (err) {
