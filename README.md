@@ -89,6 +89,7 @@ docs/       SETUP.md, RAG.md, legal-assistant-spec.md, architecture/ (migration 
 * **e-Stamping** is not integrated (the drafting flow says so).
 * **No email/SMS notifications** yet — updates are in-app (messages poll every few seconds).
 * The **document templates, clause rationale notes and any pack-compliance rulesets are legal content**:
-  have a qualified advocate review them before launch.
+  have a qualified advocate review them before launch — [docs/legal-review-checklist.md](docs/legal-review-checklist.md)
+  lists every item and where it lives.
 * Review **Indian Kanoon's API terms** for the persistent passage index the RAG pipeline builds; set
   `QDRANT_URL` empty to turn it off.
