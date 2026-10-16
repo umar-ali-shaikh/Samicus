@@ -42,6 +42,18 @@ const questionLimiter = createRateLimiter("rl:learn-questions:", {
   message: { error: "You can post up to 5 questions an hour." },
 });
 
+// Marking an answer helpful bumps a public, un-deduplicated count, so a per-user
+// cap stops one account from inflating it with a script.
+const helpfulLimiter = createRateLimiter("rl:learn-helpful:", {
+  windowMs: 60 * 60 * 1000,
+  limit: 30,
+  keyGenerator: (req) => req.user?.id || req.ip || "unknown",
+  standardHeaders: true,
+  legacyHeaders: false,
+  validate: { keyGeneratorIpFallback: false },
+  message: { error: "Too many helpful votes — please try again later." },
+});
+
 router.post("/questions", requireAuth, questionLimiter, async (req, res) => {
   const input = parse(askQuestionSchema, req.body);
   res.status(201).json(createdQuestionDto.parse(await service.askQuestion(req.user!, input)));
@@ -61,7 +73,7 @@ router.post("/questions/:id/answers", requireAuth, requireRole("advocate"), asyn
   res.status(201).json(createdAnswerDto.parse(await service.answerQuestion(req.user!, String(req.params.id), input)));
 });
 
-router.post("/answers/:id/helpful", requireAuth, async (req, res) => {
+router.post("/answers/:id/helpful", requireAuth, helpfulLimiter, async (req, res) => {
   res.json(await service.markAnswerHelpful(String(req.params.id)));
 });
 

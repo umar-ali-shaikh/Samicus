@@ -161,3 +161,12 @@ test("admin guide authoring: create, duplicate-title conflict, list, read, delet
   assert.equal(del.status, 204);
   assert.equal((await call("GET", "/guides")).body.length, 0);
 });
+
+test("helpful votes are capped per user: the 31st in an hour is a 429, and another user is unaffected", async () => {
+  const answerId = fake.db.public_answers[0].id;
+  for (let i = 0; i < 30; i++) {
+    assert.equal((await call("POST", `/answers/${answerId}/helpful`, { token: "tok-dan" })).status, 200);
+  }
+  assert.equal((await call("POST", `/answers/${answerId}/helpful`, { token: "tok-dan" })).status, 429);
+  assert.equal((await call("POST", `/answers/${answerId}/helpful`, { token: "tok-alice" })).status, 200, "the limit is per user, not shared");
+});

@@ -9,9 +9,23 @@ import { requireAuth } from "../../middleware/auth.js";
 import { HttpError } from "../../services/access.js";
 import { createPaymentIntentSchema, verifyPaymentSchema, paymentIntentDto, verifyPaymentResultDto, paymentHistoryItemDto } from "@vidhira/contracts";
 import { z } from "zod";
+import { createRateLimiter } from "../../platform/rateLimit.js";
 import * as service from "./service.js";
 
 const router = Router();
+
+// Each intent creates a real Razorpay order and each verify does an HMAC check against it, so
+// both get a per-user cap -- generous for a real checkout (retries included), tight enough to
+// stop scripted order creation or signature guessing.
+const paymentsLimiter = createRateLimiter("rl:payments:", {
+  windowMs: 15 * 60 * 1000,
+  limit: 30,
+  keyGenerator: (req) => req.user?.id || req.ip || "unknown",
+  validate: { keyGeneratorIpFallback: false },
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many payment attempts — please wait a few minutes and try again." },
+});
 
 function parse<T>(schema: z.ZodType<T>, body: unknown): T {
   const result = schema.safeParse(body);
@@ -19,13 +33,13 @@ function parse<T>(schema: z.ZodType<T>, body: unknown): T {
   return result.data;
 }
 
-router.post("/payments/intents", requireAuth, async (req, res) => {
+router.post("/payments/intents", requireAuth, paymentsLimiter, async (req, res) => {
   const input = parse(createPaymentIntentSchema, req.body);
   const intent = await service.createIntent(req.user!, input);
   res.status(201).json(paymentIntentDto.parse(intent));
 });
 
-router.post("/payments/verify", requireAuth, async (req, res) => {
+router.post("/payments/verify", requireAuth, paymentsLimiter, async (req, res) => {
   const input = parse(verifyPaymentSchema, req.body);
   const result = await service.verifyPayment(req.user!, input);
   res.json(verifyPaymentResultDto.parse(result));

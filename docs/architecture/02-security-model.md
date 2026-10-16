@@ -87,7 +87,9 @@ above rather than replacing it.
 
 `platform/rateLimit.ts` backs a coarse per-IP global limiter (300 req/min under `/api`, applied
 before any route) plus tighter per-user limiters on routes where money or abuse is at stake (e.g.
-`rl:profile:`, 20/min on `PATCH /me`). Redis-backed when `REDIS_URL` is set (shared state across
+`rl:profile:`, 20/min on `PATCH /me`; `rl:assistant-ask:`, `rl:case-law:` and `rl:research-ai:` on
+every route that spends LLM/embeddings/Indian Kanoon money; `rl:payments:` on Razorpay
+intents/verify; `rl:learn-helpful:` on the public helpful-vote count). Redis-backed when `REDIS_URL` is set (shared state across
 horizontally-scaled instances); falls back to each instance's own in-process `Map` otherwise — a
 deliberate scale/simplicity trade-off, not an oversight, since a single-instance deployment needs
 nothing more.
