@@ -60,16 +60,10 @@ for (const [role, screens] of Object.entries(ROLE_SCREENS)) {
 
         const axeResults = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze();
         const serious = axeResults.violations.filter((v) => v.impact === "serious" || v.impact === "critical");
-        // color-contrast was a KNOWN finding on 34/50 screens: the legacy --color-label token
-        // (#8A8578) and the danger button (white on --color-rust-alt). Both are now fixed
-        // (--color-label #6C685E, danger on --color-rust -- calculated >= 4.5:1 on every app
-        // background, see e2e/README.md) but not yet confirmed by a real run of this suite. Still
-        // logged rather than failed until one clean run shows zero color-contrast nodes; then
-        // drop this carve-out so a regression fails the build.
-        const contrastOnly = serious.filter((v) => v.id === "color-contrast");
-        const other = serious.filter((v) => v.id !== "color-contrast");
-        if (contrastOnly.length) console.warn(`[known] ${url}: color-contrast (${contrastOnly.reduce((n, v) => n + v.nodes.length, 0)} node(s)) -- see e2e/README.md`);
-        expect(other, `${url} has serious/critical a11y violations:\n${other.map((v) => `  ${v.id}: ${v.help} (${v.nodes.length} node(s))`).join("\n")}`).toHaveLength(0);
+        // color-contrast included: the 34/50-screen finding from the legacy --color-label token and
+        // danger button is fixed and was confirmed clean by a full run (see e2e/README.md), so a
+        // contrast regression now fails like any other serious violation.
+        expect(serious, `${url} has serious/critical a11y violations:\n${serious.map((v) => `  ${v.id}: ${v.help} (${v.nodes.length} node(s))`).join("\n")}`).toHaveLength(0);
       });
     }
   });

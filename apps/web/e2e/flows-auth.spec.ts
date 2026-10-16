@@ -74,7 +74,8 @@ test("sign up with email -> verify-email screen; resend works; the real auth use
   await page.locator('input[name="password"]').fill("correct horse battery");
   await page.getByRole("button", { name: "Create account" }).click();
 
-  await expect(page.getByText("Verify your email")).toBeVisible();
+  // exact: Next's route announcer also says "Verify your email — Vidhira" once navigation settles.
+  await expect(page.getByText("Verify your email", { exact: true })).toBeVisible();
   await expect(page.getByText(email)).toBeVisible();
 
   const { data: authList } = await admin.auth.admin.listUsers({ perPage: 1000 });
@@ -84,8 +85,11 @@ test("sign up with email -> verify-email screen; resend works; the real auth use
   expect(created!.user_metadata?.full_name, "the name field must reach Supabase as user metadata").toBe("E2E Flow User");
   expect(created!.email_confirmed_at, "a brand-new signup must start unconfirmed").toBeFalsy();
 
+  // Resending seconds after signup can hit Supabase's per-address cooldown (60s by default on a
+  // hosted project), which the app turns into a friendly "please wait" -- either outcome proves the
+  // resend reached Supabase and its reply was handled, rather than a raw error or nothing at all.
   await page.getByRole("button", { name: "Resend verification email" }).click();
-  await expect(page.getByText("Verification email sent")).toBeVisible();
+  await expect(page.getByText(/Verification email sent|Please wait a little before requesting another email/)).toBeVisible();
 });
 
 test("short password is rejected client-side before any Supabase account is created", async ({ page }) => {

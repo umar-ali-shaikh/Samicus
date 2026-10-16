@@ -134,6 +134,32 @@ noted:
   in with the right password appeared to do nothing. Fixed by showing the message inline on
   `/login` instead of redirecting to a page that needs a session that was never there.
 
+## Bugs found and fixed running the suite against a local Supabase
+
+The whole non-metered suite (smoke + every flow except research/assistant/case law) was run against
+a local Supabase stack in Docker (`supabase start`, with asymmetric JWT signing keys and email
+confirmation on, to match a hosted project). Two real app bugs and one startup bug surfaced:
+
+- **"Run conflict check" always showed "Something went wrong", even though the check had saved.**
+  `upsertConflictCheck` (`apps/api/src/modules/advocates/repository.ts`) returned the whole row via a
+  bare `.select()`, including `created_at`/`updated_at`, which the `.strict()` `conflictCheckDto`
+  rejects -- a 500 on every real conflict check. `fakeSupabase` never added `updated_at`, so no unit
+  test noticed. Fixed by selecting exactly the DTO's columns; `advocates.test.js` now models the
+  real row and covers the success path.
+- **Signing up with email confirmation on bounced straight to `/login` with no explanation.** With
+  confirmation required, Supabase's `signUp()` returns no session, and `/verify-email` required one
+  -- the same trap the sign-in fix below describes. `signUpAction` now passes the address along and
+  `/verify-email` renders a session-less "check your inbox, then sign in" state. Resending inside
+  Supabase's per-address cooldown also showed the raw "For security purposes…" text; it's now the
+  same friendly "please wait" as a rate limit.
+- **A blank optional env var crashed the API at startup.** `.env.example` ships `QDRANT_URL=` (and
+  the docs say blank turns it off), but `config/env.ts` validated `""` as a URL. Blank now means
+  unset in both `apps/api` and `apps/worker` (`config/env.test.ts`).
+
+Two specs had selector bugs of their own: `flows-messages.spec.ts` matched the seed message twice
+(the thread list previews it), and `flows-matters.spec.ts` used `check()` on a checkbox that only
+flips after the server action round-trip.
+
 ## Bugs `flows-signout.spec.ts` found and fixed
 
 - **Signing out never cleared client-side storage, only the server-side session.**
@@ -175,7 +201,7 @@ noted:
   message -- "This advocate hasn't set up any consultation modes yet" -- instead of an empty,
   silently-passable step.
 
-## Finding: `color-contrast` -- fixed, awaiting a confirming run
+## Resolved finding: `color-contrast`
 
 34 of the 50 screens across all 4 roles logged a `color-contrast` warning on this suite's first
 full run: the `--color-label` design token (`#8A8578`, ported as-is from the legacy frontend) fell
@@ -189,10 +215,8 @@ Fixed in `apps/web/src/styles/tokens.css` and `components/ui.tsx`:
 | `--color-label` | `#8A8578` | `#6C685E` (same hue, darker) | 4.63:1 on `--color-bg`; 4.68-5.56:1 on surfaces, callouts and white |
 | `Button variant="danger"` background | `--color-rust-alt` `#DB4F35` | `--color-rust` `#B23A22` | 5.96:1 (white text) |
 
-Those ratios are calculated from the token values, not yet measured by axe in a real run. Next
-time `npm run e2e -w apps/web` runs: if no screen logs `[known] ... color-contrast`, remove the
-`color-contrast` carve-out in `smoke.spec.ts` so a regression fails the suite instead of warning.
-If anything still logs, it's a different colour than these two -- fix that one the same way.
+Confirmed by a full run (all 52 smoke screens, zero `color-contrast` nodes), after which the
+`color-contrast` carve-out in `smoke.spec.ts` was removed: a contrast regression now fails the suite.
 
 ## Resolved finding: `/founder/fadv` React duplicate-key warning
 

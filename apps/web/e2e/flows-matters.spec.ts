@@ -64,8 +64,10 @@ test("matter: client sees fees and can't see advocate-only tools; tasks complete
 
   const checkbox = page.getByLabel(TASK_LABEL);
   await expect(checkbox).toBeEnabled();
-  await checkbox.check();
-  await expect(checkbox).toBeChecked();
+  // A controlled checkbox: it only shows as checked once the server action saves and the page
+  // refreshes, so click and then wait for that -- Playwright's check() expects an instant flip.
+  await checkbox.click();
+  await expect(checkbox).toBeChecked({ timeout: 10_000 });
 
   // The real tasks row, not the request payload.
   await expect
